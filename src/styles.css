@@ -28,6 +28,22 @@ body {
 
 button,
 input,
+select,
 textarea {
   font: inherit;
+}
+
+:focus-visible {
+  scroll-margin: 24px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
 }

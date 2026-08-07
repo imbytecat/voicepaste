@@ -63,6 +63,8 @@
             LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath (runtimeLibraries ++ gstreamerPlugins);
             GST_PLUGIN_SYSTEM_PATH_1_0 = pkgs.lib.makeSearchPath "lib/gstreamer-1.0" gstreamerPlugins;
             shellHook = ''
+              export VOICEPASTE_REAL_PKG_CONFIG="${pkgs.pkg-config}/bin/pkg-config"
+              export PATH="$PWD/tools:$PATH"
               export XDG_DATA_DIRS="${gsettingsSchemaPath}:''${XDG_DATA_DIRS:-}"
             '';
           };

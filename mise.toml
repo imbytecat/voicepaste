@@ -1,20 +1,32 @@
 [tools]
-node = "24"
-pnpm = "10"
-rust = "stable"
+node = "24.18.0"
+pnpm = "10.34.5"
+rust = "1.88.0"
+"cargo:cargo-audit" = "0.22.2"
 
 [tasks.dev]
 description = "启动 Tauri 开发模式"
+env = { CI = "false" }
 run = "pnpm tauri dev"
 
 [tasks.build]
-description = "构建桌面安装包"
+description = "构建桌面应用，不生成安装包"
+env = { CI = "true" }
+run = "pnpm tauri build --no-bundle"
+
+[tasks.bundle]
+description = "在标准发行系统构建当前平台安装包"
+env = { CI = "true" }
 run = "pnpm tauri build"
 
 [tasks.check]
-description = "检查前端与 Rust"
-run = "pnpm check && cargo check --manifest-path src-tauri/Cargo.toml"
+description = "检查前端、Rust、测试与 Clippy"
+run = "pnpm check && cargo test --manifest-path src-tauri/Cargo.toml && cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings"
 
 [tasks.fix]
 description = "自动修复前端与 Rust 格式"
 run = "pnpm lint:fix && cargo fmt --manifest-path src-tauri/Cargo.toml"
+
+[tasks.audit]
+description = "检查 Rust 依赖安全公告"
+run = "cargo audit --file src-tauri/Cargo.lock"

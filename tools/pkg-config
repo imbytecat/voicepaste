@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+
+real_pkg_config=${VOICEPASTE_REAL_PKG_CONFIG:-/usr/bin/pkg-config}
+if [ "${1:-}" = "--libs-only-L" ] && [ "$#" -eq 2 ] && {
+  [ "$2" = "ayatana-appindicator3-0.1" ] || [ "$2" = "appindicator3-0.1" ];
+}; then
+  printf '%s\n' "-L$($real_pkg_config --variable=libdir "$2")"
+else
+  exec "$real_pkg_config" "$@"
+fi

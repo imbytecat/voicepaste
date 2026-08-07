@@ -1,7 +1,6 @@
 import { WebVoiceProcessor } from "@picovoice/web-voice-processor";
 
 const FRAME_LENGTH = 3200;
-let configured = false;
 
 type VoiceEngine = {
   onmessage: (event: MessageEvent) => void;
@@ -15,19 +14,12 @@ export class AudioCapture {
     this.engine = engine;
   }
 
-  static async create(onChunk: (pcm: Uint8Array) => void, onLevel: (level: number) => void): Promise<AudioCapture> {
-    if (!configured) {
-      WebVoiceProcessor.setOptions({
-        frameLength: FRAME_LENGTH,
-        outputSampleRate: 16_000,
-      });
-      configured = true;
-    }
-
-    const warmEngine: VoiceEngine = { onmessage: () => undefined };
-    await WebVoiceProcessor.subscribe(warmEngine);
-    await WebVoiceProcessor.unsubscribe(warmEngine);
-
+  static create(deviceId: string, onChunk: (pcm: Uint8Array) => void, onLevel: (level: number) => void): AudioCapture {
+    WebVoiceProcessor.setOptions({
+      frameLength: FRAME_LENGTH,
+      outputSampleRate: 16_000,
+      deviceId: deviceId || null,
+    });
     const engine: VoiceEngine = {
       onmessage: (event) => {
         if (event.data.command !== "process") return;
@@ -48,8 +40,13 @@ export class AudioCapture {
 
   async start(): Promise<void> {
     if (this.started) return;
-    await WebVoiceProcessor.subscribe(this.engine);
-    this.started = true;
+    try {
+      await WebVoiceProcessor.subscribe(this.engine);
+      this.started = true;
+    } catch (error) {
+      await WebVoiceProcessor.unsubscribe(this.engine).catch(() => undefined);
+      throw error;
+    }
   }
 
   async stop(): Promise<void> {

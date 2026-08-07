@@ -3,9 +3,11 @@ import { listen } from "@tauri-apps/api/event";
 import { Mic } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { AudioCapture } from "../audio";
-import type { AsrEvent } from "../types";
+import type { AsrEvent, ShortcutEvent } from "../types";
 
 type Phase = "idle" | "starting" | "recording" | "finishing" | "success" | "error";
+
+const MAX_PENDING_AUDIO = 8;
 
 export function Overlay() {
   const [phase, setPhase] = useState<Phase>("idle");
@@ -13,12 +15,27 @@ export function Overlay() {
   const [level, setLevel] = useState(0);
   const phaseRef = useRef<Phase>("idle");
   const captureRef = useRef<AudioCapture | null>(null);
+  const sessionRef = useRef<string | null>(null);
   const audioQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const pendingAudioRef = useRef(0);
+  const acceptingAudioRef = useRef(false);
+  const audioFailedRef = useRef(false);
+  const finishRequestedRef = useRef(false);
   const hideTimerRef = useRef<number | null>(null);
+  const hideGenerationRef = useRef(0);
+  const activationModeRef = useRef<ShortcutEvent["activationMode"]>("toggle");
 
   const updatePhase = (next: Phase) => {
     phaseRef.current = next;
     setPhase(next);
+  };
+
+  const clearHideTimer = () => {
+    hideGenerationRef.current += 1;
+    if (hideTimerRef.current !== null) {
+      window.clearTimeout(hideTimerRef.current);
+      hideTimerRef.current = null;
+    }
   };
 
   const stopCapture = async () => {
@@ -28,41 +45,43 @@ export function Overlay() {
   };
 
   const hideLater = (delay: number) => {
-    if (hideTimerRef.current !== null) window.clearTimeout(hideTimerRef.current);
+    clearHideTimer();
+    const generation = hideGenerationRef.current;
     hideTimerRef.current = window.setTimeout(() => {
+      if (generation !== hideGenerationRef.current) return;
       updatePhase("idle");
       setText("");
       setLevel(0);
+      sessionRef.current = null;
       void invoke("hide_overlay");
     }, delay);
   };
 
-  const begin = async () => {
-    if (phaseRef.current !== "idle" && phaseRef.current !== "success" && phaseRef.current !== "error") return;
-    updatePhase("starting");
-    setText("正在准备麦克风…");
-    setLevel(0);
-    audioQueueRef.current = Promise.resolve();
-
-    try {
-      const capture = await AudioCapture.create((pcm) => {
-        audioQueueRef.current = audioQueueRef.current.then(() => invoke("send_audio", pcm));
-      }, setLevel);
-      captureRef.current = capture;
-      await invoke("start_recognition");
-      await capture.start();
-      setText("");
-      updatePhase("recording");
-    } catch (error) {
-      await stopCapture();
-      setText(String(error));
-      updatePhase("error");
-      hideLater(2600);
-    }
+  const cancelSession = async (sessionId: string | null) => {
+    acceptingAudioRef.current = false;
+    finishRequestedRef.current = false;
+    await stopCapture().catch(() => undefined);
+    if (sessionId) await invoke("cancel_recognition", { sessionId }).catch(() => undefined);
+    if (sessionRef.current === sessionId) sessionRef.current = null;
   };
 
-  const finish = async () => {
+  const failSession = async (sessionId: string, error: unknown) => {
+    if (sessionRef.current !== sessionId || audioFailedRef.current) return;
+    audioFailedRef.current = true;
+    await cancelSession(sessionId);
+    setText(String(error));
+    updatePhase("error");
+    hideLater(3200);
+  };
+
+  const finish = async (sessionId = sessionRef.current) => {
+    if (!sessionId || sessionRef.current !== sessionId) return;
+    if (phaseRef.current === "starting") {
+      finishRequestedRef.current = true;
+      return;
+    }
     if (phaseRef.current !== "recording") return;
+    acceptingAudioRef.current = false;
     updatePhase("finishing");
     setLevel(0);
     setText((current) => current || "正在整理刚才的话…");
@@ -70,11 +89,62 @@ export function Overlay() {
     try {
       await stopCapture();
       await audioQueueRef.current;
-      await invoke("finish_recognition");
+      if (sessionRef.current === sessionId && !audioFailedRef.current) {
+        await invoke("finish_recognition", { sessionId });
+      }
     } catch (error) {
-      setText(String(error));
-      updatePhase("error");
-      hideLater(2600);
+      await failSession(sessionId, error);
+    }
+  };
+
+  const begin = async (shortcut: ShortcutEvent) => {
+    if (phaseRef.current !== "idle" && phaseRef.current !== "success" && phaseRef.current !== "error") return;
+    clearHideTimer();
+    const previousSession = sessionRef.current;
+    if (previousSession) await cancelSession(previousSession);
+
+    const sessionId = crypto.randomUUID();
+    sessionRef.current = sessionId;
+    activationModeRef.current = shortcut.activationMode;
+    audioQueueRef.current = Promise.resolve();
+    pendingAudioRef.current = 0;
+    acceptingAudioRef.current = true;
+    audioFailedRef.current = false;
+    finishRequestedRef.current = false;
+    updatePhase("starting");
+    setText("正在准备麦克风…");
+    setLevel(0);
+
+    const enqueueAudio = (pcm: Uint8Array) => {
+      if (!acceptingAudioRef.current || sessionRef.current !== sessionId || audioFailedRef.current) return;
+      if (pendingAudioRef.current >= MAX_PENDING_AUDIO) {
+        void failSession(sessionId, "音频传输跟不上录音速度，请检查系统负载后重试");
+        return;
+      }
+      pendingAudioRef.current += 1;
+      const send = audioQueueRef.current.then(() =>
+        invoke<void>("send_audio", pcm, {
+          headers: { "x-voicepaste-session": sessionId },
+        }),
+      );
+      audioQueueRef.current = send
+        .catch((error) => failSession(sessionId, error))
+        .finally(() => {
+          pendingAudioRef.current -= 1;
+        });
+    };
+
+    try {
+      const capture = AudioCapture.create(shortcut.microphoneId, enqueueAudio, setLevel);
+      captureRef.current = capture;
+      await invoke("start_recognition", { sessionId });
+      await capture.start();
+      if (sessionRef.current !== sessionId) return;
+      setText("");
+      updatePhase("recording");
+      if (finishRequestedRef.current) void finish(sessionId);
+    } catch (error) {
+      await failSession(sessionId, error);
     }
   };
 
@@ -83,13 +153,25 @@ export function Overlay() {
     const unlistenCallbacks: Array<() => void> = [];
 
     Promise.all([
-      listen("shortcut-pressed", () => {
-        if (phaseRef.current === "recording") void finish();
-        else void begin();
+      listen<ShortcutEvent>("shortcut-event", (event) => {
+        if (disposed) return;
+        const shortcut = event.payload;
+        activationModeRef.current = shortcut.activationMode;
+        if (shortcut.activationMode === "hold") {
+          if (shortcut.state === "pressed") void begin(shortcut);
+          else void finish();
+          return;
+        }
+        if (shortcut.state === "pressed") {
+          if (phaseRef.current === "recording" || phaseRef.current === "starting") void finish();
+          else void begin(shortcut);
+        }
       }),
       listen<AsrEvent>("asr-event", (event) => {
         if (disposed) return;
         const payload = event.payload;
+        const sessionId = sessionRef.current;
+        if (payload.sessionId && payload.sessionId !== sessionId) return;
         if (payload.kind === "partial") {
           setText(payload.text ?? "");
           return;
@@ -100,28 +182,43 @@ export function Overlay() {
           return;
         }
         if (payload.kind === "completed" || payload.kind === "copied") {
+          acceptingAudioRef.current = false;
+          sessionRef.current = null;
           setText(payload.message ?? (payload.kind === "completed" ? "已输入" : "已复制到剪贴板"));
           updatePhase("success");
-          hideLater(payload.kind === "completed" ? 900 : 2200);
+          hideLater(payload.kind === "completed" ? 900 : 2600);
+          return;
+        }
+        if (payload.kind === "empty") {
+          acceptingAudioRef.current = false;
+          sessionRef.current = null;
+          setText(payload.message ?? "没有听到可输入的内容");
+          updatePhase("error");
+          hideLater(2000);
           return;
         }
         if (payload.kind === "error") {
+          acceptingAudioRef.current = false;
           void stopCapture();
+          sessionRef.current = null;
           setText(payload.message ?? "识别失败，请重试");
           updatePhase("error");
-          hideLater(2800);
+          hideLater(3200);
         }
       }),
     ]).then((callbacks) => {
       if (disposed) callbacks.forEach((unlisten) => unlisten());
-      else unlistenCallbacks.push(...callbacks);
+      else {
+        unlistenCallbacks.push(...callbacks);
+        void invoke("overlay_ready");
+      }
     });
 
     return () => {
       disposed = true;
       unlistenCallbacks.forEach((unlisten) => unlisten());
-      if (hideTimerRef.current !== null) window.clearTimeout(hideTimerRef.current);
-      void stopCapture();
+      clearHideTimer();
+      void cancelSession(sessionRef.current);
     };
   }, []);
 
@@ -143,7 +240,7 @@ export function Overlay() {
 
   return (
     <main className="grid h-screen w-screen place-items-center overflow-hidden bg-transparent p-1.5 select-none">
-      <div className="grid h-full w-full animate-in grid-cols-[54px_minmax(0,1fr)_116px] items-center gap-[15px] rounded-full border border-white/13 bg-[linear-gradient(110deg,rgba(27,29,38,0.96),rgba(11,12,17,0.97))] py-2.5 pr-5.5 pl-3 shadow-[0_18px_54px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.05)] backdrop-blur-3xl duration-200 zoom-in-95 fade-in slide-in-from-bottom-2">
+      <div className="grid h-full w-full animate-in grid-cols-[54px_minmax(0,1fr)_116px] items-center gap-[15px] rounded-[30px] border border-white/13 bg-[linear-gradient(110deg,rgba(27,29,38,0.96),rgba(11,12,17,0.97))] py-2.5 pr-5.5 pl-3 shadow-[0_18px_54px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.05)] backdrop-blur-3xl duration-200 zoom-in-95 fade-in slide-in-from-bottom-2">
         <div
           className={`relative grid size-[54px] place-items-center rounded-full bg-linear-to-br ${orbColor}`}
           aria-hidden="true"
@@ -156,11 +253,16 @@ export function Overlay() {
 
         <div className="min-w-0">
           <div className="mb-1 flex items-center gap-2.5">
-            <span className="text-[9px] font-bold tracking-[0.08em] text-[#a89cf7]">{status}</span>
-            {phase === "recording" ? <small className="text-[9px] text-[#62697a]">再次按快捷键完成</small> : null}
+            <span className="text-[9px] font-bold tracking-[0.08em] text-[#b8afff]">{status}</span>
+            {phase === "recording" ? (
+              <small className="text-[9px] text-[#858da1]">
+                {activationModeRef.current === "hold" ? "松开快捷键完成" : "再次按快捷键完成"}
+              </small>
+            ) : null}
           </div>
           <p
-            className={`m-0 overflow-hidden text-[15px] leading-[1.4] font-medium tracking-[-0.015em] text-ellipsis whitespace-nowrap ${phase === "error" ? "text-[#fecaca]" : phase === "success" ? "text-[#bbf7d0]" : "text-[#f3f4f8]"}`}
+            className={`m-0 line-clamp-2 text-[13px] leading-[1.35] font-medium tracking-[-0.01em] break-words ${phase === "error" ? "text-[#fecaca]" : phase === "success" ? "text-[#bbf7d0]" : "text-[#f3f4f8]"}`}
+            title={displayText}
           >
             {displayText}
           </p>
