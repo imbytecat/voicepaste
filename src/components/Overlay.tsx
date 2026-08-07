@@ -7,8 +7,6 @@ import type { AsrEvent, ShortcutEvent } from "../types";
 
 type Phase = "idle" | "starting" | "recording" | "finishing" | "success" | "error";
 
-const MAX_PENDING_AUDIO = 8;
-
 export function Overlay() {
   const [phase, setPhase] = useState<Phase>("idle");
   const [text, setText] = useState("");
@@ -16,9 +14,6 @@ export function Overlay() {
   const phaseRef = useRef<Phase>("idle");
   const captureRef = useRef<AudioCapture | null>(null);
   const sessionRef = useRef<string | null>(null);
-  const audioQueueRef = useRef<Promise<void>>(Promise.resolve());
-  const pendingAudioRef = useRef(0);
-  const acceptingAudioRef = useRef(false);
   const audioFailedRef = useRef(false);
   const finishRequestedRef = useRef(false);
   const hideTimerRef = useRef<number | null>(null);
@@ -58,7 +53,6 @@ export function Overlay() {
   };
 
   const cancelSession = async (sessionId: string | null) => {
-    acceptingAudioRef.current = false;
     finishRequestedRef.current = false;
     await stopCapture().catch(() => undefined);
     if (sessionId) await invoke("cancel_recognition", { sessionId }).catch(() => undefined);
@@ -81,14 +75,12 @@ export function Overlay() {
       return;
     }
     if (phaseRef.current !== "recording") return;
-    acceptingAudioRef.current = false;
     updatePhase("finishing");
     setLevel(0);
     setText((current) => current || "正在整理刚才的话…");
 
     try {
       await stopCapture();
-      await audioQueueRef.current;
       if (sessionRef.current === sessionId && !audioFailedRef.current) {
         await invoke("finish_recognition", { sessionId });
       }
@@ -106,39 +98,19 @@ export function Overlay() {
     const sessionId = crypto.randomUUID();
     sessionRef.current = sessionId;
     activationModeRef.current = shortcut.activationMode;
-    audioQueueRef.current = Promise.resolve();
-    pendingAudioRef.current = 0;
-    acceptingAudioRef.current = true;
     audioFailedRef.current = false;
     finishRequestedRef.current = false;
     updatePhase("starting");
     setText("正在准备麦克风…");
     setLevel(0);
 
-    const enqueueAudio = (pcm: Uint8Array) => {
-      if (!acceptingAudioRef.current || sessionRef.current !== sessionId || audioFailedRef.current) return;
-      if (pendingAudioRef.current >= MAX_PENDING_AUDIO) {
-        void failSession(sessionId, "音频传输跟不上录音速度，请检查系统负载后重试");
-        return;
-      }
-      pendingAudioRef.current += 1;
-      const send = audioQueueRef.current.then(() =>
-        invoke<void>("send_audio", pcm, {
-          headers: { "x-voicepaste-session": sessionId },
-        }),
-      );
-      audioQueueRef.current = send
-        .catch((error) => failSession(sessionId, error))
-        .finally(() => {
-          pendingAudioRef.current -= 1;
-        });
-    };
-
     try {
-      const capture = AudioCapture.create(shortcut.microphoneId, enqueueAudio, setLevel);
+      const capture = AudioCapture.create(shortcut.microphoneId, setLevel, (error) => {
+        void failSession(sessionId, error);
+      });
       captureRef.current = capture;
       await invoke("start_recognition", { sessionId });
-      await capture.start();
+      await capture.start(sessionId);
       if (sessionRef.current !== sessionId) return;
       setText("");
       updatePhase("recording");
@@ -182,7 +154,6 @@ export function Overlay() {
           return;
         }
         if (payload.kind === "completed" || payload.kind === "copied") {
-          acceptingAudioRef.current = false;
           sessionRef.current = null;
           setText(payload.message ?? (payload.kind === "completed" ? "已输入" : "已复制到剪贴板"));
           updatePhase("success");
@@ -190,7 +161,6 @@ export function Overlay() {
           return;
         }
         if (payload.kind === "empty") {
-          acceptingAudioRef.current = false;
           sessionRef.current = null;
           setText(payload.message ?? "没有听到可输入的内容");
           updatePhase("error");
@@ -198,7 +168,6 @@ export function Overlay() {
           return;
         }
         if (payload.kind === "error") {
-          acceptingAudioRef.current = false;
           void stopCapture();
           sessionRef.current = null;
           setText(payload.message ?? "识别失败，请重试");

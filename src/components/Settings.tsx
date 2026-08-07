@@ -13,7 +13,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { type KeyboardEvent, useEffect, useRef, useState } from "react";
-import { AudioCapture } from "../audio";
+import { AudioCapture, type MicrophoneDevice } from "../audio";
 import { type AppSettings, DEFAULT_SETTINGS, type PlatformDiagnostics, type SaveSettingsResult } from "../types";
 
 const MODIFIER_CODE: Record<string, true> = {
@@ -40,7 +40,6 @@ const SECTIONS = [
 type Platform = "mac" | "windows" | "linux";
 type Message = { kind: "success" | "error" | "info"; text: string } | null;
 type LoadSettingsResult = { settings: AppSettings; notice?: string };
-type MicrophonePermission = "granted" | "denied" | "prompt" | "unknown";
 
 const DISPLAY_KEY_LABELS: Record<Platform, Record<string, string>> = {
   mac: {
@@ -205,29 +204,23 @@ export function Settings() {
   const [showApiKey, setShowApiKey] = useState(false);
   const [recordingShortcut, setRecordingShortcut] = useState(false);
   const [activeSection, setActiveSection] = useState("doubao");
-  const [microphones, setMicrophones] = useState<MediaDeviceInfo[]>([]);
+  const [microphones, setMicrophones] = useState<MicrophoneDevice[]>([]);
   const [testingMicrophone, setTestingMicrophone] = useState(false);
   const [microphoneLevel, setMicrophoneLevel] = useState(0);
   const [testingDoubao, setTestingDoubao] = useState(false);
   const [diagnostics, setDiagnostics] = useState<PlatformDiagnostics | null>(null);
-  const [microphonePermission, setMicrophonePermission] = useState<MicrophonePermission>("unknown");
   const microphoneTestRef = useRef<AudioCapture | null>(null);
 
   const refreshMicrophones = async () => {
-    if (!navigator.mediaDevices?.enumerateDevices) return;
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    setMicrophones(devices.filter((device) => device.kind === "audioinput"));
+    try {
+      setMicrophones(await AudioCapture.devices());
+    } catch (error) {
+      setMicrophones([]);
+      setMicrophoneMessage({ kind: "error", text: `读取麦克风列表失败：${String(error)}` });
+    }
   };
 
   const refreshDiagnostics = async () => {
-    if (navigator.permissions?.query) {
-      try {
-        const permission = await navigator.permissions.query({ name: "microphone" as PermissionName });
-        setMicrophonePermission(permission.state as MicrophonePermission);
-      } catch {
-        setMicrophonePermission("unknown");
-      }
-    }
     if (isTauri()) {
       try {
         setDiagnostics(await invoke<PlatformDiagnostics>("platform_diagnostics"));
@@ -311,17 +304,25 @@ export function Settings() {
     setTestingMicrophone(true);
     setMicrophoneLevel(0);
     setMicrophoneMessage(null);
+    let failed = false;
+    const capture = AudioCapture.create(settings.microphoneId, setMicrophoneLevel, (error) => {
+      failed = true;
+      if (microphoneTestRef.current === capture) microphoneTestRef.current = null;
+      setMicrophoneMessage({ kind: "error", text: microphoneTestError(error) });
+      setTestingMicrophone(false);
+      void capture.stop();
+    });
     try {
-      const capture = AudioCapture.create(settings.microphoneId, () => undefined, setMicrophoneLevel);
       microphoneTestRef.current = capture;
       await capture.start();
       window.setTimeout(async () => {
+        if (microphoneTestRef.current !== capture) return;
         try {
           await capture.stop();
-          if (microphoneTestRef.current === capture) microphoneTestRef.current = null;
+          microphoneTestRef.current = null;
           await refreshMicrophones();
           await refreshDiagnostics();
-          setMicrophoneMessage({ kind: "success", text: "麦克风工作正常" });
+          if (!failed) setMicrophoneMessage({ kind: "success", text: "麦克风工作正常" });
         } catch (error) {
           setMicrophoneMessage({ kind: "error", text: `停止麦克风测试失败：${String(error)}` });
         } finally {
@@ -363,14 +364,7 @@ export function Settings() {
     );
   }
 
-  const microphoneStatus =
-    microphonePermission === "granted"
-      ? "已授权"
-      : microphonePermission === "denied"
-        ? "已拒绝"
-        : microphonePermission === "prompt"
-          ? "首次测试时询问"
-          : "由系统管理";
+  const microphoneStatus = microphones.length > 0 ? `原生采集可用（${microphones.length} 个设备）` : "未检测到麦克风";
 
   return (
     <div className="grid h-screen w-screen grid-cols-[236px_minmax(0,1fr)] overflow-hidden bg-[#f5f6f8] text-[#182033] max-[800px]:grid-cols-[190px_minmax(0,1fr)]">
@@ -587,9 +581,9 @@ export function Settings() {
                 }}
               >
                 <option value="">系统默认麦克风</option>
-                {microphones.map((device, index) => (
-                  <option key={device.deviceId} value={device.deviceId}>
-                    {device.label || `麦克风 ${index + 1}`}
+                {microphones.map((device) => (
+                  <option key={device.id} value={device.id}>
+                    {device.label}
                   </option>
                 ))}
               </select>

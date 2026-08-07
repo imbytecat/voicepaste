@@ -12,17 +12,12 @@
         system:
         let
           pkgs = import nixpkgs { inherit system; };
-          gstreamerPlugins = with pkgs.gst_all_1; [
-            gstreamer
-            gst-plugins-base
-            gst-plugins-good
-            gst-plugins-bad
-          ];
           gsettingsSchemaPath = pkgs.lib.concatStringsSep ":" [
             "${pkgs.gsettings-desktop-schemas}/share/gsettings-schemas/${pkgs.gsettings-desktop-schemas.name}"
             "${pkgs.gtk3}/share/gsettings-schemas/${pkgs.gtk3.name}"
           ];
           runtimeLibraries = with pkgs; [
+            alsa-lib
             atk
             cairo
             dbus
@@ -42,6 +37,7 @@
           default = pkgs.mkShell {
             packages =
               (with pkgs; [
+                alsa-lib.dev
                 curl
                 file
                 gcc
@@ -57,11 +53,9 @@
                 pkg-config
                 webkitgtk_4_1.dev
                 wget
-              ])
-              ++ gstreamerPlugins;
+              ]);
 
-            LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath (runtimeLibraries ++ gstreamerPlugins);
-            GST_PLUGIN_SYSTEM_PATH_1_0 = pkgs.lib.makeSearchPath "lib/gstreamer-1.0" gstreamerPlugins;
+            LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath runtimeLibraries;
             shellHook = ''
               export VOICEPASTE_REAL_PKG_CONFIG="${pkgs.pkg-config}/bin/pkg-config"
               export PATH="$PWD/tools:$PATH"

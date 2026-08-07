@@ -1,4 +1,5 @@
 mod asr;
+mod audio;
 mod paste;
 mod settings;
 mod shortcut;
@@ -23,12 +24,16 @@ use tauri_plugin_global_shortcut::ShortcutState;
 use tokio::sync::{mpsc, watch};
 
 const API_KEY_CONSOLE_URL: &str = "https://console.volcengine.com/speech/new/setting/apikeys";
-const MAX_AUDIO_BYTES: usize = 64 * 1024;
 
 struct RecognitionSession {
     id: String,
     audio: mpsc::Sender<AudioCommand>,
     cancel: watch::Sender<bool>,
+}
+
+struct ActiveAudioCapture {
+    id: String,
+    _capture: audio::AudioCapture,
 }
 
 #[derive(Clone, Serialize)]
@@ -48,6 +53,7 @@ struct AppState {
     overlay_ready: AtomicBool,
     pending_shortcut: Mutex<Option<ShortcutEventPayload>>,
     shortcut_down: AtomicBool,
+    audio_capture: Mutex<Option<ActiveAudioCapture>>,
 }
 
 impl Default for AppState {
@@ -61,6 +67,7 @@ impl Default for AppState {
             overlay_ready: AtomicBool::new(false),
             pending_shortcut: Mutex::new(None),
             shortcut_down: AtomicBool::new(false),
+            audio_capture: Mutex::new(None),
         }
     }
 }
@@ -95,6 +102,16 @@ fn require_window(window: &WebviewWindow, expected: &str) -> Result<(), String> 
     } else {
         Err("当前窗口无权执行此操作".to_owned())
     }
+}
+
+async fn offload_blocking_result<T, F>(task: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(task)
+        .await
+        .map_err(|error| format!("后台任务失败：{error}"))?
 }
 
 #[tauri::command]
@@ -144,19 +161,23 @@ async fn save_settings(
         Some(&old_settings.shortcut),
     )
     .await?;
-    let credential_storage = match settings::save(&app, &settings) {
-        Ok(storage) => storage,
-        Err(error) => {
-            let _ = shortcut::replace(
-                &app,
-                &state.portal_task,
-                &old_settings.shortcut,
-                Some(&settings.shortcut),
-            )
-            .await;
-            return Err(error);
-        }
-    };
+    let save_app = app.clone();
+    let settings_to_save = settings.clone();
+    // Linux keyring uses its own async runtime, so it must not run on a Tokio worker.
+    let credential_storage =
+        match offload_blocking_result(move || settings::save(&save_app, &settings_to_save)).await {
+            Ok(storage) => storage,
+            Err(error) => {
+                let _ = shortcut::replace(
+                    &app,
+                    &state.portal_task,
+                    &old_settings.shortcut,
+                    Some(&settings.shortcut),
+                )
+                .await;
+                return Err(error);
+            }
+        };
     *state
         .settings
         .write()
@@ -272,31 +293,83 @@ async fn start_recognition(
 }
 
 #[tauri::command]
-async fn send_audio(
+fn list_microphones(window: WebviewWindow) -> Result<Vec<audio::MicrophoneDevice>, String> {
+    require_window(&window, "settings")?;
+    audio::microphones()
+}
+
+#[tauri::command]
+fn start_audio_capture(
     window: WebviewWindow,
-    request: tauri::ipc::Request<'_>,
+    app: AppHandle,
     state: State<'_, AppState>,
+    capture_id: String,
+    device_id: String,
+    session_id: Option<String>,
 ) -> Result<(), String> {
-    require_window(&window, "overlay")?;
-    let tauri::ipc::InvokeBody::Raw(pcm) = request.body() else {
-        return Err("音频数据格式无效".to_owned());
-    };
-    let session_id = request
-        .headers()
-        .get("x-voicepaste-session")
-        .and_then(|value| value.to_str().ok())
-        .ok_or_else(|| "音频请求缺少听写会话标识".to_owned())?;
-    if pcm.len() > MAX_AUDIO_BYTES {
-        return Err(format!(
-            "单个音频分片超过 {} KiB 限制",
-            MAX_AUDIO_BYTES / 1024
-        ));
+    match (window.label(), session_id.as_deref()) {
+        ("overlay", Some(_)) | ("settings", None) => {}
+        _ => return Err("当前窗口无权执行此音频操作".to_owned()),
     }
-    let sender = current_audio_sender(&state, session_id)?;
-    sender
-        .send(AudioCommand::Data(pcm.clone()))
-        .await
-        .map_err(|_| "语音连接已关闭".to_owned())
+
+    let on_audio: Option<Arc<audio::AudioSink>> = if let Some(session_id) = session_id {
+        let sender = current_audio_sender(&state, &session_id)?;
+        Some(Arc::new(move |pcm| {
+            sender
+                .try_send(AudioCommand::Data(pcm))
+                .map_err(|error| match error {
+                    mpsc::error::TrySendError::Full(_) => {
+                        "音频传输跟不上录音速度，请检查系统负载后重试".to_owned()
+                    }
+                    mpsc::error::TrySendError::Closed(_) => "语音连接已关闭".to_owned(),
+                })
+        }))
+    } else {
+        None
+    };
+    let window_label = window.label().to_owned();
+    let level_app = app.clone();
+    let level_window = window_label.clone();
+    let on_level = Arc::new(move |level| {
+        let _ = level_app.emit_to(&level_window, "microphone-level", level);
+    });
+    let on_error = Arc::new(move |error| {
+        let _ = app.emit_to(&window_label, "microphone-error", error);
+    });
+    let capture = audio::AudioCapture::start(&device_id, on_audio, on_level, on_error)?;
+    let mut active = state
+        .audio_capture
+        .lock()
+        .map_err(|_| "麦克风状态已损坏，请重启应用".to_owned())?;
+    *active = Some(ActiveAudioCapture {
+        id: capture_id,
+        _capture: capture,
+    });
+    Ok(())
+}
+
+#[tauri::command]
+fn stop_audio_capture(
+    window: WebviewWindow,
+    state: State<'_, AppState>,
+    capture_id: String,
+) -> Result<(), String> {
+    if !matches!(window.label(), "overlay" | "settings") {
+        return Err("当前窗口无权执行此音频操作".to_owned());
+    }
+    let capture = {
+        let mut active = state
+            .audio_capture
+            .lock()
+            .map_err(|_| "麦克风状态已损坏，请重启应用".to_owned())?;
+        if active.as_ref().map(|capture| capture.id.as_str()) == Some(capture_id.as_str()) {
+            active.take()
+        } else {
+            None
+        }
+    };
+    drop(capture);
+    Ok(())
 }
 
 #[tauri::command]
@@ -647,7 +720,9 @@ pub fn run() {
             load_settings,
             save_settings,
             start_recognition,
-            send_audio,
+            list_microphones,
+            start_audio_capture,
+            stop_audio_capture,
             finish_recognition,
             cancel_recognition,
             hide_overlay,
@@ -659,4 +734,26 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("VoicePaste 启动失败");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::offload_blocking_result;
+
+    #[test]
+    fn blocking_operations_can_create_their_own_runtime() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let result = runtime.block_on(offload_blocking_result(|| {
+            let nested = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|error| error.to_string())?;
+            Ok(nested.block_on(async { 42 }))
+        }));
+
+        assert_eq!(result.unwrap(), 42);
+    }
 }

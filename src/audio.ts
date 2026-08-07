@@ -1,57 +1,65 @@
-import { WebVoiceProcessor } from "@picovoice/web-voice-processor";
+import { invoke, isTauri } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
-const FRAME_LENGTH = 3200;
-
-type VoiceEngine = {
-  onmessage: (event: MessageEvent) => void;
+export type MicrophoneDevice = {
+  id: string;
+  label: string;
 };
 
 export class AudioCapture {
-  private readonly engine: VoiceEngine;
+  private readonly captureId = crypto.randomUUID();
+  private readonly deviceId: string;
+  private readonly onLevel: (level: number) => void;
+  private readonly onError: (error: string) => void;
+  private unlisteners: UnlistenFn[] = [];
   private started = false;
+  private startPromise: Promise<void> | null = null;
 
-  private constructor(engine: VoiceEngine) {
-    this.engine = engine;
+  private constructor(deviceId: string, onLevel: (level: number) => void, onError: (error: string) => void) {
+    this.deviceId = deviceId;
+    this.onLevel = onLevel;
+    this.onError = onError;
   }
 
-  static create(deviceId: string, onChunk: (pcm: Uint8Array) => void, onLevel: (level: number) => void): AudioCapture {
-    WebVoiceProcessor.setOptions({
-      frameLength: FRAME_LENGTH,
-      outputSampleRate: 16_000,
-      deviceId: deviceId || null,
+  static create(deviceId: string, onLevel: (level: number) => void, onError: (error: string) => void): AudioCapture {
+    return new AudioCapture(deviceId, onLevel, onError);
+  }
+
+  static async devices(): Promise<MicrophoneDevice[]> {
+    return isTauri() ? invoke<MicrophoneDevice[]>("list_microphones") : [];
+  }
+
+  async start(sessionId: string | null = null): Promise<void> {
+    if (this.started || this.startPromise) return this.startPromise ?? Promise.resolve();
+    if (!isTauri()) throw new Error("浏览器预览无法使用原生麦克风");
+    this.unlisteners = await Promise.all([
+      listen<number>("microphone-level", (event) => this.onLevel(event.payload)),
+      listen<string>("microphone-error", (event) => this.onError(event.payload)),
+    ]);
+    this.startPromise = invoke("start_audio_capture", {
+      captureId: this.captureId,
+      deviceId: this.deviceId,
+      sessionId,
     });
-    const engine: VoiceEngine = {
-      onmessage: (event) => {
-        if (event.data.command !== "process") return;
-        const frame = event.data.inputFrame as Int16Array;
-        let energy = 0;
-        for (const sample of frame) {
-          const normalized = sample / 32_768;
-          energy += normalized * normalized;
-        }
-        onLevel(Math.min(1, Math.sqrt(energy / Math.max(1, frame.length)) * 5));
-        const bytes = new Uint8Array(frame.byteLength);
-        bytes.set(new Uint8Array(frame.buffer, frame.byteOffset, frame.byteLength));
-        onChunk(bytes);
-      },
-    };
-    return new AudioCapture(engine);
-  }
-
-  async start(): Promise<void> {
-    if (this.started) return;
     try {
-      await WebVoiceProcessor.subscribe(this.engine);
+      await this.startPromise;
       this.started = true;
     } catch (error) {
-      await WebVoiceProcessor.unsubscribe(this.engine).catch(() => undefined);
+      this.unlisteners.splice(0).forEach((unlisten) => unlisten());
       throw error;
+    } finally {
+      this.startPromise = null;
     }
   }
 
   async stop(): Promise<void> {
+    if (this.startPromise) await this.startPromise.catch(() => undefined);
     if (!this.started) return;
     this.started = false;
-    await WebVoiceProcessor.unsubscribe(this.engine);
+    try {
+      await invoke("stop_audio_capture", { captureId: this.captureId });
+    } finally {
+      this.unlisteners.splice(0).forEach((unlisten) => unlisten());
+    }
   }
 }
