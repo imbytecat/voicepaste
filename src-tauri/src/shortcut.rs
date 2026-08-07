@@ -92,6 +92,7 @@ async fn register_portal(app: AppHandle, shortcut: &str) -> Result<JoinHandle<()
     use ashpd::desktop::global_shortcuts::{GlobalShortcuts, NewShortcut};
     use futures_util::StreamExt;
     let preferred_trigger = to_xdg_shortcut(shortcut)?;
+    let shortcut_id = portal_shortcut_id(shortcut);
     let global_shortcuts = GlobalShortcuts::new()
         .await
         .map_err(|error| format!("连接 Wayland 快捷键门户失败：{error}"))?;
@@ -105,10 +106,8 @@ async fn register_portal(app: AppHandle, shortcut: &str) -> Result<JoinHandle<()
     let request = global_shortcuts
         .bind_shortcuts(
             &session,
-            &[
-                NewShortcut::new("voicepaste-dictation", "开始或完成 VoicePaste 听写")
-                    .preferred_trigger(preferred_trigger.as_str()),
-            ],
+            &[NewShortcut::new(&shortcut_id, "开始或完成 VoicePaste 听写")
+                .preferred_trigger(preferred_trigger.as_str())],
             None,
             Default::default(),
         )
@@ -117,12 +116,34 @@ async fn register_portal(app: AppHandle, shortcut: &str) -> Result<JoinHandle<()
     let response = request
         .response()
         .map_err(|error| format!("Wayland 快捷键授权失败：{error}"))?;
-    if !response
+    let bound = response
         .shortcuts()
         .iter()
-        .any(|shortcut| shortcut.id() == "voicepaste-dictation")
-    {
-        return Err("未获得 Wayland 全局快捷键授权".to_owned());
+        .find(|shortcut| shortcut.id() == shortcut_id)
+        .ok_or_else(|| "未获得 Wayland 全局快捷键授权".to_owned())?;
+    if bound.trigger_description().is_empty() {
+        if global_shortcuts.version() < 2 {
+            return Err("请在系统设置中为 VoicePaste 配置全局快捷键".to_owned());
+        }
+        global_shortcuts
+            .configure_shortcuts(&session, None, Default::default())
+            .await
+            .map_err(|error| format!("打开 Wayland 快捷键设置失败：{error}"))?;
+        let request = global_shortcuts
+            .list_shortcuts(&session, Default::default())
+            .await
+            .map_err(|error| format!("读取 Wayland 快捷键失败：{error}"))?;
+        let response = request
+            .response()
+            .map_err(|error| format!("读取 Wayland 快捷键结果失败：{error}"))?;
+        let configured = response
+            .shortcuts()
+            .iter()
+            .find(|shortcut| shortcut.id() == shortcut_id)
+            .ok_or_else(|| "Wayland 快捷键配置已取消".to_owned())?;
+        if configured.trigger_description().is_empty() {
+            return Err("Wayland 快捷键配置已取消".to_owned());
+        }
     }
     let mut activated = global_shortcuts
         .receive_activated()
@@ -138,12 +159,12 @@ async fn register_portal(app: AppHandle, shortcut: &str) -> Result<JoinHandle<()
         loop {
             tokio::select! {
                 Some(event) = activated.next() => {
-                    if event.shortcut_id() == "voicepaste-dictation" {
+                    if event.shortcut_id() == shortcut_id {
                         crate::handle_shortcut_event(&app, true);
                     }
                 }
                 Some(event) = deactivated.next() => {
-                    if event.shortcut_id() == "voicepaste-dictation" {
+                    if event.shortcut_id() == shortcut_id {
                         crate::handle_shortcut_event(&app, false);
                     }
                 }
@@ -151,6 +172,14 @@ async fn register_portal(app: AppHandle, shortcut: &str) -> Result<JoinHandle<()
             }
         }
     }))
+}
+
+#[cfg(target_os = "linux")]
+fn portal_shortcut_id(shortcut: &str) -> String {
+    format!(
+        "voicepaste-dictation-{}",
+        shortcut.to_ascii_lowercase().replace('+', "-")
+    )
 }
 
 #[cfg(target_os = "linux")]
@@ -199,5 +228,9 @@ mod tests {
             "CTRL+SHIFT+space"
         );
         assert_eq!(to_xdg_shortcut("Super+Alt+K").unwrap(), "LOGO+ALT+k");
+        assert_ne!(
+            portal_shortcut_id("Control+Shift+Space"),
+            portal_shortcut_id("Control+Alt+0")
+        );
     }
 }
