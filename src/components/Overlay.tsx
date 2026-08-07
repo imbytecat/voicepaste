@@ -261,7 +261,7 @@ export function Overlay() {
             ) : null}
           </div>
           <p
-            className={`m-0 line-clamp-2 text-[13px] leading-[1.35] font-medium tracking-[-0.01em] break-words ${phase === "error" ? "text-[#fecaca]" : phase === "success" ? "text-[#bbf7d0]" : "text-[#f3f4f8]"}`}
+            className={`m-0 line-clamp-2 text-[13px] leading-[1.35] font-medium tracking-[-0.01em] wrap-break-word ${phase === "error" ? "text-[#fecaca]" : phase === "success" ? "text-[#bbf7d0]" : "text-[#f3f4f8]"}`}
             title={displayText}
           >
             {displayText}
