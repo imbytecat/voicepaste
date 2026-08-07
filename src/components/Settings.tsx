@@ -169,12 +169,39 @@ function SectionHeading({ number, title, description }: { number: string; title:
   );
 }
 
+function Feedback({ message, className }: { message: Message; className?: string }) {
+  if (!message) return null;
+  const colors =
+    message.kind === "success"
+      ? "border-[#a9d8c4] bg-[#eaf8f1] text-[#17633f]"
+      : message.kind === "error"
+        ? "border-[#e8b7b0] bg-[#fff0ee] text-[#8d261f]"
+        : "border-[#c9c2f5] bg-[#f3f0ff] text-[#5142a8]";
+  return (
+    <div
+      className={`rounded-[10px] border px-3.5 py-2.5 text-[11px] leading-5 ${colors} ${className ?? ""}`}
+      role={message.kind === "error" ? "alert" : "status"}
+    >
+      {message.text}
+    </div>
+  );
+}
+
+function microphoneTestError(error: unknown): string {
+  const detail = String(error);
+  return /permission|notallowederror|denied/i.test(detail)
+    ? "麦克风权限未开启。请在系统设置中允许 VoicePaste 使用麦克风，然后重试。"
+    : `麦克风测试失败：${detail}`;
+}
+
 export function Settings() {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [hotwordsText, setHotwordsText] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<Message>(null);
+  const [doubaoMessage, setDoubaoMessage] = useState<Message>(null);
+  const [microphoneMessage, setMicrophoneMessage] = useState<Message>(null);
   const [showApiKey, setShowApiKey] = useState(false);
   const [recordingShortcut, setRecordingShortcut] = useState(false);
   const [activeSection, setActiveSection] = useState("doubao");
@@ -283,7 +310,7 @@ export function Settings() {
   const testMicrophone = async () => {
     setTestingMicrophone(true);
     setMicrophoneLevel(0);
-    setMessage(null);
+    setMicrophoneMessage(null);
     try {
       const capture = AudioCapture.create(settings.microphoneId, () => undefined, setMicrophoneLevel);
       microphoneTestRef.current = capture;
@@ -294,9 +321,9 @@ export function Settings() {
           if (microphoneTestRef.current === capture) microphoneTestRef.current = null;
           await refreshMicrophones();
           await refreshDiagnostics();
-          setMessage({ kind: "success", text: "麦克风工作正常" });
+          setMicrophoneMessage({ kind: "success", text: "麦克风工作正常" });
         } catch (error) {
-          setMessage({ kind: "error", text: `停止麦克风测试失败：${String(error)}` });
+          setMicrophoneMessage({ kind: "error", text: `停止麦克风测试失败：${String(error)}` });
         } finally {
           setTestingMicrophone(false);
         }
@@ -304,20 +331,20 @@ export function Settings() {
     } catch (error) {
       await microphoneTestRef.current?.stop().catch(() => undefined);
       microphoneTestRef.current = null;
-      setMessage({ kind: "error", text: `麦克风测试失败：${String(error)}` });
+      setMicrophoneMessage({ kind: "error", text: microphoneTestError(error) });
       setTestingMicrophone(false);
     }
   };
 
   const testDoubao = async () => {
     setTestingDoubao(true);
-    setMessage(null);
+    setDoubaoMessage(null);
     try {
       if (!isTauri()) throw new Error("浏览器预览无法测试豆包连接");
       await invoke("test_doubao", { apiKey: settings.apiKey });
-      setMessage({ kind: "success", text: "豆包 API Key 与流式识别服务连接正常" });
+      setDoubaoMessage({ kind: "success", text: "豆包 API Key 与流式识别服务连接正常" });
     } catch (error) {
-      setMessage({ kind: "error", text: String(error) });
+      setDoubaoMessage({ kind: "error", text: `豆包连接失败：${String(error)}` });
     } finally {
       setTestingDoubao(false);
     }
@@ -336,12 +363,6 @@ export function Settings() {
     );
   }
 
-  const messageStyle =
-    message?.kind === "success"
-      ? "border-[#a9d8c4] bg-[#eaf8f1] text-[#17633f]"
-      : message?.kind === "error"
-        ? "border-[#e8b7b0] bg-[#fff0ee] text-[#8d261f]"
-        : "border-[#c9c2f5] bg-[#f3f0ff] text-[#5142a8]";
   const microphoneStatus =
     microphonePermission === "granted"
       ? "已授权"
@@ -422,14 +443,7 @@ export function Settings() {
           </button>
         </header>
 
-        {message ? (
-          <div
-            className={`mx-auto mb-3.5 max-w-[850px] rounded-[10px] border px-3.5 py-2.5 text-[11px] leading-5 ${messageStyle}`}
-            role={message.kind === "error" ? "alert" : "status"}
-          >
-            {message.text}
-          </div>
-        ) : null}
+        <Feedback message={message} className="mx-auto mb-3.5 max-w-[850px]" />
 
         <section
           className="mx-auto mb-[15px] max-w-[850px] scroll-mt-5 rounded-2xl border border-[#d9dde5] bg-white/95 px-6 pt-[22px] pb-6 shadow-[0_1px_2px_rgba(20,25,37,0.04),0_12px_34px_rgba(20,25,37,0.03)]"
@@ -466,7 +480,10 @@ export function Settings() {
                 className="min-w-0 flex-1 border-0 bg-transparent px-3 text-[12px] text-[#222838] outline-none"
                 type={showApiKey ? "text" : "password"}
                 value={settings.apiKey}
-                onChange={(event) => setSettings({ ...settings, apiKey: event.target.value })}
+                onChange={(event) => {
+                  setSettings({ ...settings, apiKey: event.target.value });
+                  setDoubaoMessage(null);
+                }}
                 placeholder="请输入火山引擎豆包语音 API Key"
                 autoComplete="off"
               />
@@ -489,6 +506,7 @@ export function Settings() {
           >
             <Activity size={12} /> {testingDoubao ? "正在连接…" : "测试豆包连接"}
           </button>
+          <Feedback message={doubaoMessage} className="mt-2" />
         </section>
 
         <section
@@ -563,7 +581,10 @@ export function Settings() {
               <select
                 className={INPUT_CLASS}
                 value={settings.microphoneId}
-                onChange={(event) => setSettings({ ...settings, microphoneId: event.target.value })}
+                onChange={(event) => {
+                  setSettings({ ...settings, microphoneId: event.target.value });
+                  setMicrophoneMessage(null);
+                }}
               >
                 <option value="">系统默认麦克风</option>
                 {microphones.map((device, index) => (
@@ -588,6 +609,7 @@ export function Settings() {
               style={{ width: `${Math.max(testingMicrophone ? 3 : 0, microphoneLevel * 100)}%` }}
             />
           </div>
+          <Feedback message={microphoneMessage} className="mt-2" />
         </section>
 
         <section
