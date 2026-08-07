@@ -1,0 +1,48 @@
+name: Security
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 1"
+  push:
+    branches: [main]
+    paths:
+      - package.json
+      - pnpm-lock.yaml
+      - src-tauri/Cargo.toml
+      - src-tauri/Cargo.lock
+  pull_request:
+    paths:
+      - package.json
+      - pnpm-lock.yaml
+      - src-tauri/Cargo.toml
+      - src-tauri/Cargo.lock
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.34.5
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.18.0
+          cache: pnpm
+      - run: pnpm audit --audit-level high
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit@0.22.2
+      - run: cargo audit --file src-tauri/Cargo.lock

@@ -390,7 +390,7 @@ fn request_accessibility(window: WebviewWindow) -> Result<bool, String> {
     require_window(&window, "settings")?;
     #[cfg(target_os = "macos")]
     {
-        return Ok(macos_accessibility_client::accessibility::application_is_trusted_with_prompt());
+        Ok(macos_accessibility_client::accessibility::application_is_trusted_with_prompt())
     }
     #[cfg(not(target_os = "macos"))]
     Err("当前平台不需要 macOS 辅助功能权限".to_owned())
