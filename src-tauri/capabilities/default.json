@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "desktop-capability",
+  "description": "VoicePaste 桌面窗口权限",
+  "windows": ["settings", "overlay"],
+  "permissions": ["core:default"]
+}

@@ -1,0 +1,20 @@
+[tools]
+node = "24"
+pnpm = "10"
+rust = "stable"
+
+[tasks.dev]
+description = "启动 Tauri 开发模式"
+run = "pnpm tauri dev"
+
+[tasks.build]
+description = "构建桌面安装包"
+run = "pnpm tauri build"
+
+[tasks.check]
+description = "检查前端与 Rust"
+run = "pnpm check && cargo check --manifest-path src-tauri/Cargo.toml"
+
+[tasks.fix]
+description = "自动修复前端与 Rust 格式"
+run = "pnpm lint:fix && cargo fmt --manifest-path src-tauri/Cargo.toml"

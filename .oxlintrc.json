@@ -1,0 +1,23 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn"
+  },
+  "plugins": ["oxc", "react", "typescript", "unicorn"],
+  "rules": {
+    "react/exhaustive-deps": "error",
+    "react/react-in-jsx-scope": "off",
+    "react/rules-of-hooks": "error",
+    "typescript/no-explicit-any": "error"
+  },
+  "options": {
+    "maxWarnings": 0
+  },
+  "env": {
+    "browser": true,
+    "es2024": true,
+    "node": true
+  },
+  "ignorePatterns": ["dist/**", "node_modules/**", "src-tauri/target/**"]
+}
