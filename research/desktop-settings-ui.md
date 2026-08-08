@@ -23,8 +23,8 @@
 2. **视觉“简洁”不等于信息稀少。** 实际设置截图在一个内容页中容纳多组单选、下拉框和开关，但通过浅色分组、统一行高、右对齐控件和极少装饰保持低噪声。
 3. **语音输入正在从单纯转写升级为可直接使用的输入流程。** macOS 2.0.0 已支持长按 `fn`、实时写入输入框、连续不限时长及中英文/方言混说；macOS 2.2.0 与 Windows 2.1.0 又加入去口水词、标点分段、长内容归纳、语序整理等输出整理。[macOS 2.0.0](https://z.weixin.qq.com/web/change-log/144) · [macOS 2.2.0](https://z.weixin.qq.com/web/change-log/152) · [Windows 2.1.0](https://z.weixin.qq.com/web/change-log/153)
 4. **快捷键属于语音输入主路径，不是隐藏的高级项。** macOS 2.0.0 直接以长按 `fn`介绍语音；Windows 2.1.0 直接以长按 `Ctrl+Win`介绍；macOS 2.2.2 又增加更多自定义快捷键支持。[macOS 2.2.2](https://z.weixin.qq.com/web/change-log/macos)
-5. **VoicePaste 本轮不应新增组件库。** 现有 React 19.2 + Tailwind 4.2 + lucide-react + tw-animate-css 已足够实现侧栏、分组行、单选、原生选择框、密码输入、按钮和状态提示。完整引入 shadcn/ui、Radix Themes 或 Fluent UI 都会增加当前页面不需要的主题或依赖层。
-6. **若以后出现 Dialog、Popover、Tooltip 等复杂焦点管理需求，优先按需采用 shadcn/ui。** 它的官方文档明确支持 React 19 与 Tailwind 4，并可继续使用 lucide；但本轮只借鉴结构和 token 思路，不安装。
+5. **布局不需要完整 UI 框架，但交互生命周期应优先交给成熟专项库。** 侧栏、分组行和原生表单继续使用 Tailwind；保存、恢复与清空提示使用 Sonner，避免手写计时器、队列、ARIA live region 和卸载清理。[Sonner](https://github.com/emilkowalski/sonner)
+6. **若以后出现 Dialog、Popover、Tooltip 等复杂焦点管理需求，优先按需采用 shadcn/ui。** 它的官方文档明确支持 React 19 与 Tailwind 4，并可继续使用 lucide；无需为了基础布局一次性引入完整组件体系。
 
 ## 3. 微信输入法桌面设置：可验证规律
 
@@ -108,12 +108,13 @@ Fluent 官方也明确建议：设置面板中的即时二元选项使用 Switch
 
 ## 5. 候选组件方案对比
 
-当前仓库基线：React `19.2.0`、Tailwind CSS `4.2.0`、lucide-react `1.30.0`、tw-animate-css `1.4.0`；未安装 `clsx`、`tailwind-merge`、`class-variance-authority`、Radix Themes 或 Fluent UI。
+当前仓库基线：React `19.2.0`、Tailwind CSS `4.2.0`、lucide-react `1.30.0`、tw-animate-css `1.4.0`、Sonner `2.0.7`；未安装 `clsx`、`tailwind-merge`、`class-variance-authority`、Radix Themes 或 Fluent UI。
 
 | 方案                                   | 官方事实                                                                                                                                                                                                                                                                                                                            | 与当前技术栈的工程推断                                                                                                                                       | 结论                                     |
 | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------- |
-| **现有 Tailwind + 原生 HTML + lucide** | 当前仓库已有完整样式与图标能力；原生 `input`、`select`、`textarea`、`button`、`radio` 足以覆盖现有设置                                                                                                                                                                                                                              | 无依赖、无 Provider、无第二套 token；可直接重排现有 Settings，保存和诊断逻辑不动                                                                             | **本轮推荐**                             |
-| **shadcn/ui**                          | 官方明确所有组件已更新支持 Tailwind v4 与 React 19；手动安装使用 Tailwind、CSS 变量、`class-variance-authority`、`clsx`、`tailwind-merge`、lucide 和 tw-animate-css；`components.json` 可指定 lucide。[Tailwind v4 / React 19](https://ui.shadcn.com/docs/tailwind-v4) · [手动安装](https://ui.shadcn.com/docs/installation/manual) | 与现有栈最接近；已有 lucide 与 tw-animate-css，但完整接入仍要增加 CLI/工具包、三个 class 工具、CSS token 和组件源码。只做一个设置页时收益不足                | **未来复杂组件首选；本轮只借鉴，不安装** |
+| **现有 Tailwind + 原生 HTML + lucide** | 当前仓库已有完整样式与图标能力；原生 `input`、`select`、`textarea`、`button`、`radio` 足以覆盖现有设置                                                                                                                                                                                                                              | 无 Provider、无第二套 token；适合布局与基础表单，但不应继续手写 Toast、复杂焦点管理或异步生命周期                                                           | **保留为布局基础**                       |
+| **Sonner**                             | 官方提供 React `Toaster` 与 `toast()` API，支持位置、类型、显示数量和自动关闭；组件内部管理队列、计时与可访问通知。[官方仓库](https://github.com/emilkowalski/sonner)                                                                                                                                                              | 单一小型依赖即可替换保存/恢复/清空提示的手工计时器与 HUD；不引入第二套布局或主题系统                                                                         | **已采用，负责瞬时反馈**                 |
+| **shadcn/ui**                          | 官方明确所有组件已更新支持 Tailwind v4 与 React 19；手动安装使用 Tailwind、CSS 变量、`class-variance-authority`、`clsx`、`tailwind-merge`、lucide 和 tw-animate-css；`components.json` 可指定 lucide。[Tailwind v4 / React 19](https://ui.shadcn.com/docs/tailwind-v4) · [手动安装](https://ui.shadcn.com/docs/installation/manual) | 与现有栈最接近；已有 lucide 与 tw-animate-css，但完整接入仍要增加 CLI/工具包、三个 class 工具、CSS token 和组件源码。基础表单收益不足，复杂组件收益明确        | **未来复杂组件首选；按需引入**           |
 | **Radix Themes**                       | 官方安装 `@radix-ui/themes`，全局导入样式，并在根部包裹 `<Theme>`；通过 `accentColor`、`grayColor`、`radius`、`scaling`配置；亮暗模式开箱支持。[Getting started](https://www.radix-ui.com/themes/docs/overview/getting-started) · [Dark mode](https://www.radix-ui.com/themes/docs/theme/dark-mode)                                 | 表面只加一个包，但会引入预样式 CSS、Provider 和另一套主题语义；Tailwind 仍负责布局时会形成双样式系统。若按官方系统主题示例，还通常要增加 class 切换方案      | **不推荐**                               |
 | **Fluent UI React v9**                 | 官方 React 资源指向 Fluent UI React v9；使用 `@fluentui/react-components`、`FluentProvider` 与主题；组件与指南覆盖设置页常见模式。[React overview](https://fluent2.microsoft.design/components/web/react) · [Develop](https://fluent2.microsoft.design/get-started/develop)                                                         | Griffel 运行时样式、Fluent token、Provider 和传递依赖会与 Tailwind 4 并存；lucide 与 Fluent 图标也会形成两套选择。除非产品明确采用 Fluent 视觉，否则成本最高 | **不推荐**                               |
 
@@ -123,10 +124,10 @@ shadcn/ui 与现有栈最兼容，但当前页面没有 Dialog、Popover、Combo
 
 最小策略：
 
-1. 本轮继续使用现有 Tailwind 4 和 lucide-react。
-2. 借鉴 shadcn 的中性色 token、统一圆角和 `data-*` 状态样式思路，但不复制整套 CSS。
+1. 布局与基础表单继续使用 Tailwind 4、原生 HTML 和 lucide-react。
+2. Toast、快捷键录制等完整交互优先采用 Sonner、TanStack Hotkeys 这类专项库，不自行维护计时器、按键映射或可访问状态机。
 3. 以后确实新增 Dialog、Tooltip、Popover 或可搜索 Select 时，再按组件逐个引入 shadcn/ui；不要一次安装完整组件集合。
-4. 若只需要 class 合并，等出现真实动态 class 冲突再引入 `clsx`/`tailwind-merge`，当前模板字符串足够。
+4. 若只需要 class 合并，等出现真实动态 class 冲突再引入 `clsx`/`tailwind-merge`。
 
 ## 6. VoicePaste 最终推荐
 
@@ -245,7 +246,7 @@ VoicePaste 应复制的是**层级纪律和视觉克制**，不是颜色、Logo 
 
 ## 8. 最小落地顺序
 
-不新增依赖，只调整现有设置组件和 Tailwind class：
+优先复用成熟专项库；页面布局与简单表单继续调整现有组件和 Tailwind class：
 
 1. 把滚动锚点侧栏改为 3 个页签状态；一次只渲染当前分类。
 2. 删除章节编号、外层大卡投影、API Key 大引导卡和重复页脚。
