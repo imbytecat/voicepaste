@@ -561,11 +561,6 @@ pub(crate) fn handle_shortcut_event(app: &AppHandle, pressed: bool) {
     };
 
     if pressed {
-        if shortcut::uses_portal()
-            && let Some(settings) = app.get_webview_window("settings")
-        {
-            let _ = settings.hide();
-        }
         if let Err(error) = show_overlay(app) {
             let _ = app.emit_to(
                 "overlay",
