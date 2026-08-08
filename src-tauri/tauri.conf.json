@@ -24,8 +24,8 @@
       {
         "label": "overlay",
         "title": "VoicePaste",
-        "width": 680,
-        "height": 104,
+        "width": 420,
+        "height": 64,
         "visible": false,
         "resizable": false,
         "decorations": false,

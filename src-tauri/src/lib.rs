@@ -603,11 +603,16 @@ fn show_overlay(app: &AppHandle) -> Result<(), String> {
     let window_size = overlay
         .outer_size()
         .map_err(|error| format!("读取悬浮窗尺寸失败：{error}"))?;
-    let monitor_size = monitor.size();
-    let monitor_position = monitor.position();
-    let x = monitor_position.x + (monitor_size.width.saturating_sub(window_size.width) / 2) as i32;
-    let y = monitor_position.y + (f64::from(monitor_size.height) * 0.72) as i32
-        - (window_size.height / 2) as i32;
+    let work_area = monitor.work_area();
+    let bottom_inset = (88.0 * monitor.scale_factor()).round() as u32;
+    let x =
+        work_area.position.x + (work_area.size.width.saturating_sub(window_size.width) / 2) as i32;
+    let y = work_area.position.y
+        + work_area
+            .size
+            .height
+            .saturating_sub(window_size.height)
+            .saturating_sub(bottom_inset) as i32;
     overlay
         .set_position(PhysicalPosition::new(x, y))
         .map_err(|error| format!("定位悬浮窗失败：{error}"))?;
