@@ -165,10 +165,22 @@ export function Settings() {
     },
   });
 
-  const resetPreferences = () => {
-    setSettings({ ...DEFAULT_SETTINGS, apiKey: settings.apiKey });
-    setHotwordsText(DEFAULT_SETTINGS.hotwords.join("\n"));
-    setMessage({ kind: "info", text: "已恢复默认值并保留 API Key；点击“保存”后生效。" });
+  const resetVoiceInput = () => {
+    setSettings((current) => ({
+      ...current,
+      activationMode: DEFAULT_SETTINGS.activationMode,
+      shortcut: DEFAULT_SETTINGS.shortcut,
+      microphoneId: DEFAULT_SETTINGS.microphoneId,
+    }));
+    setMicrophoneLevel(0);
+    setMicrophoneMessage(null);
+    setMessage({ kind: "info", text: "已恢复“语音输入”默认值，点击“保存”后生效。" });
+  };
+
+  const clearHotwords = () => {
+    setSettings((current) => ({ ...current, hotwords: [] }));
+    setHotwordsText("");
+    setMessage({ kind: "info", text: "已清空常用词，点击“保存”后生效。" });
   };
 
   const refreshMicrophones = async () => {
@@ -351,14 +363,16 @@ export function Settings() {
             <p className="mt-1 text-[10px] text-[#6f737b]">调整语音输入、快捷键和识别偏好</p>
           </div>
           <div className="flex gap-2">
-            <button
-              className="flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-[#d7d9de] bg-white px-3 text-[10px] font-medium text-[#5c6068] transition hover:bg-[#f5f5f6] focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8] disabled:cursor-wait disabled:opacity-55"
-              type="button"
-              onClick={resetPreferences}
-              disabled={saving}
-            >
-              <RotateCcw size={11} /> 恢复默认
-            </button>
+            {activeSection === "shortcut" ? (
+              <button
+                className="flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-[#d7d9de] bg-white px-3 text-[10px] font-medium text-[#5c6068] transition hover:bg-[#f5f5f6] focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8] disabled:cursor-wait disabled:opacity-55"
+                type="button"
+                onClick={resetVoiceInput}
+                disabled={saving}
+              >
+                <RotateCcw size={11} /> 恢复本页默认
+              </button>
+            ) : null}
             <button
               className="flex h-8 min-w-[88px] cursor-pointer items-center justify-center gap-1.5 rounded-lg border-0 bg-[#6558e8] px-3 text-[10px] font-medium text-white transition hover:bg-[#584bcf] focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8] disabled:cursor-wait disabled:opacity-55"
               type="button"
@@ -551,6 +565,16 @@ export function Settings() {
                   </div>
                 ) : null}
                 <SettingRow title="常用词" description="每行一个词，最多 100 个字符。" vertical>
+                  <div className="mb-2 flex justify-end">
+                    <button
+                      className="cursor-pointer border-0 bg-transparent p-0 text-[10px] font-medium text-[#6558e8] hover:text-[#4f43bd] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8] disabled:cursor-default disabled:text-[#9a9da4]"
+                      type="button"
+                      onClick={clearHotwords}
+                      disabled={!hotwordsText.trim()}
+                    >
+                      清空
+                    </button>
+                  </div>
                   <textarea
                     className="min-h-28 w-full resize-y rounded-lg border border-[#d7d9de] bg-white px-3 py-2.5 text-[12px] leading-6 text-[#202124] transition outline-none focus:border-[#7564e8] focus:ring-3 focus:ring-[#7564e8]/10"
                     value={hotwordsText}
