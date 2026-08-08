@@ -36,10 +36,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libasound2-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev libxkbcommon-dev patchelf rpm xdg-utils
 
-      - uses: Swatinem/rust-cache@v2
+      - name: Cache Cargo sources
+        uses: actions/cache@v6
         with:
-          workspaces: src-tauri
-          shared-key: release
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+          key: cargo-src-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: |
+            cargo-src-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - run: pnpm install --frozen-lockfile
 
