@@ -1,11 +1,16 @@
 export type ActivationMode = "toggle" | "hold";
 
+export type OverlayPosition = "bottom" | "left" | "right";
+
 export type AppSettings = {
   apiKey: string;
   shortcut: string;
   activationMode: ActivationMode;
   microphoneId: string;
   hotwords: string[];
+  onboardingCompleted: boolean;
+  launchAtStartup: boolean;
+  overlayPosition: OverlayPosition;
 };
 
 export type AsrEvent = {
@@ -29,6 +34,8 @@ export type SystemDiagnostics = {
   shortcutStatus: string;
   inputReady: boolean;
   inputStatus: string;
+  appVersion: string;
+  logDir: string;
 };
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -37,4 +44,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   activationMode: "toggle",
   microphoneId: "",
   hotwords: [],
+  onboardingCompleted: false,
+  launchAtStartup: false,
+  overlayPosition: "bottom",
 };

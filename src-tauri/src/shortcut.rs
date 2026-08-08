@@ -91,25 +91,21 @@ async fn register_portal(app: AppHandle, shortcut: &str) -> Result<JoinHandle<()
         .create_session(Default::default())
         .await
         .map_err(|error| format!("创建全局快捷键会话失败：{error}"))?;
+    let shortcuts = [NewShortcut::new(&shortcut_id, "开始或完成 VoicePaste 听写")
+        .preferred_trigger(preferred_trigger.as_str())];
     let request = global_shortcuts
-        .bind_shortcuts(
-            &session,
-            &[NewShortcut::new(&shortcut_id, "开始或完成 VoicePaste 听写")
-                .preferred_trigger(preferred_trigger.as_str())],
-            None,
-            Default::default(),
-        )
+        .bind_shortcuts(&session, &shortcuts, None, Default::default())
         .await
         .map_err(|error| format!("申请全局快捷键失败：{error}"))?;
     let response = request
         .response()
         .map_err(|error| format!("全局快捷键授权失败：{error}"))?;
-    let bound = response
+    let needs_configuration = response
         .shortcuts()
         .iter()
         .find(|shortcut| shortcut.id() == shortcut_id)
-        .ok_or_else(|| "未获得全局快捷键授权".to_owned())?;
-    if bound.trigger_description().is_empty() {
+        .is_none_or(|shortcut| shortcut.trigger_description().is_empty());
+    if needs_configuration {
         if global_shortcuts.version() < 2 {
             return Err("请在系统设置中为 VoicePaste 配置全局快捷键".to_owned());
         }

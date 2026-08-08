@@ -3,6 +3,7 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -14,35 +15,87 @@ jobs:
       matrix:
         os: [ubuntu-24.04, macos-15, windows-2025]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
+
+      - uses: jdx/mise-action@v4
+        with:
+          install_args: node pnpm rust
+
+      - name: Validate release version
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e "const fs=require('fs');const p=require('./package.json').version;const t=require('./src-tauri/tauri.conf.json').version;const c=fs.readFileSync('./src-tauri/Cargo.toml','utf8').match(/^version = \"([^\"]+)\"/m)?.[1];if(p!==t||p!==c||process.env.GITHUB_REF_NAME!==('v'+p)){console.error('版本或 tag 不一致：package='+p+', tauri='+t+', cargo='+c+', tag='+process.env.GITHUB_REF_NAME);process.exit(1)}"
+
       - name: Install Linux system dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev libxkbcommon-dev patchelf xdg-utils
-      - uses: pnpm/action-setup@v6
-        with:
-          version: 10.34.5
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24.18.0
-          cache: pnpm
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: 1.88.0
+          sudo apt-get install -y libasound2-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev libxkbcommon-dev patchelf rpm xdg-utils
+
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
           shared-key: release
+
       - run: pnpm install --frozen-lockfile
-      - uses: tauri-apps/tauri-action@v1
+
+      - name: Manual unsigned test build
+        if: github.event_name == 'workflow_dispatch'
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          uploadWorkflowArtifacts: true
+          workflowArtifactNamePattern: voicepaste-test-[platform]-[arch]-[bundle]
+
+      - name: Build and publish Linux release
+        if: github.event_name == 'push' && runner.os == 'Linux'
+        uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: VoicePaste ${{ github.ref_name }}
+          releaseBody: |
+            VoicePaste 1.0.0 首个正式版本。
+
+            提供 Linux、Apple Silicon macOS、Windows 安装包。macOS/Windows 暂不使用付费平台代码签名。
           generateReleaseNotes: true
           releaseDraft: true
-          uploadUpdaterJson: false
+          prerelease: false
+
+      - name: Build and publish macOS release
+        if: github.event_name == 'push' && runner.os == 'macOS'
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: VoicePaste ${{ github.ref_name }}
+          releaseBody: |
+            VoicePaste 1.0.0 首个正式版本。
+
+            提供 Linux、Apple Silicon macOS、Windows 安装包。macOS/Windows 暂不使用付费平台代码签名。
+          generateReleaseNotes: true
+          releaseDraft: true
+          prerelease: false
+
+      - name: Build and publish Windows release
+        if: github.event_name == 'push' && runner.os == 'Windows'
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: VoicePaste ${{ github.ref_name }}
+          releaseBody: |
+            VoicePaste 1.0.0 首个正式版本。
+
+            提供 Linux、Apple Silicon macOS、Windows 安装包。macOS/Windows 暂不使用付费平台代码签名。
+          generateReleaseNotes: true
+          releaseDraft: true
+          prerelease: false

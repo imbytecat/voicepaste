@@ -20,6 +20,15 @@ pub enum ActivationMode {
     Hold,
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OverlayPosition {
+    #[default]
+    Bottom,
+    Left,
+    Right,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct AppSettings {
@@ -28,6 +37,9 @@ pub struct AppSettings {
     pub activation_mode: ActivationMode,
     pub microphone_id: String,
     pub hotwords: Vec<String>,
+    pub onboarding_completed: bool,
+    pub launch_at_startup: bool,
+    pub overlay_position: OverlayPosition,
 }
 
 impl Default for AppSettings {
@@ -38,6 +50,9 @@ impl Default for AppSettings {
             activation_mode: ActivationMode::default(),
             microphone_id: String::new(),
             hotwords: Vec::new(),
+            onboarding_completed: false,
+            launch_at_startup: false,
+            overlay_position: OverlayPosition::default(),
         }
     }
 }
@@ -49,6 +64,8 @@ struct PersistedSettings {
     activation_mode: ActivationMode,
     microphone_id: String,
     hotwords: Vec<String>,
+    onboarding_completed: bool,
+    overlay_position: OverlayPosition,
     #[serde(skip_serializing)]
     api_key_fallback: Option<String>,
 }
@@ -121,6 +138,9 @@ pub fn load(app: &AppHandle) -> Result<LoadedSettings, String> {
             activation_mode: persisted.activation_mode,
             microphone_id: persisted.microphone_id,
             hotwords: persisted.hotwords,
+            onboarding_completed: persisted.onboarding_completed,
+            launch_at_startup: false,
+            overlay_position: persisted.overlay_position,
         },
         notice,
     })
@@ -148,6 +168,8 @@ pub fn save(app: &AppHandle, settings: &AppSettings) -> Result<CredentialStorage
             activation_mode: settings.activation_mode,
             microphone_id: settings.microphone_id.clone(),
             hotwords: settings.hotwords.clone(),
+            onboarding_completed: settings.onboarding_completed,
+            overlay_position: settings.overlay_position,
             api_key_fallback: None,
         },
     )?;
@@ -201,5 +223,20 @@ mod tests {
             ["VoicePaste", "豆包"]
         );
         assert!(sanitize_hotwords(vec!["字".repeat(101)]).is_err());
+    }
+
+    #[test]
+    fn older_settings_receive_safe_product_defaults() {
+        let persisted: PersistedSettings = serde_json::from_value(serde_json::json!({
+            "shortcut": "Control+Space",
+            "hotwords": ["VoicePaste"]
+        }))
+        .unwrap();
+
+        assert!(!persisted.onboarding_completed);
+        assert!(matches!(
+            persisted.overlay_position,
+            OverlayPosition::Bottom
+        ));
     }
 }

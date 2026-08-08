@@ -3,5 +3,6 @@
   "identifier": "desktop-capability",
   "description": "VoicePaste 桌面窗口权限",
   "windows": ["settings", "overlay"],
-  "permissions": ["core:default"]
+  "platforms": ["macOS", "windows", "linux"],
+  "permissions": ["core:default", "autostart:default", "window-state:default"]
 }

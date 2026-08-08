@@ -31,17 +31,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
+      - uses: jdx/mise-action@v4
         with:
-          version: 10.34.5
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24.18.0
+          install_args: node pnpm rust cargo:cargo-audit
       - run: pnpm audit --audit-level high
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: 1.88.0
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-audit@0.22.2
       - run: cargo audit --file src-tauri/Cargo.lock

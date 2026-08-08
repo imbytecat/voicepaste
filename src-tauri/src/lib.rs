@@ -4,26 +4,40 @@ mod paste;
 mod settings;
 mod shortcut;
 
-use std::sync::{
-    Arc, Mutex, RwLock,
-    atomic::{AtomicBool, Ordering},
+use std::{
+    fs,
+    sync::{
+        Arc, Mutex, RwLock,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 use asr::{AsrOutcome, AudioCommand};
 use paste::{InputStatus, PasteOutcome};
 use serde::Serialize;
 use serde_json::json;
-use settings::{ActivationMode, AppSettings, CredentialStorage};
+use settings::{ActivationMode, AppSettings, CredentialStorage, OverlayPosition};
 use shortcut::ShortcutManager;
 use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, State, WebviewWindow, WindowEvent,
-    menu::{Menu, MenuItem},
-    tray::TrayIconBuilder,
+    menu::{Menu, MenuItem, PredefinedMenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
+use tauri_plugin_autostart::ManagerExt as _;
+use tauri_plugin_clipboard_manager::ClipboardExt as _;
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 use tauri_plugin_global_shortcut::ShortcutState;
 use tokio::sync::{mpsc, watch};
 
 const API_KEY_CONSOLE_URL: &str = "https://console.volcengine.com/speech/new/setting/apikeys";
+const HOMEPAGE_URL: &str = "https://github.com/imbytecat/voicepaste";
+const RELEASES_URL: &str = "https://github.com/imbytecat/voicepaste/releases/latest";
+const HELP_URL: &str = "https://github.com/imbytecat/voicepaste/issues";
+const PRIVACY_URL: &str = "https://github.com/imbytecat/voicepaste/blob/main/PRIVACY.md";
+const TRAY_STATUS_ID: &str = "status";
+const TRAY_OPEN_ID: &str = "settings";
+const TRAY_RELEASES_ID: &str = "releases";
+const TRAY_QUIT_ID: &str = "quit";
 
 struct RecognitionSession {
     id: String,
@@ -55,6 +69,8 @@ struct AppState {
     shortcut_down: AtomicBool,
     audio_capture: Mutex<Option<ActiveAudioCapture>>,
     input_session: Arc<paste::InputSession>,
+    settings_dirty: AtomicBool,
+    tray_status: Mutex<Option<MenuItem<tauri::Wry>>>,
 }
 
 impl Default for AppState {
@@ -70,6 +86,8 @@ impl Default for AppState {
             shortcut_down: AtomicBool::new(false),
             audio_capture: Mutex::new(None),
             input_session: Arc::new(paste::InputSession::default()),
+            settings_dirty: AtomicBool::new(false),
+            tray_status: Mutex::new(None),
         }
     }
 }
@@ -93,6 +111,8 @@ struct SystemDiagnostics {
     shortcut_status: String,
     input_ready: bool,
     input_status: String,
+    app_version: String,
+    log_dir: String,
 }
 
 fn require_window(window: &WebviewWindow, expected: &str) -> Result<(), String> {
@@ -117,6 +137,48 @@ fn initialize_input_session(input_session: Arc<paste::InputSession>) {
     tauri::async_runtime::spawn_blocking(move || {
         let _ = input_session.initialize();
     });
+}
+
+fn tray_ready_text(settings: &AppSettings) -> String {
+    format!("就绪 · {}", settings.shortcut)
+}
+
+fn set_tray_status(state: &AppState, text: impl AsRef<str>) {
+    if let Ok(item) = state.tray_status.lock()
+        && let Some(item) = item.as_ref()
+    {
+        let _ = item.set_text(text);
+    }
+}
+
+fn apply_autostart(app: &AppHandle, enabled: bool) -> Result<(), String> {
+    let manager = app.autolaunch();
+    let current = manager
+        .is_enabled()
+        .map_err(|error| format!("读取开机启动状态失败：{error}"))?;
+    if current == enabled {
+        return Ok(());
+    }
+    if enabled {
+        manager
+            .enable()
+            .map_err(|error| format!("开启开机启动失败：{error}"))
+    } else {
+        manager
+            .disable()
+            .map_err(|error| format!("关闭开机启动失败：{error}"))
+    }
+}
+
+#[tauri::command]
+fn set_settings_dirty(
+    window: WebviewWindow,
+    state: State<'_, AppState>,
+    dirty: bool,
+) -> Result<(), String> {
+    require_window(&window, "settings")?;
+    state.settings_dirty.store(dirty, Ordering::Release);
+    Ok(())
 }
 
 #[tauri::command]
@@ -163,6 +225,13 @@ async fn save_settings(
         .shortcut_manager
         .replace(&app, &settings.shortcut, Some(&old_settings.shortcut))
         .await?;
+    if let Err(error) = apply_autostart(&app, settings.launch_at_startup) {
+        let _ = state
+            .shortcut_manager
+            .replace(&app, &old_settings.shortcut, Some(&settings.shortcut))
+            .await;
+        return Err(error);
+    }
     let save_app = app.clone();
     let settings_to_save = settings.clone();
     // Linux keyring uses its own async runtime, so it must not run on a Tokio worker.
@@ -174,6 +243,7 @@ async fn save_settings(
                     .shortcut_manager
                     .replace(&app, &old_settings.shortcut, Some(&settings.shortcut))
                     .await;
+                let _ = apply_autostart(&app, old_settings.launch_at_startup);
                 return Err(error);
             }
         };
@@ -181,11 +251,13 @@ async fn save_settings(
     *state
         .settings
         .write()
-        .map_err(|_| "设置状态已损坏，请重启应用".to_owned())? = settings;
+        .map_err(|_| "设置状态已损坏，请重启应用".to_owned())? = settings.clone();
+    state.settings_dirty.store(false, Ordering::Release);
     if should_initialize_input {
         initialize_input_session(Arc::clone(&state.input_session));
     }
     set_shortcut_status(&app, "全局快捷键已启用");
+    set_tray_status(&state, tray_ready_text(&settings));
     Ok(SaveSettingsResult { credential_storage })
 }
 
@@ -225,6 +297,7 @@ async fn start_recognition(
             cancel,
         });
     }
+    set_tray_status(&state, "正在听写");
 
     let session_slot = Arc::clone(&state.session);
     let input_session = Arc::clone(&state.input_session);
@@ -282,6 +355,10 @@ async fn start_recognition(
             ),
         }
         clear_current_session(&session_slot, &session_id);
+        let state = app.state::<AppState>();
+        if let Ok(settings) = state.settings.read() {
+            set_tray_status(&state, tray_ready_text(&settings));
+        }
     });
     Ok(())
 }
@@ -386,16 +463,7 @@ fn cancel_recognition(
     session_id: String,
 ) -> Result<(), String> {
     require_window(&window, "overlay")?;
-    let mut session = state
-        .session
-        .lock()
-        .map_err(|_| "听写状态已损坏，请重启应用".to_owned())?;
-    if session.as_ref().map(|session| session.id.as_str()) != Some(session_id.as_str()) {
-        return Ok(());
-    }
-    if let Some(session) = session.take() {
-        let _ = session.cancel.send(true);
-    }
+    signal_cancel(&state.session, Some(&session_id))?;
     Ok(())
 }
 
@@ -436,6 +504,7 @@ async fn test_doubao(window: WebviewWindow, api_key: String) -> Result<(), Strin
 #[tauri::command]
 fn system_diagnostics(
     window: WebviewWindow,
+    app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<SystemDiagnostics, String> {
     require_window(&window, "settings")?;
@@ -452,6 +521,13 @@ fn system_diagnostics(
             .clone(),
         input_ready,
         input_status,
+        app_version: app.package_info().version.to_string(),
+        log_dir: app
+            .path()
+            .app_log_dir()
+            .map_err(|error| format!("读取日志目录失败：{error}"))?
+            .display()
+            .to_string(),
     })
 }
 
@@ -471,6 +547,51 @@ fn open_api_key_console(window: WebviewWindow) -> Result<(), String> {
     open::that(API_KEY_CONSOLE_URL).map_err(|error| format!("打开火山引擎控制台失败：{error}"))
 }
 
+#[tauri::command]
+fn open_product_link(window: WebviewWindow, target: String) -> Result<(), String> {
+    require_window(&window, "settings")?;
+    let (url, label) = match target.as_str() {
+        "homepage" => (HOMEPAGE_URL, "项目主页"),
+        "help" => (HELP_URL, "帮助与反馈"),
+        "privacy" => (PRIVACY_URL, "隐私说明"),
+        "releases" => (RELEASES_URL, "最新版本"),
+        _ => return Err("未知链接".to_owned()),
+    };
+    open::that(url).map_err(|error| format!("打开{label}失败：{error}"))
+}
+
+#[tauri::command]
+fn open_log_dir(window: WebviewWindow, app: AppHandle) -> Result<(), String> {
+    require_window(&window, "settings")?;
+    let path = app
+        .path()
+        .app_log_dir()
+        .map_err(|error| format!("读取日志目录失败：{error}"))?;
+    fs::create_dir_all(&path).map_err(|error| format!("创建日志目录失败：{error}"))?;
+    open::that(path).map_err(|error| format!("打开日志目录失败：{error}"))
+}
+
+#[tauri::command]
+fn copy_diagnostics(
+    window: WebviewWindow,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    require_window(&window, "settings")?;
+    let diagnostics = system_diagnostics(window, app.clone(), state)?;
+    let text = format!(
+        "VoicePaste {}\n快捷键：{}\n自动粘贴：{}\n系统：{} {}",
+        diagnostics.app_version,
+        diagnostics.shortcut_status,
+        diagnostics.input_status,
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+    );
+    app.clipboard()
+        .write_text(text)
+        .map_err(|error| format!("复制诊断信息失败：{error}"))
+}
+
 fn current_audio_sender(
     state: &State<'_, AppState>,
     session_id: &str,
@@ -484,6 +605,22 @@ fn current_audio_sender(
         .filter(|session| session.id == session_id)
         .ok_or_else(|| "当前听写会话已结束".to_owned())?;
     Ok(session.audio.clone())
+}
+
+fn signal_cancel(
+    session_slot: &Mutex<Option<RecognitionSession>>,
+    session_id: Option<&str>,
+) -> Result<bool, String> {
+    let session = session_slot
+        .lock()
+        .map_err(|_| "听写状态已损坏，请重启应用".to_owned())?;
+    let Some(session) = session
+        .as_ref()
+        .filter(|session| session_id.is_none_or(|id| session.id == id))
+    else {
+        return Ok(false);
+    };
+    Ok(session.cancel.send(true).is_ok())
 }
 
 fn is_current_session(session_slot: &Mutex<Option<RecognitionSession>>, session_id: &str) -> bool {
@@ -574,15 +711,40 @@ fn show_overlay(app: &AppHandle) -> Result<(), String> {
         .outer_size()
         .map_err(|error| format!("读取悬浮窗尺寸失败：{error}"))?;
     let work_area = monitor.work_area();
-    let bottom_inset = (88.0 * monitor.scale_factor()).round() as u32;
-    let x =
+    let scale = monitor.scale_factor();
+    let edge_inset = (24.0 * scale).round() as u32;
+    let bottom_inset = (88.0 * scale).round() as u32;
+    let centered_x =
         work_area.position.x + (work_area.size.width.saturating_sub(window_size.width) / 2) as i32;
-    let y = work_area.position.y
-        + work_area
-            .size
-            .height
-            .saturating_sub(window_size.height)
-            .saturating_sub(bottom_inset) as i32;
+    let centered_y = work_area.position.y
+        + (work_area.size.height.saturating_sub(window_size.height) / 2) as i32;
+    let position = app
+        .state::<AppState>()
+        .settings
+        .read()
+        .map(|settings| settings.overlay_position)
+        .unwrap_or_default();
+    let (x, y) = match position {
+        OverlayPosition::Bottom => (
+            centered_x,
+            work_area.position.y
+                + work_area
+                    .size
+                    .height
+                    .saturating_sub(window_size.height)
+                    .saturating_sub(bottom_inset) as i32,
+        ),
+        OverlayPosition::Left => (work_area.position.x + edge_inset as i32, centered_y),
+        OverlayPosition::Right => (
+            work_area.position.x
+                + work_area
+                    .size
+                    .width
+                    .saturating_sub(window_size.width)
+                    .saturating_sub(edge_inset) as i32,
+            centered_y,
+        ),
+    };
     overlay
         .set_position(PhysicalPosition::new(x, y))
         .map_err(|error| format!("定位悬浮窗失败：{error}"))?;
@@ -599,8 +761,32 @@ fn show_settings(app: &AppHandle) {
     }
 }
 
+fn request_quit(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    if !state.settings_dirty.load(Ordering::Acquire) {
+        app.exit(0);
+        return;
+    }
+    let quit_app = app.clone();
+    app.dialog()
+        .message("当前设置尚未保存，仍要退出 VoicePaste 吗？")
+        .title("退出 VoicePaste")
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            "退出".to_owned(),
+            "继续编辑".to_owned(),
+        ))
+        .show(move |confirmed| {
+            if confirmed {
+                quit_app.exit(0);
+            } else {
+                show_settings(&quit_app);
+            }
+        });
+}
+
 fn setup_app(app: &mut tauri::App) -> Result<(), String> {
-    let loaded = settings::load(app.handle())?;
+    let mut loaded = settings::load(app.handle())?;
+    loaded.settings.launch_at_startup = app.autolaunch().is_enabled().unwrap_or(false);
     let app_state = app.state::<AppState>();
     *app_state
         .settings
@@ -612,28 +798,67 @@ fn setup_app(app: &mut tauri::App) -> Result<(), String> {
         .map_err(|_| "设置提示状态已损坏，请重启应用".to_owned())? = loaded.notice;
     let should_initialize_input = !loaded.settings.api_key.is_empty();
     Arc::clone(&app_state.shortcut_manager)
-        .register_initial(app.handle().clone(), loaded.settings.shortcut);
+        .register_initial(app.handle().clone(), loaded.settings.shortcut.clone());
     if should_initialize_input {
         initialize_input_session(Arc::clone(&app_state.input_session));
     }
 
-    let open_settings = MenuItem::with_id(app, "settings", "打开设置", true, None::<&str>)
+    let status = MenuItem::with_id(
+        app,
+        TRAY_STATUS_ID,
+        tray_ready_text(&loaded.settings),
+        false,
+        None::<&str>,
+    )
+    .map_err(|error| format!("创建托盘状态失败：{error}"))?;
+    let open_settings = MenuItem::with_id(app, TRAY_OPEN_ID, "打开 VoicePaste", true, None::<&str>)
         .map_err(|error| format!("创建托盘菜单失败：{error}"))?;
-    let quit = MenuItem::with_id(app, "quit", "退出 VoicePaste", true, None::<&str>)
+    let releases = MenuItem::with_id(app, TRAY_RELEASES_ID, "查看最新版本…", true, None::<&str>)
         .map_err(|error| format!("创建托盘菜单失败：{error}"))?;
-    let menu = Menu::with_items(app, &[&open_settings, &quit])
+    let separator =
+        PredefinedMenuItem::separator(app).map_err(|error| format!("创建托盘菜单失败：{error}"))?;
+    let quit = MenuItem::with_id(app, TRAY_QUIT_ID, "退出 VoicePaste", true, None::<&str>)
         .map_err(|error| format!("创建托盘菜单失败：{error}"))?;
+    let menu = Menu::with_items(
+        app,
+        &[&status, &open_settings, &releases, &separator, &quit],
+    )
+    .map_err(|error| format!("创建托盘菜单失败：{error}"))?;
+    *app_state
+        .tray_status
+        .lock()
+        .map_err(|_| "托盘状态已损坏，请重启应用".to_owned())? = Some(status);
     let mut tray = TrayIconBuilder::new()
         .menu(&menu)
         .tooltip("VoicePaste")
-        .show_menu_on_left_click(true)
+        .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
-            "settings" => show_settings(app),
-            "quit" => app.exit(0),
+            TRAY_OPEN_ID => show_settings(app),
+            TRAY_RELEASES_ID => {
+                show_settings(app);
+                let _ = app.emit_to("settings", "settings-section", "about");
+            }
+            TRAY_QUIT_ID => request_quit(app),
             _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if matches!(
+                event,
+                TrayIconEvent::Click {
+                    button: MouseButton::Left,
+                    button_state: MouseButtonState::Up,
+                    ..
+                }
+            ) {
+                show_settings(tray.app_handle());
+            }
         });
     if let Some(icon) = app.default_window_icon() {
         tray = tray.icon(icon.clone());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        tray = tray.icon_as_template(true);
     }
     tray.build(app)
         .map_err(|error| format!("创建系统托盘失败：{error}"))?;
@@ -642,6 +867,12 @@ fn setup_app(app: &mut tauri::App) -> Result<(), String> {
     app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
     if let Some(window) = app.get_webview_window("settings") {
+        if loaded.settings.onboarding_completed {
+            let _ = window.hide();
+        } else {
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
         let close_window = window.clone();
         window.on_window_event(move |event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
@@ -656,6 +887,21 @@ fn setup_app(app: &mut tauri::App) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_window_state::Builder::new().build())
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .level(tauri_plugin_log::log::LevelFilter::Info)
+                .targets([
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir {
+                        file_name: Some("voicepaste".to_owned()),
+                    }),
+                ])
+                .max_file_size(1_000_000)
+                .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepSome(3))
+                .build(),
+        )
+        .plugin(tauri_plugin_autostart::Builder::new().build())
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             show_settings(app)
         }))
@@ -672,6 +918,7 @@ pub fn run() {
         .setup(|app| Ok(setup_app(app).map_err(std::io::Error::other)?))
         .invoke_handler(tauri::generate_handler![
             load_settings,
+            set_settings_dirty,
             save_settings,
             start_recognition,
             list_microphones,
@@ -684,7 +931,10 @@ pub fn run() {
             test_doubao,
             system_diagnostics,
             retry_input_access,
-            open_api_key_console
+            open_api_key_console,
+            open_product_link,
+            open_log_dir,
+            copy_diagnostics,
         ])
         .run(tauri::generate_context!())
         .expect("VoicePaste 启动失败");
@@ -692,7 +942,9 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::offload_blocking_result;
+    use super::{AudioCommand, RecognitionSession, offload_blocking_result, signal_cancel};
+    use std::sync::Mutex;
+    use tokio::sync::{mpsc, watch};
 
     #[test]
     fn blocking_operations_can_create_their_own_runtime() {
@@ -709,5 +961,20 @@ mod tests {
         }));
 
         assert_eq!(result.unwrap(), 42);
+    }
+
+    #[test]
+    fn cancelling_keeps_session_until_worker_cleanup() {
+        let (audio, _) = mpsc::channel::<AudioCommand>(1);
+        let (cancel, cancelled) = watch::channel(false);
+        let session = Mutex::new(Some(RecognitionSession {
+            id: "session".to_owned(),
+            audio,
+            cancel,
+        }));
+
+        assert!(signal_cancel(&session, Some("session")).unwrap());
+        assert!(*cancelled.borrow());
+        assert!(session.lock().unwrap().is_some());
     }
 }
