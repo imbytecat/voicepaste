@@ -9,23 +9,14 @@ import {
   KeyRound,
   Mic,
   RefreshCw,
+  RotateCcw,
   Save,
   ShieldCheck,
 } from "lucide-react";
-import { type KeyboardEvent, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AudioCapture, type MicrophoneDevice } from "../audio";
-import { type AppSettings, DEFAULT_SETTINGS, type PlatformDiagnostics, type SaveSettingsResult } from "../types";
-
-const MODIFIER_CODE: Record<string, true> = {
-  AltLeft: true,
-  AltRight: true,
-  ControlLeft: true,
-  ControlRight: true,
-  MetaLeft: true,
-  MetaRight: true,
-  ShiftLeft: true,
-  ShiftRight: true,
-};
+import { formatShortcut, formatShortcutLabel, useShortcutRecorder } from "../shortcut";
+import { type AppSettings, DEFAULT_SETTINGS, type SaveSettingsResult, type SystemDiagnostics } from "../types";
 
 const INPUT_CLASS =
   "h-10 w-full rounded-[10px] border border-[#c9ced8] bg-[#fafbfc] px-3 text-[12px] text-[#222838] outline-none transition focus:border-[#7564e8] focus:bg-white focus:ring-3 focus:ring-[#6d5ce7]/15";
@@ -37,105 +28,18 @@ const SECTIONS = [
   ["diagnostics", "权限诊断"],
 ] as const;
 
-type Platform = "mac" | "windows" | "linux";
 type Message = { kind: "success" | "error" | "info"; text: string } | null;
 type LoadSettingsResult = { settings: AppSettings; notice?: string };
 
-const DISPLAY_KEY_LABELS: Record<Platform, Record<string, string>> = {
-  mac: {
-    CommandOrControl: "⌘",
-    Command: "⌘",
-    Control: "⌃",
-    Alt: "⌥",
-    Shift: "⇧",
-    Meta: "⌘",
-    Super: "⌘",
-    Enter: "↩",
-    Backspace: "⌫",
-    Delete: "⌦",
-  },
-  windows: {
-    CommandOrControl: "Ctrl",
-    Command: "Win",
-    Control: "Ctrl",
-    Alt: "Alt",
-    Shift: "Shift",
-    Meta: "Win",
-    Super: "Win",
-    Delete: "Del",
-  },
-  linux: {
-    CommandOrControl: "Ctrl",
-    Command: "Super",
-    Control: "Ctrl",
-    Alt: "Alt",
-    Shift: "Shift",
-    Meta: "Super",
-    Super: "Super",
-    Delete: "Del",
-  },
-};
-
-const COMMON_KEY_LABELS: Record<string, string> = {
-  Escape: "Esc",
-  ArrowUp: "↑",
-  ArrowDown: "↓",
-  ArrowLeft: "←",
-  ArrowRight: "→",
-};
-
-function currentPlatform(): Platform {
-  if (navigator.userAgent.includes("Macintosh")) return "mac";
-  if (navigator.userAgent.includes("Windows")) return "windows";
-  return "linux";
-}
-
 function ShortcutHint({ shortcut }: { shortcut: string }) {
-  const platform = currentPlatform();
-  const keys = shortcut.split("+").map((key) => DISPLAY_KEY_LABELS[platform][key] ?? COMMON_KEY_LABELS[key] ?? key);
-  const accessibleKeys = shortcut
-    .split("+")
-    .map((key) =>
-      key === "CommandOrControl"
-        ? platform === "mac"
-          ? "Command"
-          : "Control"
-        : platform === "mac" && key === "Alt"
-          ? "Option"
-          : key,
-    )
-    .join(" + ");
-
   return (
-    <span aria-label={accessibleKeys}>
-      <span className="inline-flex items-center gap-1" aria-hidden="true">
-        {keys.map((key, index) => (
-          <kbd
-            className="grid h-6 min-w-6 place-items-center rounded-[6px] border border-[#c8cdd7] bg-white px-1.5 font-sans text-[10px] leading-none font-semibold text-[#3d4454] shadow-[0_1px_0_#bfc4ce]"
-            key={`${key}-${index}`}
-          >
-            {key}
-          </kbd>
-        ))}
-      </span>
-    </span>
+    <kbd
+      aria-label={formatShortcutLabel(shortcut)}
+      className="rounded-[6px] border border-[#c8cdd7] bg-white px-1.5 py-1 font-sans text-[10px] leading-none font-semibold text-[#3d4454] shadow-[0_1px_0_#bfc4ce]"
+    >
+      {formatShortcut(shortcut)}
+    </kbd>
   );
-}
-
-function shortcutFromKeyboardEvent(event: KeyboardEvent<HTMLButtonElement>): string | null {
-  if (MODIFIER_CODE[event.code]) return null;
-  const platform = currentPlatform();
-  const modifiers: string[] = [];
-  if (event.ctrlKey) modifiers.push("Control");
-  if (event.metaKey) modifiers.push(platform === "mac" ? "Command" : "Super");
-  if (event.altKey) modifiers.push("Alt");
-  if (event.shiftKey) modifiers.push("Shift");
-  if (modifiers.length === 0) return null;
-
-  let key = event.code;
-  if (key.startsWith("Key")) key = key.slice(3);
-  else if (key.startsWith("Digit")) key = key.slice(5);
-  return [...modifiers, key].join("+");
 }
 
 function normalizeHotwords(value: string): string[] {
@@ -202,14 +106,31 @@ export function Settings() {
   const [doubaoMessage, setDoubaoMessage] = useState<Message>(null);
   const [microphoneMessage, setMicrophoneMessage] = useState<Message>(null);
   const [showApiKey, setShowApiKey] = useState(false);
-  const [recordingShortcut, setRecordingShortcut] = useState(false);
   const [activeSection, setActiveSection] = useState("doubao");
   const [microphones, setMicrophones] = useState<MicrophoneDevice[]>([]);
   const [testingMicrophone, setTestingMicrophone] = useState(false);
   const [microphoneLevel, setMicrophoneLevel] = useState(0);
   const [testingDoubao, setTestingDoubao] = useState(false);
-  const [diagnostics, setDiagnostics] = useState<PlatformDiagnostics | null>(null);
+  const [diagnostics, setDiagnostics] = useState<SystemDiagnostics | null>(null);
   const microphoneTestRef = useRef<AudioCapture | null>(null);
+  const shortcutButtonRef = useRef<HTMLButtonElement | null>(null);
+  const shortcutRecorder = useShortcutRecorder({
+    onRecord: (shortcut) => {
+      setSettings((current) => ({ ...current, shortcut }));
+      setMessage(null);
+      shortcutButtonRef.current?.blur();
+    },
+    onInvalid: (text) => {
+      setMessage({ kind: "error", text });
+      shortcutButtonRef.current?.blur();
+    },
+  });
+
+  const resetPreferences = () => {
+    setSettings({ ...DEFAULT_SETTINGS, apiKey: settings.apiKey });
+    setHotwordsText(DEFAULT_SETTINGS.hotwords.join("\n"));
+    setMessage({ kind: "info", text: "已恢复默认值并保留 API Key；点击“保存设置”后生效。" });
+  };
 
   const refreshMicrophones = async () => {
     try {
@@ -223,7 +144,7 @@ export function Settings() {
   const refreshDiagnostics = async () => {
     if (isTauri()) {
       try {
-        setDiagnostics(await invoke<PlatformDiagnostics>("platform_diagnostics"));
+        setDiagnostics(await invoke<SystemDiagnostics>("system_diagnostics"));
       } catch (error) {
         setMessage({ kind: "error", text: String(error) });
       }
@@ -285,8 +206,7 @@ export function Settings() {
         const result = await invoke<SaveSettingsResult>("save_settings", { settings: nextSettings });
         const storage =
           result.credentialStorage === "keyring" ? "API Key 已写入系统钥匙串" : "API Key 已从系统钥匙串删除";
-        const backend = result.shortcutBackend === "portal" ? "Wayland 桌面门户" : "系统全局快捷键";
-        setMessage({ kind: "success", text: `设置已保存；${storage}；${backend}已生效` });
+        setMessage({ kind: "success", text: `设置已保存；${storage}；全局快捷键已生效` });
       } else {
         setMessage({ kind: "success", text: "预览模式：设置校验通过" });
       }
@@ -424,17 +344,29 @@ export function Settings() {
               可选择按一次切换，或按住说话、松开完成。最终修正结果会自动粘贴到原来的输入位置。
             </p>
           </div>
-          <button
-            className="h-[38px] min-w-[104px] shrink-0 cursor-pointer rounded-[10px] border-0 bg-[#171b28] px-4 text-[12px] font-semibold text-white shadow-[0_8px_22px_rgba(23,27,40,0.14)] transition hover:-translate-y-px hover:bg-[#2b3041] focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8] disabled:cursor-wait disabled:opacity-55"
-            type="button"
-            onClick={save}
-            disabled={saving}
-          >
-            <span className="flex items-center justify-center gap-1.5">
-              <Save size={13} />
-              {saving ? "保存中…" : "保存设置"}
-            </span>
-          </button>
+          <div className="flex shrink-0 gap-2">
+            <button
+              className="h-[38px] cursor-pointer rounded-[10px] border border-[#c9ced8] bg-white px-3.5 text-[11px] font-semibold text-[#4b5262] transition hover:bg-[#f0f2f5] focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8] disabled:cursor-wait disabled:opacity-55"
+              type="button"
+              onClick={resetPreferences}
+              disabled={saving}
+            >
+              <span className="flex items-center justify-center gap-1.5">
+                <RotateCcw size={12} /> 恢复默认
+              </span>
+            </button>
+            <button
+              className="h-[38px] min-w-[104px] cursor-pointer rounded-[10px] border-0 bg-[#171b28] px-4 text-[12px] font-semibold text-white shadow-[0_8px_22px_rgba(23,27,40,0.14)] transition hover:-translate-y-px hover:bg-[#2b3041] focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8] disabled:cursor-wait disabled:opacity-55"
+              type="button"
+              onClick={save}
+              disabled={saving}
+            >
+              <span className="flex items-center justify-center gap-1.5">
+                <Save size={13} />
+                {saving ? "保存中…" : "保存设置"}
+              </span>
+            </button>
+          </div>
         </header>
 
         <Feedback message={message} className="mx-auto mb-3.5 max-w-[850px]" />
@@ -545,27 +477,16 @@ export function Settings() {
               <p className="mt-1 text-[10px] text-[#7f8797]">点击右侧按键区域，再按下组合键；Esc 取消录制。</p>
             </div>
             <button
-              className={`h-[38px] min-w-[206px] cursor-pointer rounded-[9px] border px-3 font-mono text-[10px] outline-none max-[800px]:w-full ${recordingShortcut ? "border-[#9385e8] bg-[#f2efff] text-[#5847d0] ring-3 ring-[#6d5ce7]/15" : "border-[#c9ced8] bg-linear-to-b from-white to-[#f0f2f5] text-[#3f4655] shadow-[0_2px_0_#cdd1d9] focus-visible:ring-3 focus-visible:ring-[#6d5ce7]/20"}`}
+              ref={shortcutButtonRef}
+              className={`h-[38px] min-w-[206px] cursor-pointer rounded-[9px] border px-3 font-mono text-[10px] outline-none max-[800px]:w-full ${shortcutRecorder.isRecording ? "border-[#9385e8] bg-[#f2efff] text-[#5847d0] ring-3 ring-[#6d5ce7]/15" : "border-[#c9ced8] bg-linear-to-b from-white to-[#f0f2f5] text-[#3f4655] shadow-[0_2px_0_#cdd1d9] focus-visible:ring-3 focus-visible:ring-[#6d5ce7]/20"}`}
               type="button"
-              onClick={() => setRecordingShortcut(true)}
-              onBlur={() => setRecordingShortcut(false)}
-              onKeyDown={(event) => {
-                if (!recordingShortcut) return;
-                event.preventDefault();
-                event.stopPropagation();
-                if (event.key === "Escape") {
-                  setRecordingShortcut(false);
-                  event.currentTarget.blur();
-                  return;
-                }
-                const shortcut = shortcutFromKeyboardEvent(event);
-                if (!shortcut) return;
-                setSettings({ ...settings, shortcut });
-                setRecordingShortcut(false);
-                event.currentTarget.blur();
+              onClick={() => {
+                setMessage(null);
+                shortcutRecorder.startRecording();
               }}
+              onBlur={shortcutRecorder.cancelRecording}
             >
-              {recordingShortcut ? "请按组合键…（Esc 取消）" : <ShortcutHint shortcut={settings.shortcut} />}
+              {shortcutRecorder.isRecording ? "请按组合键…（Esc 取消）" : <ShortcutHint shortcut={settings.shortcut} />}
             </button>
           </div>
 
@@ -630,26 +551,12 @@ export function Settings() {
           className="mx-auto mb-[15px] max-w-[850px] scroll-mt-5 rounded-2xl border border-[#d9dde5] bg-white/95 px-6 pt-[22px] pb-6 shadow-[0_1px_2px_rgba(20,25,37,0.04),0_12px_34px_rgba(20,25,37,0.03)]"
           id="diagnostics"
         >
-          <SectionHeading
-            number="04"
-            title="权限与平台诊断"
-            description="快速确认麦克风、快捷键与自动粘贴所依赖的系统能力。"
-          />
+          <SectionHeading number="04" title="权限诊断" description="快速确认麦克风、快捷键与自动粘贴是否可用。" />
           <div className="grid grid-cols-2 gap-3 max-[800px]:grid-cols-1">
             {[
-              ["运行平台", diagnostics ? `${diagnostics.platform} · ${diagnostics.displayServer}` : currentPlatform()],
               ["全局快捷键", diagnostics?.shortcutStatus ?? "浏览器预览不注册快捷键"],
               ["麦克风权限", microphoneStatus],
-              [
-                "自动粘贴",
-                currentPlatform() === "mac"
-                  ? diagnostics?.accessibility === "granted"
-                    ? "辅助功能已授权"
-                    : "需要辅助功能权限"
-                  : currentPlatform() === "linux"
-                    ? "优先使用桌面门户 / libei，失败时保留剪贴板内容"
-                    : "受 Windows 目标程序权限级别限制",
-              ],
+              ["自动粘贴", diagnostics?.inputStatus ?? "浏览器预览不检查自动粘贴"],
             ].map(([label, value]) => (
               <div className="rounded-xl border border-[#e0e3e9] bg-[#fafbfc] p-3.5" key={label}>
                 <span className="text-[9px] font-bold tracking-[0.08em] text-[#6b7280] uppercase">{label}</span>
@@ -665,16 +572,20 @@ export function Settings() {
             >
               <RefreshCw size={12} /> 刷新诊断
             </button>
-            {currentPlatform() === "mac" && diagnostics?.accessibility !== "granted" ? (
+            {diagnostics && !diagnostics.inputReady ? (
               <button
                 className="flex h-8 cursor-pointer items-center gap-1.5 rounded-[8px] border border-[#bdb4f3] bg-[#f3f0ff] px-3 text-[10px] font-semibold text-[#5545c6] focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8]"
                 type="button"
                 onClick={async () => {
-                  await invoke("request_accessibility");
-                  await refreshDiagnostics();
+                  try {
+                    await invoke("retry_input_access");
+                    await refreshDiagnostics();
+                  } catch (error) {
+                    setMessage({ kind: "error", text: String(error) });
+                  }
                 }}
               >
-                <CheckCircle2 size={12} /> 请求辅助功能权限
+                <CheckCircle2 size={12} /> 重试自动粘贴授权
               </button>
             ) : null}
           </div>

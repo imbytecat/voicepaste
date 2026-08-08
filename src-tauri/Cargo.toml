@@ -40,7 +40,6 @@ enigo = { version = "0.6", default-features = false, features = ["libei_tokio", 
 
 [target.'cfg(target_os = "macos")'.dependencies]
 enigo = { version = "0.6", default-features = false }
-macos-accessibility-client = "0.0.2"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 enigo = { version = "0.6", default-features = false }

@@ -4,86 +4,74 @@ use tauri::AppHandle;
 use tauri::async_runtime::JoinHandle;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
 
-pub type PortalTask = Mutex<Option<JoinHandle<()>>>;
+#[derive(Default)]
+pub struct ShortcutManager {
+    backend_task: Mutex<Option<JoinHandle<()>>>,
+}
 
-pub fn uses_portal() -> bool {
+fn uses_portal() -> bool {
     cfg!(target_os = "linux") && std::env::var_os("WAYLAND_DISPLAY").is_some()
 }
 
-pub fn backend_name() -> &'static str {
-    if uses_portal() { "portal" } else { "native" }
-}
-
-pub async fn replace(
-    app: &AppHandle,
-    task_slot: &PortalTask,
-    shortcut: &str,
-    previous: Option<&str>,
-) -> Result<(), String> {
-    if uses_portal() {
-        #[cfg(target_os = "linux")]
-        {
-            let task = register_portal(app.clone(), shortcut).await?;
-            let old_task = task_slot
-                .lock()
-                .map_err(|_| "快捷键状态已损坏，请重启应用".to_owned())?
-                .replace(task);
-            if let Some(old_task) = old_task {
-                old_task.abort();
+impl ShortcutManager {
+    pub async fn replace(
+        &self,
+        app: &AppHandle,
+        shortcut: &str,
+        previous: Option<&str>,
+    ) -> Result<(), String> {
+        if uses_portal() {
+            #[cfg(target_os = "linux")]
+            {
+                let task = register_portal(app.clone(), shortcut).await?;
+                let old_task = self
+                    .backend_task
+                    .lock()
+                    .map_err(|_| "快捷键状态已损坏，请重启应用".to_owned())?
+                    .replace(task);
+                if let Some(old_task) = old_task {
+                    old_task.abort();
+                }
+                let _ = app.global_shortcut().unregister_all();
+                return Ok(());
             }
-            let _ = app.global_shortcut().unregister_all();
+        }
+
+        let parsed: Shortcut = shortcut
+            .parse()
+            .map_err(|error| format!("快捷键格式无效：{error}"))?;
+        if previous == Some(shortcut) && app.global_shortcut().is_registered(parsed) {
             return Ok(());
         }
-    }
-
-    let parsed: Shortcut = shortcut
-        .parse()
-        .map_err(|error| format!("快捷键格式无效：{error}"))?;
-    if previous == Some(shortcut) && app.global_shortcut().is_registered(parsed) {
-        return Ok(());
-    }
-    app.global_shortcut()
-        .register(parsed)
-        .map_err(|error| format!("快捷键已被其他软件占用或系统不支持：{error}"))?;
-    if let Some(previous) = previous.filter(|previous| *previous != shortcut) {
-        if let Ok(previous) = previous.parse::<Shortcut>() {
-            let _ = app.global_shortcut().unregister(previous);
+        app.global_shortcut()
+            .register(parsed)
+            .map_err(|error| format!("快捷键已被其他软件占用或系统不支持：{error}"))?;
+        if let Some(previous) = previous.filter(|previous| *previous != shortcut) {
+            if let Ok(previous) = previous.parse::<Shortcut>() {
+                let _ = app.global_shortcut().unregister(previous);
+            }
         }
+        if let Some(old_task) = self
+            .backend_task
+            .lock()
+            .map_err(|_| "快捷键状态已损坏，请重启应用".to_owned())?
+            .take()
+        {
+            old_task.abort();
+        }
+        Ok(())
     }
-    if let Some(old_task) = task_slot
-        .lock()
-        .map_err(|_| "快捷键状态已损坏，请重启应用".to_owned())?
-        .take()
-    {
-        old_task.abort();
-    }
-    Ok(())
-}
 
-pub fn register_initial(app: AppHandle, task_slot: Arc<PortalTask>, shortcut: String) {
-    if uses_portal() {
+    pub fn register_initial(self: Arc<Self>, app: AppHandle, shortcut: String) {
         tauri::async_runtime::spawn(async move {
-            match replace(&app, &task_slot, &shortcut, None).await {
-                Ok(()) => crate::set_shortcut_status(&app, "Wayland 桌面门户快捷键已启用"),
-                Err(error) => crate::set_shortcut_status(&app, &format!("快捷键未启用：{error}")),
+            match self.replace(&app, &shortcut, None).await {
+                Ok(()) => crate::set_shortcut_status(&app, "全局快捷键已启用"),
+                Err(error) => crate::set_shortcut_status(
+                    &app,
+                    &format!("保存的快捷键不可用，设置未被改写：{error}"),
+                ),
             }
         });
-    } else {
-        let result = shortcut
-            .parse::<Shortcut>()
-            .map_err(|error| error.to_string())
-            .and_then(|parsed| {
-                app.global_shortcut()
-                    .register(parsed)
-                    .map_err(|error| error.to_string())
-            });
-        match result {
-            Ok(()) => crate::set_shortcut_status(&app, "系统全局快捷键已启用"),
-            Err(error) => crate::set_shortcut_status(
-                &app,
-                &format!("保存的快捷键不可用，设置未被改写：{error}"),
-            ),
-        }
     }
 }
 
@@ -95,14 +83,14 @@ async fn register_portal(app: AppHandle, shortcut: &str) -> Result<JoinHandle<()
     let shortcut_id = portal_shortcut_id(shortcut);
     let global_shortcuts = GlobalShortcuts::new()
         .await
-        .map_err(|error| format!("连接 Wayland 快捷键门户失败：{error}"))?;
+        .map_err(|error| format!("连接系统快捷键服务失败：{error}"))?;
     if global_shortcuts.version() == 0 {
-        return Err("当前桌面不支持全局快捷键门户".to_owned());
+        return Err("当前系统不支持全局快捷键".to_owned());
     }
     let session = global_shortcuts
         .create_session(Default::default())
         .await
-        .map_err(|error| format!("创建 Wayland 快捷键会话失败：{error}"))?;
+        .map_err(|error| format!("创建全局快捷键会话失败：{error}"))?;
     let request = global_shortcuts
         .bind_shortcuts(
             &session,
@@ -112,15 +100,15 @@ async fn register_portal(app: AppHandle, shortcut: &str) -> Result<JoinHandle<()
             Default::default(),
         )
         .await
-        .map_err(|error| format!("申请 Wayland 快捷键失败：{error}"))?;
+        .map_err(|error| format!("申请全局快捷键失败：{error}"))?;
     let response = request
         .response()
-        .map_err(|error| format!("Wayland 快捷键授权失败：{error}"))?;
+        .map_err(|error| format!("全局快捷键授权失败：{error}"))?;
     let bound = response
         .shortcuts()
         .iter()
         .find(|shortcut| shortcut.id() == shortcut_id)
-        .ok_or_else(|| "未获得 Wayland 全局快捷键授权".to_owned())?;
+        .ok_or_else(|| "未获得全局快捷键授权".to_owned())?;
     if bound.trigger_description().is_empty() {
         if global_shortcuts.version() < 2 {
             return Err("请在系统设置中为 VoicePaste 配置全局快捷键".to_owned());
@@ -128,31 +116,31 @@ async fn register_portal(app: AppHandle, shortcut: &str) -> Result<JoinHandle<()
         global_shortcuts
             .configure_shortcuts(&session, None, Default::default())
             .await
-            .map_err(|error| format!("打开 Wayland 快捷键设置失败：{error}"))?;
+            .map_err(|error| format!("打开系统快捷键设置失败：{error}"))?;
         let request = global_shortcuts
             .list_shortcuts(&session, Default::default())
             .await
-            .map_err(|error| format!("读取 Wayland 快捷键失败：{error}"))?;
+            .map_err(|error| format!("读取全局快捷键失败：{error}"))?;
         let response = request
             .response()
-            .map_err(|error| format!("读取 Wayland 快捷键结果失败：{error}"))?;
+            .map_err(|error| format!("读取全局快捷键结果失败：{error}"))?;
         let configured = response
             .shortcuts()
             .iter()
             .find(|shortcut| shortcut.id() == shortcut_id)
-            .ok_or_else(|| "Wayland 快捷键配置已取消".to_owned())?;
+            .ok_or_else(|| "全局快捷键配置已取消".to_owned())?;
         if configured.trigger_description().is_empty() {
-            return Err("Wayland 快捷键配置已取消".to_owned());
+            return Err("全局快捷键配置已取消".to_owned());
         }
     }
     let mut activated = global_shortcuts
         .receive_activated()
         .await
-        .map_err(|error| format!("监听 Wayland 快捷键按下失败：{error}"))?;
+        .map_err(|error| format!("监听全局快捷键按下失败：{error}"))?;
     let mut deactivated = global_shortcuts
         .receive_deactivated()
         .await
-        .map_err(|error| format!("监听 Wayland 快捷键释放失败：{error}"))?;
+        .map_err(|error| format!("监听全局快捷键释放失败：{error}"))?;
 
     Ok(tauri::async_runtime::spawn(async move {
         let _session = session;

@@ -10,15 +10,15 @@ use std::sync::{
 };
 
 use asr::{AsrOutcome, AudioCommand};
-use paste::PasteOutcome;
+use paste::{InputStatus, PasteOutcome};
 use serde::Serialize;
 use serde_json::json;
 use settings::{ActivationMode, AppSettings, CredentialStorage};
-use shortcut::PortalTask;
+use shortcut::ShortcutManager;
 use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, State, WebviewWindow, WindowEvent,
     menu::{Menu, MenuItem},
-    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    tray::TrayIconBuilder,
 };
 use tauri_plugin_global_shortcut::ShortcutState;
 use tokio::sync::{mpsc, watch};
@@ -47,7 +47,7 @@ struct ShortcutEventPayload {
 struct AppState {
     settings: RwLock<AppSettings>,
     session: Arc<Mutex<Option<RecognitionSession>>>,
-    portal_task: Arc<PortalTask>,
+    shortcut_manager: Arc<ShortcutManager>,
     shortcut_status: RwLock<String>,
     startup_notice: Mutex<Option<String>>,
     overlay_ready: AtomicBool,
@@ -62,7 +62,7 @@ impl Default for AppState {
         Self {
             settings: RwLock::new(AppSettings::default()),
             session: Arc::new(Mutex::new(None)),
-            portal_task: Arc::new(Mutex::new(None)),
+            shortcut_manager: Arc::new(ShortcutManager::default()),
             shortcut_status: RwLock::new("正在注册快捷键…".to_owned()),
             startup_notice: Mutex::new(None),
             overlay_ready: AtomicBool::new(false),
@@ -85,17 +85,14 @@ struct LoadSettingsResult {
 #[serde(rename_all = "camelCase")]
 struct SaveSettingsResult {
     credential_storage: CredentialStorage,
-    shortcut_backend: &'static str,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct PlatformDiagnostics {
-    platform: &'static str,
-    display_server: &'static str,
-    shortcut_backend: &'static str,
+struct SystemDiagnostics {
     shortcut_status: String,
-    accessibility: &'static str,
+    input_ready: bool,
+    input_status: String,
 }
 
 fn require_window(window: &WebviewWindow, expected: &str) -> Result<(), String> {
@@ -117,11 +114,9 @@ where
 }
 
 fn initialize_input_session(input_session: Arc<paste::InputSession>) {
-    if shortcut::uses_portal() {
-        tauri::async_runtime::spawn_blocking(move || {
-            let _ = input_session.initialize();
-        });
-    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let _ = input_session.initialize();
+    });
 }
 
 #[tauri::command]
@@ -164,13 +159,10 @@ async fn save_settings(
         .read()
         .map_err(|_| "设置状态已损坏，请重启应用".to_owned())?
         .clone();
-    shortcut::replace(
-        &app,
-        &state.portal_task,
-        &settings.shortcut,
-        Some(&old_settings.shortcut),
-    )
-    .await?;
+    state
+        .shortcut_manager
+        .replace(&app, &settings.shortcut, Some(&old_settings.shortcut))
+        .await?;
     let save_app = app.clone();
     let settings_to_save = settings.clone();
     // Linux keyring uses its own async runtime, so it must not run on a Tokio worker.
@@ -178,13 +170,10 @@ async fn save_settings(
         match offload_blocking_result(move || settings::save(&save_app, &settings_to_save)).await {
             Ok(storage) => storage,
             Err(error) => {
-                let _ = shortcut::replace(
-                    &app,
-                    &state.portal_task,
-                    &old_settings.shortcut,
-                    Some(&settings.shortcut),
-                )
-                .await;
+                let _ = state
+                    .shortcut_manager
+                    .replace(&app, &old_settings.shortcut, Some(&settings.shortcut))
+                    .await;
                 return Err(error);
             }
         };
@@ -196,18 +185,8 @@ async fn save_settings(
     if should_initialize_input {
         initialize_input_session(Arc::clone(&state.input_session));
     }
-    set_shortcut_status(
-        &app,
-        if shortcut::uses_portal() {
-            "Wayland 桌面门户快捷键已启用"
-        } else {
-            "系统全局快捷键已启用"
-        },
-    );
-    Ok(SaveSettingsResult {
-        credential_storage,
-        shortcut_backend: shortcut::backend_name(),
-    })
+    set_shortcut_status(&app, "全局快捷键已启用");
+    Ok(SaveSettingsResult { credential_storage })
 }
 
 #[tauri::command]
@@ -279,13 +258,7 @@ async fn start_recognition(
                     ),
                     Ok(PasteOutcome::Copied(error)) => {
                         let _ = show_overlay(&app);
-                        let hint = if cfg!(target_os = "macos") {
-                            "已复制到剪贴板；请在系统设置中授予 VoicePaste“辅助功能”权限"
-                        } else if cfg!(target_os = "linux") {
-                            "已复制到剪贴板；当前桌面未允许模拟粘贴，请重启 VoicePaste 并完成远程输入授权"
-                        } else {
-                            "已复制到剪贴板；目标程序权限高于 VoicePaste，无法自动粘贴"
-                        };
+                        let hint = "已复制到剪贴板；自动粘贴暂不可用，请在设置中重试系统授权";
                         emit_asr_event(
                             &app,
                             &session_id,
@@ -461,33 +434,35 @@ async fn test_doubao(window: WebviewWindow, api_key: String) -> Result<(), Strin
 }
 
 #[tauri::command]
-fn platform_diagnostics(
+fn system_diagnostics(
     window: WebviewWindow,
     state: State<'_, AppState>,
-) -> Result<PlatformDiagnostics, String> {
+) -> Result<SystemDiagnostics, String> {
     require_window(&window, "settings")?;
-    Ok(PlatformDiagnostics {
-        platform: std::env::consts::OS,
-        display_server: display_server(),
-        shortcut_backend: shortcut::backend_name(),
+    let (input_ready, input_status) = match state.input_session.status()? {
+        InputStatus::Uninitialized => (false, "尚未检查".to_owned()),
+        InputStatus::Ready => (true, "可用".to_owned()),
+        InputStatus::Unavailable(error) => (false, format!("暂不可用：{error}")),
+    };
+    Ok(SystemDiagnostics {
         shortcut_status: state
             .shortcut_status
             .read()
             .map_err(|_| "快捷键诊断状态已损坏，请重启应用".to_owned())?
             .clone(),
-        accessibility: accessibility_status(),
+        input_ready,
+        input_status,
     })
 }
 
 #[tauri::command]
-fn request_accessibility(window: WebviewWindow) -> Result<bool, String> {
+async fn retry_input_access(
+    window: WebviewWindow,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
     require_window(&window, "settings")?;
-    #[cfg(target_os = "macos")]
-    {
-        Ok(macos_accessibility_client::accessibility::application_is_trusted_with_prompt())
-    }
-    #[cfg(not(target_os = "macos"))]
-    Err("当前平台不需要 macOS 辅助功能权限".to_owned())
+    let input_session = Arc::clone(&state.input_session);
+    offload_blocking_result(move || input_session.retry()).await
 }
 
 #[tauri::command]
@@ -624,42 +599,6 @@ fn show_settings(app: &AppHandle) {
     }
 }
 
-fn display_server() -> &'static str {
-    #[cfg(target_os = "linux")]
-    {
-        if std::env::var_os("WAYLAND_DISPLAY").is_some() {
-            return "Wayland";
-        }
-        if std::env::var_os("DISPLAY").is_some() {
-            return "X11";
-        }
-        "未知"
-    }
-    #[cfg(target_os = "macos")]
-    {
-        "Quartz"
-    }
-    #[cfg(target_os = "windows")]
-    {
-        "Windows"
-    }
-}
-
-fn accessibility_status() -> &'static str {
-    #[cfg(target_os = "macos")]
-    {
-        if macos_accessibility_client::accessibility::application_is_trusted() {
-            "granted"
-        } else {
-            "denied"
-        }
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        "unsupported"
-    }
-}
-
 fn setup_app(app: &mut tauri::App) -> Result<(), String> {
     let loaded = settings::load(app.handle())?;
     let app_state = app.state::<AppState>();
@@ -672,11 +611,8 @@ fn setup_app(app: &mut tauri::App) -> Result<(), String> {
         .lock()
         .map_err(|_| "设置提示状态已损坏，请重启应用".to_owned())? = loaded.notice;
     let should_initialize_input = !loaded.settings.api_key.is_empty();
-    shortcut::register_initial(
-        app.handle().clone(),
-        Arc::clone(&app_state.portal_task),
-        loaded.settings.shortcut,
-    );
+    Arc::clone(&app_state.shortcut_manager)
+        .register_initial(app.handle().clone(), loaded.settings.shortcut);
     if should_initialize_input {
         initialize_input_session(Arc::clone(&app_state.input_session));
     }
@@ -690,25 +626,11 @@ fn setup_app(app: &mut tauri::App) -> Result<(), String> {
     let mut tray = TrayIconBuilder::new()
         .menu(&menu)
         .tooltip("VoicePaste")
-        .show_menu_on_left_click(cfg!(target_os = "macos"))
+        .show_menu_on_left_click(true)
         .on_menu_event(|app, event| match event.id.as_ref() {
             "settings" => show_settings(app),
             "quit" => app.exit(0),
             _ => {}
-        })
-        .on_tray_icon_event(|tray, event| {
-            if !cfg!(target_os = "macos")
-                && matches!(
-                    event,
-                    TrayIconEvent::Click {
-                        button: MouseButton::Left,
-                        button_state: MouseButtonState::Up,
-                        ..
-                    }
-                )
-            {
-                show_settings(tray.app_handle());
-            }
         });
     if let Some(icon) = app.default_window_icon() {
         tray = tray.icon(icon.clone());
@@ -760,8 +682,8 @@ pub fn run() {
             hide_overlay,
             overlay_ready,
             test_doubao,
-            platform_diagnostics,
-            request_accessibility,
+            system_diagnostics,
+            retry_input_access,
             open_api_key_console
         ])
         .run(tauri::generate_context!())

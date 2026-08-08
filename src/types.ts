@@ -23,15 +23,12 @@ export type ShortcutEvent = {
 
 export type SaveSettingsResult = {
   credentialStorage: "keyring" | "removed";
-  shortcutBackend: "native" | "portal";
 };
 
-export type PlatformDiagnostics = {
-  platform: string;
-  displayServer: string;
-  shortcutBackend: string;
+export type SystemDiagnostics = {
   shortcutStatus: string;
-  accessibility: "granted" | "denied" | "unsupported";
+  inputReady: boolean;
+  inputStatus: string;
 };
 
 export const DEFAULT_SETTINGS: AppSettings = {

@@ -17,6 +17,12 @@ pub enum PasteOutcome {
     Copied(String),
 }
 
+pub enum InputStatus {
+    Uninitialized,
+    Ready,
+    Unavailable(String),
+}
+
 #[derive(Default)]
 pub struct InputSession {
     enigo: Mutex<Option<Result<Enigo, String>>>,
@@ -32,6 +38,29 @@ impl InputSession {
             Ok(_) => Ok(()),
             Err(error) => Err(error.clone()),
         }
+    }
+
+    pub fn retry(&self) -> Result<(), String> {
+        let mut session = self
+            .enigo
+            .lock()
+            .map_err(|_| "远程输入会话已损坏，请重启 VoicePaste".to_owned())?;
+        let result = create_input_session();
+        let status = result.as_ref().map(|_| ()).map_err(Clone::clone);
+        *session = Some(result);
+        status
+    }
+
+    pub fn status(&self) -> Result<InputStatus, String> {
+        let session = self
+            .enigo
+            .lock()
+            .map_err(|_| "远程输入会话已损坏，请重启 VoicePaste".to_owned())?;
+        Ok(match session.as_ref() {
+            None => InputStatus::Uninitialized,
+            Some(Ok(_)) => InputStatus::Ready,
+            Some(Err(error)) => InputStatus::Unavailable(error.clone()),
+        })
     }
 
     fn simulate_paste(&self) -> Result<(), String> {
@@ -55,7 +84,7 @@ pub async fn paste(
     app.clipboard()
         .write_text(&text)
         .map_err(|error| format!("写入剪贴板失败：{error}"))?;
-    if crate::shortcut::uses_portal() {
+    if needs_overlay_hide() {
         app.get_webview_window("overlay")
             .ok_or_else(|| "找不到悬浮窗".to_owned())?
             .hide()
@@ -88,7 +117,11 @@ pub async fn paste(
 
 fn create_input_session() -> Result<Enigo, String> {
     panic::catch_unwind(create_enigo)
-        .unwrap_or_else(|_| Err("远程输入授权已取消；请重启 VoicePaste 后重试".to_owned()))
+        .unwrap_or_else(|_| Err("自动粘贴授权已取消，请在设置中重试".to_owned()))
+}
+
+fn needs_overlay_hide() -> bool {
+    cfg!(target_os = "linux") && std::env::var_os("WAYLAND_DISPLAY").is_some()
 }
 
 fn simulate_paste(enigo: &mut Enigo) -> Result<(), String> {
@@ -143,5 +176,25 @@ fn create_enigo() -> Result<Enigo, String> {
         wayland_display: Some(DISABLED_DISPLAY.to_owned()),
         ..Settings::default()
     };
-    Enigo::new(&x11_settings).map_err(|error| format!("连接 Linux 输入服务失败：{error}"))
+    Enigo::new(&x11_settings).map_err(|error| format!("连接系统输入服务失败：{error}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn input_status_reflects_cached_initialization() {
+        let session = InputSession::default();
+        assert!(matches!(
+            session.status().unwrap(),
+            InputStatus::Uninitialized
+        ));
+
+        *session.enigo.lock().unwrap() = Some(Err("授权失败".to_owned()));
+        assert!(matches!(
+            session.status().unwrap(),
+            InputStatus::Unavailable(error) if error == "授权失败"
+        ));
+    }
 }
