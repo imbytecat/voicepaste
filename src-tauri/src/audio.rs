@@ -385,7 +385,7 @@ fn process_chunk(
 ) -> Result<(), String> {
     let output = converter.process(input, valid_frames)?;
     *level_tick = level_tick.wrapping_add(1);
-    if *level_tick % 2 == 0 {
+    if (*level_tick).is_multiple_of(2) {
         on_level(signal_level(output));
     }
     if let Some(on_audio) = on_audio {

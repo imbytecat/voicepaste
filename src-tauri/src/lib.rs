@@ -672,15 +672,13 @@ pub(crate) fn handle_shortcut_event(app: &AppHandle, pressed: bool) {
         microphone_id: settings.microphone_id,
     };
 
-    if pressed {
-        if let Err(error) = show_overlay(app) {
-            let _ = app.emit_to(
-                "overlay",
-                "asr-event",
-                json!({ "kind": "error", "sessionId": "", "message": error }),
-            );
-            return;
-        }
+    if pressed && let Err(error) = show_overlay(app) {
+        let _ = app.emit_to(
+            "overlay",
+            "asr-event",
+            json!({ "kind": "error", "sessionId": "", "message": error }),
+        );
+        return;
     }
     if !state.overlay_ready.load(Ordering::Acquire) {
         if let Ok(mut pending) = state.pending_shortcut.lock() {

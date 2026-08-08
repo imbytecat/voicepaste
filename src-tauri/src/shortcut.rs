@@ -46,10 +46,10 @@ impl ShortcutManager {
         app.global_shortcut()
             .register(parsed)
             .map_err(|error| format!("快捷键已被其他软件占用或系统不支持：{error}"))?;
-        if let Some(previous) = previous.filter(|previous| *previous != shortcut) {
-            if let Ok(previous) = previous.parse::<Shortcut>() {
-                let _ = app.global_shortcut().unregister(previous);
-            }
+        if let Some(previous) = previous.filter(|previous| *previous != shortcut)
+            && let Ok(previous) = previous.parse::<Shortcut>()
+        {
+            let _ = app.global_shortcut().unregister(previous);
         }
         if let Some(old_task) = self
             .backend_task

@@ -1,7 +1,7 @@
 [tools]
-node = "24.18.0"
-pnpm = "10.34.5"
-rust = { version = "1.88.0", components = ["clippy", "rustfmt"] }
+node = "26.7.0"
+pnpm = "11.20.0"
+rust = { version = "1.97.1", components = ["clippy", "rustfmt"] }
 "cargo:cargo-audit" = "0.22.2"
 
 [tasks.dev]
@@ -29,4 +29,4 @@ run = "pnpm lint:fix && cargo fmt --manifest-path src-tauri/Cargo.toml"
 
 [tasks.audit]
 description = "检查 Rust 依赖安全公告"
-run = "cargo audit --file src-tauri/Cargo.lock"
+run = "pnpm audit --audit-level high && cargo audit --file src-tauri/Cargo.lock"
