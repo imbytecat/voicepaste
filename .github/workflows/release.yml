@@ -16,6 +16,8 @@ jobs:
         os: [ubuntu-24.04, macos-26, windows-2025]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
+    env:
+      MISE_AUTO_INSTALL: "false"
     steps:
       - uses: actions/checkout@v7
 
