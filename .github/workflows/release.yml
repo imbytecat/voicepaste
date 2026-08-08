@@ -60,10 +60,6 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: VoicePaste ${{ github.ref_name }}
-          releaseBody: |
-            VoicePaste 1.0.0 首个正式版本。
-
-            提供 Linux、Apple Silicon macOS、Windows 安装包。macOS/Windows 暂不使用付费平台代码签名。
           generateReleaseNotes: true
           releaseDraft: true
           prerelease: false
@@ -76,10 +72,6 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: VoicePaste ${{ github.ref_name }}
-          releaseBody: |
-            VoicePaste 1.0.0 首个正式版本。
-
-            提供 Linux、Apple Silicon macOS、Windows 安装包。macOS/Windows 暂不使用付费平台代码签名。
           generateReleaseNotes: true
           releaseDraft: true
           prerelease: false
@@ -92,10 +84,6 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: VoicePaste ${{ github.ref_name }}
-          releaseBody: |
-            VoicePaste 1.0.0 首个正式版本。
-
-            提供 Linux、Apple Silicon macOS、Windows 安装包。macOS/Windows 暂不使用付费平台代码签名。
           generateReleaseNotes: true
           releaseDraft: true
           prerelease: false

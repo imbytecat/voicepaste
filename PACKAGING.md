@@ -32,7 +32,7 @@ mise install
 - Windows SmartScreen 可能显示未知发布者。用户应核对下载 URL 与 Release 信息后，通过“更多信息”继续。
 - 后续若项目获得签名条件，再加入 Developer ID、公证与 Authenticode；当前工作流不要求这些付费凭据。
 
-## 发布 v1.0.0
+## 发布版本
 
 1. 安装 `mise.toml` 中定义的工具链：
 
@@ -40,7 +40,7 @@ mise install
    mise install
    ```
 
-2. 确认三个版本均为 `1.0.0`：
+2. 确认三个清单中的版本一致：
 
    ```bash
    node -e "const fs=require('fs');const p=require('./package.json').version;const t=require('./src-tauri/tauri.conf.json').version;const c=fs.readFileSync('./src-tauri/Cargo.toml','utf8').match(/^version = \"([^\"]+)\"/m)?.[1];console.log({package:p,tauri:t,cargo:c});if(p!==t||p!==c)process.exit(1)"
@@ -50,8 +50,9 @@ mise install
 4. 创建并推送 tag：
 
    ```bash
-   git tag -a v1.0.0 -m "VoicePaste 1.0.0"
-   git push origin v1.0.0
+   VERSION="$(node -p "require('./package.json').version")"
+   git tag -a "v$VERSION" -m "VoicePaste $VERSION"
+   git push origin "v$VERSION"
    ```
 
 5. 等待 Linux、macOS、Windows jobs 全部成功。

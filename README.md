@@ -2,8 +2,6 @@
 
 VoicePaste 是跨平台桌面语音输入工具。按全局快捷键开始听写，豆包流式识别完成后，文本会粘贴到当前输入位置。
 
-当前正式版本：**1.0.0**。
-
 ## 安装
 
 从 [GitHub Releases](https://github.com/imbytecat/voicepaste/releases/latest) 下载当前系统对应的正式产物：
