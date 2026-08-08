@@ -1,10 +1,15 @@
-use std::{thread, time::Duration};
+use std::{
+    panic,
+    sync::{Arc, Mutex},
+    thread,
+    time::Duration,
+};
 
 use enigo::{
     Direction::{Click, Press, Release},
     Enigo, Key, Keyboard, Settings,
 };
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
 pub enum PasteOutcome {
@@ -12,13 +17,54 @@ pub enum PasteOutcome {
     Copied(String),
 }
 
-pub async fn paste(app: &AppHandle, text: String) -> Result<PasteOutcome, String> {
+#[derive(Default)]
+pub struct InputSession {
+    enigo: Mutex<Option<Result<Enigo, String>>>,
+}
+
+impl InputSession {
+    pub fn initialize(&self) -> Result<(), String> {
+        let mut session = self
+            .enigo
+            .lock()
+            .map_err(|_| "远程输入会话已损坏，请重启 VoicePaste".to_owned())?;
+        match session.get_or_insert_with(create_input_session) {
+            Ok(_) => Ok(()),
+            Err(error) => Err(error.clone()),
+        }
+    }
+
+    fn simulate_paste(&self) -> Result<(), String> {
+        let mut session = self
+            .enigo
+            .lock()
+            .map_err(|_| "远程输入会话已损坏，请重启 VoicePaste".to_owned())?;
+        match session.get_or_insert_with(create_input_session) {
+            Ok(enigo) => simulate_paste(enigo),
+            Err(error) => Err(error.clone()),
+        }
+    }
+}
+
+pub async fn paste(
+    app: &AppHandle,
+    input_session: Arc<InputSession>,
+    text: String,
+) -> Result<PasteOutcome, String> {
     let previous_text = app.clipboard().read_text().ok();
     app.clipboard()
         .write_text(&text)
         .map_err(|error| format!("写入剪贴板失败：{error}"))?;
-    tokio::time::sleep(Duration::from_millis(60)).await;
-    match tauri::async_runtime::spawn_blocking(simulate_paste)
+    if crate::shortcut::uses_portal() {
+        app.get_webview_window("overlay")
+            .ok_or_else(|| "找不到悬浮窗".to_owned())?
+            .hide()
+            .map_err(|error| format!("隐藏悬浮窗失败：{error}"))?;
+        tokio::time::sleep(Duration::from_millis(120)).await;
+    } else {
+        tokio::time::sleep(Duration::from_millis(60)).await;
+    }
+    match tauri::async_runtime::spawn_blocking(move || input_session.simulate_paste())
         .await
         .map_err(|error| format!("自动粘贴任务失败：{error}"))?
     {
@@ -40,8 +86,12 @@ pub async fn paste(app: &AppHandle, text: String) -> Result<PasteOutcome, String
     }
 }
 
-fn simulate_paste() -> Result<(), String> {
-    let mut enigo = create_enigo()?;
+fn create_input_session() -> Result<Enigo, String> {
+    panic::catch_unwind(create_enigo)
+        .unwrap_or_else(|_| Err("远程输入授权已取消；请重启 VoicePaste 后重试".to_owned()))
+}
+
+fn simulate_paste(enigo: &mut Enigo) -> Result<(), String> {
     let modifier = if cfg!(target_os = "macos") {
         Key::Meta
     } else {

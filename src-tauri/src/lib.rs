@@ -54,6 +54,7 @@ struct AppState {
     pending_shortcut: Mutex<Option<ShortcutEventPayload>>,
     shortcut_down: AtomicBool,
     audio_capture: Mutex<Option<ActiveAudioCapture>>,
+    input_session: Arc<paste::InputSession>,
 }
 
 impl Default for AppState {
@@ -68,6 +69,7 @@ impl Default for AppState {
             pending_shortcut: Mutex::new(None),
             shortcut_down: AtomicBool::new(false),
             audio_capture: Mutex::new(None),
+            input_session: Arc::new(paste::InputSession::default()),
         }
     }
 }
@@ -112,6 +114,14 @@ where
     tauri::async_runtime::spawn_blocking(task)
         .await
         .map_err(|error| format!("后台任务失败：{error}"))?
+}
+
+fn initialize_input_session(input_session: Arc<paste::InputSession>) {
+    if shortcut::uses_portal() {
+        tauri::async_runtime::spawn_blocking(move || {
+            let _ = input_session.initialize();
+        });
+    }
 }
 
 #[tauri::command]
@@ -178,10 +188,14 @@ async fn save_settings(
                 return Err(error);
             }
         };
+    let should_initialize_input = !settings.api_key.is_empty();
     *state
         .settings
         .write()
         .map_err(|_| "设置状态已损坏，请重启应用".to_owned())? = settings;
+    if should_initialize_input {
+        initialize_input_session(Arc::clone(&state.input_session));
+    }
     set_shortcut_status(
         &app,
         if shortcut::uses_portal() {
@@ -234,6 +248,7 @@ async fn start_recognition(
     }
 
     let session_slot = Arc::clone(&state.session);
+    let input_session = Arc::clone(&state.input_session);
     tauri::async_runtime::spawn(async move {
         let result = asr::run(
             settings,
@@ -255,32 +270,38 @@ async fn start_recognition(
                     json!({ "kind": "empty", "message": "没有听到可输入的内容" }),
                 );
             }
-            Ok(AsrOutcome::Text(text)) => match paste::paste(&app, text).await {
-                Ok(PasteOutcome::Pasted) => emit_asr_event(
-                    &app,
-                    &session_id,
-                    json!({ "kind": "completed", "message": "已输入" }),
-                ),
-                Ok(PasteOutcome::Copied(error)) => {
-                    let hint = if cfg!(target_os = "macos") {
-                        "已复制到剪贴板；请在系统设置中授予 VoicePaste“辅助功能”权限"
-                    } else if cfg!(target_os = "linux") {
-                        "已复制到剪贴板；当前桌面未允许模拟粘贴，请授权远程输入或改用 X11"
-                    } else {
-                        "已复制到剪贴板；目标程序权限高于 VoicePaste，无法自动粘贴"
-                    };
-                    emit_asr_event(
+            Ok(AsrOutcome::Text(text)) => {
+                match paste::paste(&app, Arc::clone(&input_session), text).await {
+                    Ok(PasteOutcome::Pasted) => emit_asr_event(
                         &app,
                         &session_id,
-                        json!({ "kind": "copied", "message": hint, "detail": error }),
-                    );
+                        json!({ "kind": "completed", "message": "已输入" }),
+                    ),
+                    Ok(PasteOutcome::Copied(error)) => {
+                        let _ = show_overlay(&app);
+                        let hint = if cfg!(target_os = "macos") {
+                            "已复制到剪贴板；请在系统设置中授予 VoicePaste“辅助功能”权限"
+                        } else if cfg!(target_os = "linux") {
+                            "已复制到剪贴板；当前桌面未允许模拟粘贴，请重启 VoicePaste 并完成远程输入授权"
+                        } else {
+                            "已复制到剪贴板；目标程序权限高于 VoicePaste，无法自动粘贴"
+                        };
+                        emit_asr_event(
+                            &app,
+                            &session_id,
+                            json!({ "kind": "copied", "message": hint, "detail": error }),
+                        );
+                    }
+                    Err(error) => {
+                        let _ = show_overlay(&app);
+                        emit_asr_event(
+                            &app,
+                            &session_id,
+                            json!({ "kind": "error", "message": error }),
+                        );
+                    }
                 }
-                Err(error) => emit_asr_event(
-                    &app,
-                    &session_id,
-                    json!({ "kind": "error", "message": error }),
-                ),
-            },
+            }
             Err(error) => emit_asr_event(
                 &app,
                 &session_id,
@@ -539,13 +560,20 @@ pub(crate) fn handle_shortcut_event(app: &AppHandle, pressed: bool) {
         microphone_id: settings.microphone_id,
     };
 
-    if pressed && let Err(error) = show_overlay(app) {
-        let _ = app.emit_to(
-            "overlay",
-            "asr-event",
-            json!({ "kind": "error", "sessionId": "", "message": error }),
-        );
-        return;
+    if pressed {
+        if shortcut::uses_portal()
+            && let Some(settings) = app.get_webview_window("settings")
+        {
+            let _ = settings.hide();
+        }
+        if let Err(error) = show_overlay(app) {
+            let _ = app.emit_to(
+                "overlay",
+                "asr-event",
+                json!({ "kind": "error", "sessionId": "", "message": error }),
+            );
+            return;
+        }
     }
     if !state.overlay_ready.load(Ordering::Acquire) {
         if let Ok(mut pending) = state.pending_shortcut.lock() {
@@ -643,11 +671,15 @@ fn setup_app(app: &mut tauri::App) -> Result<(), String> {
         .startup_notice
         .lock()
         .map_err(|_| "设置提示状态已损坏，请重启应用".to_owned())? = loaded.notice;
+    let should_initialize_input = !loaded.settings.api_key.is_empty();
     shortcut::register_initial(
         app.handle().clone(),
         Arc::clone(&app_state.portal_task),
         loaded.settings.shortcut,
     );
+    if should_initialize_input {
+        initialize_input_session(Arc::clone(&app_state.input_session));
+    }
 
     let open_settings = MenuItem::with_id(app, "settings", "打开设置", true, None::<&str>)
         .map_err(|error| format!("创建托盘菜单失败：{error}"))?;
