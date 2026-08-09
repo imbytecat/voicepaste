@@ -2,7 +2,7 @@ export type ActivationMode = "toggle" | "hold";
 
 export type OverlayPosition = "bottom" | "left" | "right";
 
-export type AppSettings = {
+export interface AppSettings {
   apiKey: string;
   shortcut: string;
   activationMode: ActivationMode;
@@ -11,40 +11,40 @@ export type AppSettings = {
   onboardingCompleted: boolean;
   launchAtStartup: boolean;
   overlayPosition: OverlayPosition;
-};
+}
 
-export type AsrEvent = {
+export interface AsrEvent {
   kind: "partial" | "final" | "completed" | "copied" | "empty" | "error";
   sessionId: string;
   text?: string;
   message?: string;
-};
+}
 
-export type ShortcutEvent = {
+export interface ShortcutEvent {
   state: "pressed" | "released";
   activationMode: ActivationMode;
   microphoneId: string;
-};
+}
 
-export type SaveSettingsResult = {
+export interface SaveSettingsResult {
   credentialStorage: "keyring" | "removed";
-};
+}
 
-export type SystemDiagnostics = {
+export interface SystemDiagnostics {
   shortcutStatus: string;
   inputReady: boolean;
   inputStatus: string;
   appVersion: string;
   logDir: string;
-};
+}
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  apiKey: "",
-  shortcut: "CommandOrControl+Shift+Space",
   activationMode: "toggle",
-  microphoneId: "",
+  apiKey: "",
   hotwords: [],
-  onboardingCompleted: false,
   launchAtStartup: false,
+  microphoneId: "",
+  onboardingCompleted: false,
   overlayPosition: "bottom",
+  shortcut: "CommandOrControl+Shift+Space",
 };

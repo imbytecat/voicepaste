@@ -1,9 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback } from "react";
-import { Settings, type SettingsSectionId } from "../components/Settings";
+
+import { Settings } from "../components/Settings";
+import type { SettingsSectionId } from "../components/Settings";
 import { SETTINGS_PATHS } from "./-settings-navigation";
 
-export const Route = createFileRoute("/onboarding")({ component: OnboardingPreview });
+export const Route = createFileRoute("/onboarding")({
+  component: OnboardingPreview,
+});
 
 function OnboardingPreview() {
   const navigate = Route.useNavigate();
@@ -11,8 +15,14 @@ function OnboardingPreview() {
     (section: SettingsSectionId) => {
       void navigate({ to: SETTINGS_PATHS[section] });
     },
-    [navigate],
+    [navigate]
   );
 
-  return <Settings activeSection="general" onSelectSection={selectSection} previewOnboarding />;
+  return (
+    <Settings
+      activeSection="general"
+      onSelectSection={selectSection}
+      previewOnboarding
+    />
+  );
 }

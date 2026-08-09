@@ -1,19 +1,30 @@
-import { createFileRoute, Outlet, useRouterState } from "@tanstack/react-router";
+import {
+  createFileRoute,
+  Outlet,
+  useRouterState,
+} from "@tanstack/react-router";
 import { useCallback } from "react";
-import { Settings, type SettingsSectionId } from "../components/Settings";
-import { SETTINGS_PATHS, settingsSectionFromPath } from "./-settings-navigation";
+
+import { Settings } from "../components/Settings";
+import type { SettingsSectionId } from "../components/Settings";
+import {
+  SETTINGS_PATHS,
+  settingsSectionFromPath,
+} from "./-settings-navigation";
 
 export const Route = createFileRoute("/settings")({ component: SettingsRoute });
 
 function SettingsRoute() {
-  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  });
   const navigate = Route.useNavigate();
   const activeSection = settingsSectionFromPath(pathname);
   const selectSection = useCallback(
     (section: SettingsSectionId) => {
       void navigate({ to: SETTINGS_PATHS[section] });
     },
-    [navigate],
+    [navigate]
   );
 
   return (

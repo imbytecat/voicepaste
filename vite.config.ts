@@ -6,12 +6,13 @@ import { defineConfig } from "vite";
 const host = process.env.TAURI_DEV_HOST;
 
 export default defineConfig({
-  plugins: [tanstackRouter({ target: "react", autoCodeSplitting: true }), react(), tailwindcss()],
   clearScreen: false,
+  plugins: [
+    tanstackRouter({ target: "react", autoCodeSplitting: true }),
+    react(),
+    tailwindcss(),
+  ],
   server: {
-    port: 1420,
-    strictPort: true,
-    host: host || false,
     hmr: host
       ? {
           protocol: "ws",
@@ -19,6 +20,9 @@ export default defineConfig({
           port: 1421,
         }
       : undefined,
+    host: host ?? false,
+    port: 1420,
+    strictPort: true,
     watch: {
       ignored: ["**/src-tauri/**"],
     },

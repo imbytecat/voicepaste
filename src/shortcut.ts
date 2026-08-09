@@ -2,8 +2,8 @@ import {
   formatForDisplay,
   parseHotkey,
   useHotkeyRecorder as useTanStackHotkeyRecorder,
-  type Hotkey,
 } from "@tanstack/react-hotkeys";
+import type { Hotkey } from "@tanstack/react-hotkeys";
 
 const PORTABLE_PRIMARY_MODIFIER = "Mod";
 const TAURI_PRIMARY_MODIFIER = "CommandOrControl";
@@ -37,6 +37,8 @@ export function useShortcutRecorder({
 function toTauriShortcut(hotkey: Hotkey): string {
   return hotkey
     .split("+")
-    .map((part) => (part === PORTABLE_PRIMARY_MODIFIER ? TAURI_PRIMARY_MODIFIER : part))
+    .map((part) =>
+      part === PORTABLE_PRIMARY_MODIFIER ? TAURI_PRIMARY_MODIFIER : part
+    )
     .join("+");
 }

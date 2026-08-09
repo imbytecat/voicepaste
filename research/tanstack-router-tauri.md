@@ -19,7 +19,10 @@ TanStack 官方 Vite 文档说：使用 Vite 的 file-based routing 需安装 `@
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 
 export default defineConfig({
-  plugins: [tanstackRouter({ target: "react", autoCodeSplitting: true }), react()],
+  plugins: [
+    tanstackRouter({ target: "react", autoCodeSplitting: true }),
+    react(),
+  ],
 });
 ```
 

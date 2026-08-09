@@ -1,10 +1,11 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { listen } from "@tauri-apps/api/event";
+import type { UnlistenFn } from "@tauri-apps/api/event";
 
-export type MicrophoneDevice = {
+export interface MicrophoneDevice {
   id: string;
   label: string;
-};
+}
 
 export class AudioCapture {
   private readonly captureId = crypto.randomUUID();
@@ -15,22 +16,35 @@ export class AudioCapture {
   private started = false;
   private startPromise: Promise<void> | null = null;
 
-  constructor(deviceId: string, onLevel: (level: number) => void, onError: (error: string) => void) {
+  constructor(
+    deviceId: string,
+    onLevel: (level: number) => void,
+    onError: (error: string) => void
+  ) {
     this.deviceId = deviceId;
     this.onLevel = onLevel;
     this.onError = onError;
   }
 
   static async devices(): Promise<MicrophoneDevice[]> {
-    return isTauri() ? invoke<MicrophoneDevice[]>("list_microphones") : [];
+    return isTauri()
+      ? await invoke<MicrophoneDevice[]>("list_microphones")
+      : await Promise.resolve([]);
   }
 
   async start(sessionId: string | null = null): Promise<void> {
-    if (this.started || this.startPromise) return this.startPromise ?? Promise.resolve();
+    if (this.started || this.startPromise) {
+      await (this.startPromise ?? Promise.resolve());
+      return;
+    }
     if (!isTauri()) throw new Error("浏览器预览无法使用原生麦克风");
     this.unlisteners = await Promise.all([
-      listen<number>("microphone-level", (event) => this.onLevel(event.payload)),
-      listen<string>("microphone-error", (event) => this.onError(event.payload)),
+      listen<number>("microphone-level", (event) => {
+        this.onLevel(event.payload);
+      }),
+      listen<string>("microphone-error", (event) => {
+        this.onError(event.payload);
+      }),
     ]);
     this.startPromise = invoke("start_audio_capture", {
       captureId: this.captureId,
@@ -41,7 +55,9 @@ export class AudioCapture {
       await this.startPromise;
       this.started = true;
     } catch (error) {
-      this.unlisteners.splice(0).forEach((unlisten) => unlisten());
+      this.unlisteners.splice(0).forEach((unlisten) => {
+        unlisten();
+      });
       throw error;
     } finally {
       this.startPromise = null;
@@ -49,13 +65,15 @@ export class AudioCapture {
   }
 
   async stop(): Promise<void> {
-    if (this.startPromise) await this.startPromise.catch(() => undefined);
+    if (this.startPromise) await this.startPromise.catch(() => {});
     if (!this.started) return;
     this.started = false;
     try {
       await invoke("stop_audio_capture", { captureId: this.captureId });
     } finally {
-      this.unlisteners.splice(0).forEach((unlisten) => unlisten());
+      this.unlisteners.splice(0).forEach((unlisten) => {
+        unlisten();
+      });
     }
   }
 }

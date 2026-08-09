@@ -37,9 +37,16 @@ tauri-plugin-dialog = "2"
 tauri-plugin-log = "2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-ashpd = { version = "0.13.13", default-features = false, features = ["global_shortcuts", "tokio"] }
+ashpd = { version = "0.13.13", default-features = false, features = [
+  "global_shortcuts",
+  "tokio",
+] }
 gtk = "0.18"
-enigo = { version = "0.6", default-features = false, features = ["libei_tokio", "wayland", "x11rb"] }
+enigo = { version = "0.6", default-features = false, features = [
+  "libei_tokio",
+  "wayland",
+  "x11rb",
+] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 enigo = { version = "0.6", default-features = false }

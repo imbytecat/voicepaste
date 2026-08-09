@@ -21,11 +21,19 @@ import {
   ShieldCheck,
   Sparkles,
 } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { Toaster, toast } from "sonner";
-import { AudioCapture, type MicrophoneDevice } from "../audio";
-import { formatShortcut, formatShortcutLabel, useShortcutRecorder } from "../shortcut";
-import { type AppSettings, DEFAULT_SETTINGS, type SystemDiagnostics } from "../types";
+
+import { AudioCapture } from "../audio";
+import type { MicrophoneDevice } from "../audio";
+import {
+  formatShortcut,
+  formatShortcutLabel,
+  useShortcutRecorder,
+} from "../shortcut";
+import { DEFAULT_SETTINGS } from "../types";
+import type { AppSettings, SystemDiagnostics } from "../types";
 
 const INPUT_CLASS =
   "h-9 w-full rounded-lg border border-[#d7d9de] bg-white px-3 text-[12px] text-[#202124] outline-none transition focus:border-[#7564e8] focus:ring-3 focus:ring-[#7564e8]/10 disabled:cursor-not-allowed disabled:bg-[#f5f5f6] disabled:text-[#8b8f97]";
@@ -43,17 +51,26 @@ const SECTIONS = [
   ["about", "关于", Info],
 ] as const;
 const SECTION_DESCRIPTIONS: Record<SettingsSectionId, string> = {
-  general: "管理启动行为和悬浮窗位置",
-  shortcut: "调整快捷键、触发方式和麦克风",
-  recognition: "配置识别服务和常用词",
-  diagnostics: "检查系统权限与输入状态",
   about: "查看版本、发布和支持信息",
+  diagnostics: "检查系统权限与输入状态",
+  general: "管理启动行为和悬浮窗位置",
+  recognition: "配置识别服务和常用词",
+  shortcut: "调整快捷键、触发方式和麦克风",
 };
-const ONBOARDING_STEPS = ["欢迎", "豆包服务", "快捷键", "麦克风", "完成"] as const;
+const ONBOARDING_STEPS = [
+  "欢迎",
+  "豆包服务",
+  "快捷键",
+  "麦克风",
+  "完成",
+] as const;
 
 export type SettingsSectionId = (typeof SECTIONS)[number][0];
 type Message = { kind: "success" | "error" | "info"; text: string } | null;
-type LoadSettingsResult = { settings: AppSettings; notice?: string };
+interface LoadSettingsResult {
+  settings: AppSettings;
+  notice?: string;
+}
 type ProductLinkTarget = "homepage" | "help" | "privacy" | "releases";
 
 const TRANSIENT_MESSAGE_DURATION = 2200;
@@ -79,8 +96,11 @@ function normalizeHotwords(value: string): string[] {
     const identity = word.toLocaleLowerCase();
     if (!word || seen.has(identity)) continue;
     seen.add(identity);
-    totalChars += Array.from(word).length;
-    if (totalChars > 100) throw new Error("热词总长度不能超过 100 个字符（按接口 token 上限保守限制）");
+    totalChars += word.length;
+    if (totalChars > 100)
+      throw new Error(
+        "热词总长度不能超过 100 个字符（按接口 token 上限保守限制）"
+      );
     hotwords.push(word);
   }
   return hotwords;
@@ -90,7 +110,7 @@ function settingsChanged(
   current: AppSettings,
   hotwordsText: string,
   saved: AppSettings,
-  savedHotwordsText: string,
+  savedHotwordsText: string
 ): boolean {
   return (
     current.apiKey !== saved.apiKey ||
@@ -129,7 +149,9 @@ function SettingsSection({
     <section className="mb-6" id={id}>
       <div className="mb-3 px-1">
         <h2 className="text-[14px] font-semibold text-[#202124]">{title}</h2>
-        <p className="mt-1 text-[11px] leading-5 text-[#62666f]">{description}</p>
+        <p className="mt-1 text-[11px] leading-5 text-[#62666f]">
+          {description}
+        </p>
       </div>
       <div className="divide-y divide-[#ececef] overflow-hidden rounded-xl border border-[#e1e2e6] bg-white">
         {children}
@@ -159,14 +181,24 @@ function SettingRow({
     >
       <div className={vertical ? "" : "min-w-0 flex-1"}>
         <h3 className="text-[12px] font-medium text-[#2c2e33]">{title}</h3>
-        {description ? <p className="mt-1 text-[10px] leading-5 text-[#6f737b]">{description}</p> : null}
+        {description ? (
+          <p className="mt-1 text-[10px] leading-5 text-[#6f737b]">
+            {description}
+          </p>
+        ) : null}
       </div>
       <div className={vertical ? "mt-3" : "min-w-0 shrink-0"}>{children}</div>
     </div>
   );
 }
 
-function Feedback({ message, className }: { message: Message; className?: string }) {
+function Feedback({
+  message,
+  className,
+}: {
+  message: Message;
+  className?: string;
+}) {
   if (!message) return null;
   const colors =
     message.kind === "success"
@@ -202,7 +234,9 @@ function Toggle({
       role="switch"
       aria-checked={checked}
       aria-label={label}
-      onClick={() => onChange(!checked)}
+      onClick={() => {
+        onChange(!checked);
+      }}
     >
       <span
         className={`absolute top-0.5 size-5 rounded-full bg-white shadow-[0_1px_3px_rgba(24,28,36,0.24)] transition-[left] ${checked ? "left-[22px]" : "left-0.5"}`}
@@ -214,7 +248,7 @@ function Toggle({
 
 function microphoneTestError(error: unknown): string {
   const detail = String(error);
-  return /permission|notallowederror|denied/i.test(detail)
+  return /permission|notallowederror|denied/iu.test(detail)
     ? "麦克风权限未开启。请在系统设置中允许 VoicePaste 使用麦克风，然后重试。"
     : `麦克风测试失败：${detail}`;
 }
@@ -243,7 +277,9 @@ export function Settings({
   const [testingMicrophone, setTestingMicrophone] = useState(false);
   const [microphoneLevel, setMicrophoneLevel] = useState(0);
   const [testingDoubao, setTestingDoubao] = useState(false);
-  const [diagnostics, setDiagnostics] = useState<SystemDiagnostics | null>(null);
+  const [diagnostics, setDiagnostics] = useState<SystemDiagnostics | null>(
+    null
+  );
 
   const settingsRef = useRef<AppSettings>(DEFAULT_SETTINGS);
   const hotwordsTextRef = useRef("");
@@ -255,44 +291,74 @@ export function Settings({
   const shortcutButtonRef = useRef<HTMLButtonElement | null>(null);
   const onboardingHeadingRef = useRef<HTMLHeadingElement | null>(null);
 
-  const showMessage = (nextMessage: NonNullable<Message>) => {
+  const showMessage = useCallback((nextMessage: NonNullable<Message>) => {
     if (nextMessage.kind === "error") {
       toast.dismiss(SETTINGS_TOAST_ID);
       setMessage(nextMessage);
       return;
     }
     setMessage(null);
-    const options = { id: SETTINGS_TOAST_ID, duration: TRANSIENT_MESSAGE_DURATION };
-    if (nextMessage.kind === "success") toast.success(nextMessage.text, options);
+    const options = {
+      duration: TRANSIENT_MESSAGE_DURATION,
+      id: SETTINGS_TOAST_ID,
+    };
+    if (nextMessage.kind === "success")
+      toast.success(nextMessage.text, options);
     else toast.info(nextMessage.text, options);
-  };
+  }, []);
 
-  const reportPersistentError = (text: string) => {
-    if (settingsRef.current.onboardingCompleted) showMessage({ kind: "error", text });
-    else setOnboardingMessage({ kind: "error", text });
-  };
+  const reportPersistentError = useCallback(
+    (text: string) => {
+      if (settingsRef.current.onboardingCompleted)
+        showMessage({ kind: "error", text });
+      else setOnboardingMessage({ kind: "error", text });
+    },
+    [showMessage]
+  );
 
-  const syncDirty = (dirty: boolean) => {
-    if (dirtyRef.current === dirty) return;
-    dirtyRef.current = dirty;
-    if (!isTauri()) return;
-    void invoke("set_settings_dirty", { dirty }).catch((error) => {
-      dirtyRef.current = null;
-      reportPersistentError(`同步未保存状态失败：${safeError(error, settingsRef.current.apiKey)}`);
-    });
-  };
+  const syncDirty = useCallback(
+    (dirty: boolean) => {
+      if (dirtyRef.current === dirty) return;
+      dirtyRef.current = dirty;
+      if (!isTauri()) return;
+      void invoke("set_settings_dirty", { dirty }).catch((error: unknown) => {
+        dirtyRef.current = null;
+        reportPersistentError(
+          `同步未保存状态失败：${safeError(error, settingsRef.current.apiKey)}`
+        );
+      });
+    },
+    [reportPersistentError]
+  );
 
-  const updateSetting = <Key extends keyof AppSettings>(key: Key, value: AppSettings[Key]) => {
+  const updateSetting = <Key extends keyof AppSettings>(
+    key: Key,
+    value: AppSettings[Key]
+  ) => {
     const next = { ...settingsRef.current, [key]: value };
     settingsRef.current = next;
     setSettings(next);
-    syncDirty(settingsChanged(next, hotwordsTextRef.current, savedSettingsRef.current, savedHotwordsTextRef.current));
+    syncDirty(
+      settingsChanged(
+        next,
+        hotwordsTextRef.current,
+        savedSettingsRef.current,
+        savedHotwordsTextRef.current
+      )
+    );
   };
 
   const updateHotwordsText = (value: string) => {
     hotwordsTextRef.current = value;
     setHotwordsText(value);
-    syncDirty(settingsChanged(settingsRef.current, value, savedSettingsRef.current, savedHotwordsTextRef.current));
+    syncDirty(
+      settingsChanged(
+        settingsRef.current,
+        value,
+        savedSettingsRef.current,
+        savedHotwordsTextRef.current
+      )
+    );
   };
 
   const selectSection = useCallback(
@@ -300,7 +366,7 @@ export function Settings({
       toast.dismiss(SETTINGS_TOAST_ID);
       onSelectSection(section);
     },
-    [onSelectSection],
+    [onSelectSection]
   );
 
   const goToOnboardingStep = (step: number) => {
@@ -310,41 +376,48 @@ export function Settings({
   };
 
   const shortcutRecorder = useShortcutRecorder({
+    onInvalid: (text) => {
+      if (settingsRef.current.onboardingCompleted)
+        showMessage({ kind: "error", text });
+      else setOnboardingMessage({ kind: "error", text });
+      shortcutButtonRef.current?.blur();
+    },
     onRecord: (shortcut) => {
       updateSetting("shortcut", shortcut);
       setMessage(null);
       setOnboardingMessage(null);
       shortcutButtonRef.current?.blur();
     },
-    onInvalid: (text) => {
-      if (settingsRef.current.onboardingCompleted) showMessage({ kind: "error", text });
-      else setOnboardingMessage({ kind: "error", text });
-      shortcutButtonRef.current?.blur();
-    },
   });
 
-  const refreshMicrophones = async () => {
+  const refreshMicrophones = useCallback(async () => {
     try {
       setMicrophones(await AudioCapture.devices());
     } catch (error) {
       setMicrophones([]);
-      setMicrophoneMessage({ kind: "error", text: `读取麦克风列表失败：${String(error)}` });
+      setMicrophoneMessage({
+        kind: "error",
+        text: `读取麦克风列表失败：${String(error)}`,
+      });
     }
-  };
+  }, []);
 
-  const refreshDiagnostics = async () => {
+  const refreshDiagnostics = useCallback(async () => {
     if (!isTauri()) return;
     try {
       setDiagnostics(await invoke<SystemDiagnostics>("system_diagnostics"));
     } catch (error) {
       reportPersistentError(safeError(error, settingsRef.current.apiKey));
     }
-  };
+  }, [reportPersistentError]);
 
   useEffect(() => {
     void refreshMicrophones();
     if (!isTauri()) {
-      const previewSettings = { ...DEFAULT_SETTINGS, onboardingCompleted: !previewOnboarding };
+      const previewSettings = {
+        ...DEFAULT_SETTINGS,
+        onboardingCompleted: !previewOnboarding,
+      };
       const previewHotwords = previewSettings.hotwords.join("\n");
       settingsRef.current = previewSettings;
       savedSettingsRef.current = previewSettings;
@@ -373,8 +446,16 @@ export function Settings({
       .catch((error: unknown) => {
         setOnboardingMessage({ kind: "error", text: safeError(error) });
       })
-      .finally(() => setLoading(false));
-  }, [previewOnboarding]);
+      .finally(() => {
+        setLoading(false);
+      });
+  }, [
+    previewOnboarding,
+    refreshDiagnostics,
+    refreshMicrophones,
+    showMessage,
+    syncDirty,
+  ]);
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -388,12 +469,14 @@ export function Settings({
         if (disposed) callback();
         else unlisten = callback;
       })
-      .catch((error) => reportPersistentError(safeError(error, settingsRef.current.apiKey)));
+      .catch((error: unknown) => {
+        reportPersistentError(safeError(error, settingsRef.current.apiKey));
+      });
     return () => {
       disposed = true;
       unlisten?.();
     };
-  }, [selectSection]);
+  }, [reportPersistentError, selectSection]);
 
   useEffect(() => {
     if (settings.onboardingCompleted) return;
@@ -405,10 +488,13 @@ export function Settings({
       toast.dismiss(SETTINGS_TOAST_ID);
       void microphoneTestRef.current?.stop();
     },
-    [],
+    []
   );
 
-  const commitSettings = (nextSettings: AppSettings, nextHotwordsText: string) => {
+  const commitSettings = (
+    nextSettings: AppSettings,
+    nextHotwordsText: string
+  ) => {
     settingsRef.current = nextSettings;
     savedSettingsRef.current = nextSettings;
     hotwordsTextRef.current = nextHotwordsText;
@@ -440,7 +526,10 @@ export function Settings({
       await persistSettings(nextSettings);
       const normalizedHotwords = hotwords.join("\n");
       commitSettings(nextSettings, normalizedHotwords);
-      showMessage({ kind: "success", text: isTauri() ? "已保存" : "预览校验通过" });
+      showMessage({
+        kind: "success",
+        text: isTauri() ? "已保存" : "预览校验通过",
+      });
       await refreshDiagnostics();
     } catch (error) {
       reportPersistentError(safeError(error, settingsRef.current.apiKey));
@@ -451,12 +540,18 @@ export function Settings({
 
   useEffect(() => {
     const handleSaveShortcut = (event: KeyboardEvent) => {
-      if (!(event.metaKey || event.ctrlKey) || event.key.toLocaleLowerCase() !== "s") return;
+      if (
+        !(event.metaKey || event.ctrlKey) ||
+        event.key.toLocaleLowerCase() !== "s"
+      )
+        return;
       event.preventDefault();
       void save();
     };
     window.addEventListener("keydown", handleSaveShortcut);
-    return () => window.removeEventListener("keydown", handleSaveShortcut);
+    return () => {
+      window.removeEventListener("keydown", handleSaveShortcut);
+    };
   });
 
   const resetVoiceInput = async () => {
@@ -465,27 +560,37 @@ export function Settings({
     const persistedReset = {
       ...savedSettingsRef.current,
       activationMode: DEFAULT_SETTINGS.activationMode,
-      shortcut: DEFAULT_SETTINGS.shortcut,
       microphoneId: DEFAULT_SETTINGS.microphoneId,
+      shortcut: DEFAULT_SETTINGS.shortcut,
     };
     try {
       await persistSettings(persistedReset);
       const nextCurrent = {
         ...settingsRef.current,
         activationMode: DEFAULT_SETTINGS.activationMode,
-        shortcut: DEFAULT_SETTINGS.shortcut,
         microphoneId: DEFAULT_SETTINGS.microphoneId,
+        shortcut: DEFAULT_SETTINGS.shortcut,
       };
       savedSettingsRef.current = persistedReset;
       settingsRef.current = nextCurrent;
       setSettings(nextCurrent);
       setMicrophoneLevel(0);
       setMicrophoneMessage(null);
-      syncDirty(settingsChanged(nextCurrent, hotwordsTextRef.current, persistedReset, savedHotwordsTextRef.current));
+      syncDirty(
+        settingsChanged(
+          nextCurrent,
+          hotwordsTextRef.current,
+          persistedReset,
+          savedHotwordsTextRef.current
+        )
+      );
       showMessage({ kind: "success", text: "已恢复并保存“语音输入”默认值" });
       await refreshDiagnostics();
     } catch (error) {
-      showMessage({ kind: "error", text: safeError(error, settingsRef.current.apiKey) });
+      showMessage({
+        kind: "error",
+        text: safeError(error, settingsRef.current.apiKey),
+      });
     } finally {
       stopSaving();
     }
@@ -502,39 +607,55 @@ export function Settings({
     setMicrophoneLevel(0);
     setMicrophoneMessage(null);
     let failed = false;
-    const capture = new AudioCapture(settingsRef.current.microphoneId, setMicrophoneLevel, (error) => {
-      failed = true;
-      if (microphoneTestRef.current === capture) microphoneTestRef.current = null;
-      setMicrophoneMessage({ kind: "error", text: microphoneTestError(error) });
-      setTestingMicrophone(false);
-      void capture.stop();
-    });
+    const capture = new AudioCapture(
+      settingsRef.current.microphoneId,
+      setMicrophoneLevel,
+      (error) => {
+        failed = true;
+        if (microphoneTestRef.current === capture)
+          microphoneTestRef.current = null;
+        setMicrophoneMessage({
+          kind: "error",
+          text: microphoneTestError(error),
+        });
+        setTestingMicrophone(false);
+        void capture.stop();
+      }
+    );
     try {
       microphoneTestRef.current = capture;
       await capture.start();
-      window.setTimeout(async () => {
-        if (microphoneTestRef.current !== capture) return;
-        try {
-          await capture.stop();
-          microphoneTestRef.current = null;
-          await refreshMicrophones();
-          await refreshDiagnostics();
-          if (!failed) setMicrophoneMessage({ kind: "success", text: "麦克风工作正常" });
-        } catch (error) {
-          setMicrophoneMessage({ kind: "error", text: `停止麦克风测试失败：${String(error)}` });
-        } finally {
-          setTestingMicrophone(false);
-        }
+      window.setTimeout(() => {
+        void (async () => {
+          if (microphoneTestRef.current !== capture) return;
+          try {
+            await capture.stop();
+            microphoneTestRef.current = null;
+            await refreshMicrophones();
+            await refreshDiagnostics();
+            if (!failed)
+              setMicrophoneMessage({ kind: "success", text: "麦克风工作正常" });
+          } catch (error) {
+            setMicrophoneMessage({
+              kind: "error",
+              text: `停止麦克风测试失败：${String(error)}`,
+            });
+          } finally {
+            setTestingMicrophone(false);
+          }
+        })();
       }, 2500);
     } catch (error) {
-      await microphoneTestRef.current?.stop().catch(() => undefined);
+      await microphoneTestRef.current?.stop().catch(() => {});
       microphoneTestRef.current = null;
       setMicrophoneMessage({ kind: "error", text: microphoneTestError(error) });
       setTestingMicrophone(false);
     }
   };
 
-  const testDoubao = async (setFeedback: (message: Message) => void = setDoubaoMessage) => {
+  const testDoubao = async (
+    setFeedback: (message: Message) => void = setDoubaoMessage
+  ) => {
     setTestingDoubao(true);
     setFeedback(null);
     const apiKey = settingsRef.current.apiKey.trim();
@@ -543,11 +664,17 @@ export function Settings({
       if (!isTauri()) throw new Error("浏览器预览无法测试豆包连接");
       await invoke("test_doubao", { apiKey });
       setVerifiedApiKey(apiKey);
-      setFeedback({ kind: "success", text: "豆包 API Key 与流式识别服务连接正常" });
+      setFeedback({
+        kind: "success",
+        text: "豆包 API Key 与流式识别服务连接正常",
+      });
       return true;
     } catch (error) {
       setVerifiedApiKey("");
-      setFeedback({ kind: "error", text: `豆包连接失败：${safeError(error, apiKey)}` });
+      setFeedback({
+        kind: "error",
+        text: `豆包连接失败：${safeError(error, apiKey)}`,
+      });
       return false;
     } finally {
       setTestingDoubao(false);
@@ -557,23 +684,37 @@ export function Settings({
   const finishOnboarding = async () => {
     const apiKey = settingsRef.current.apiKey.trim();
     if (!apiKey) {
-      setOnboardingMessage({ kind: "error", text: "请返回豆包服务步骤填写并测试 API Key。" });
+      setOnboardingMessage({
+        kind: "error",
+        text: "请返回豆包服务步骤填写并测试 API Key。",
+      });
       return;
     }
     if (verifiedApiKey !== apiKey) {
-      setOnboardingMessage({ kind: "error", text: "API Key 已修改，请返回豆包服务步骤重新测试。" });
+      setOnboardingMessage({
+        kind: "error",
+        text: "API Key 已修改，请返回豆包服务步骤重新测试。",
+      });
       return;
     }
     if (!startSaving()) return;
     setOnboardingMessage(null);
     try {
       const hotwords = normalizeHotwords(hotwordsTextRef.current);
-      const nextSettings = { ...settingsRef.current, apiKey, hotwords, onboardingCompleted: true };
+      const nextSettings = {
+        ...settingsRef.current,
+        apiKey,
+        hotwords,
+        onboardingCompleted: true,
+      };
       await persistSettings(nextSettings);
       commitSettings(nextSettings, hotwords.join("\n"));
       selectSection("general");
       setShowApiKey(false);
-      showMessage({ kind: "success", text: "设置完成，可以开始使用 VoicePaste" });
+      showMessage({
+        kind: "success",
+        text: "设置完成，可以开始使用 VoicePaste",
+      });
       await refreshDiagnostics();
     } catch (error) {
       setOnboardingMessage({ kind: "error", text: safeError(error, apiKey) });
@@ -591,14 +732,20 @@ export function Settings({
     }
   };
 
-  const runAboutAction = async (command: "open_log_dir" | "copy_diagnostics", successText?: string) => {
+  const runAboutAction = async (
+    command: "open_log_dir" | "copy_diagnostics",
+    successText?: string
+  ) => {
     setMessage(null);
     try {
       if (!isTauri()) throw new Error("此操作仅在 VoicePaste 桌面版中可用");
       await invoke(command);
       if (successText) showMessage({ kind: "success", text: successText });
     } catch (error) {
-      showMessage({ kind: "error", text: safeError(error, settingsRef.current.apiKey) });
+      showMessage({
+        kind: "error",
+        text: safeError(error, settingsRef.current.apiKey),
+      });
     }
   };
 
@@ -608,14 +755,17 @@ export function Settings({
       if (!isTauri()) throw new Error("此链接仅在 VoicePaste 桌面版中打开");
       await invoke("open_product_link", { target });
     } catch (error) {
-      showMessage({ kind: "error", text: safeError(error, settingsRef.current.apiKey) });
+      showMessage({
+        kind: "error",
+        text: safeError(error, settingsRef.current.apiKey),
+      });
     }
   };
 
   const settingsToaster = (
     <Toaster
       position="top-right"
-      offset={{ top: 84, right: 32 }}
+      offset={{ right: 32, top: 84 }}
       duration={TRANSIENT_MESSAGE_DURATION}
       visibleToasts={1}
       expand={false}
@@ -637,8 +787,11 @@ export function Settings({
 
   if (!settings.onboardingCompleted) {
     const selectedMicrophone =
-      microphones.find((device) => device.id === settings.microphoneId)?.label ?? "系统默认麦克风";
-    const apiKeyVerified = Boolean(settings.apiKey.trim()) && verifiedApiKey === settings.apiKey.trim();
+      microphones.find((device) => device.id === settings.microphoneId)
+        ?.label ?? "系统默认麦克风";
+    const apiKeyVerified =
+      Boolean(settings.apiKey.trim()) &&
+      verifiedApiKey === settings.apiKey.trim();
 
     return (
       <>
@@ -653,8 +806,12 @@ export function Settings({
                 <AudioWaveform size={19} strokeWidth={2.4} />
               </div>
               <div>
-                <strong className="block text-[14px] font-semibold tracking-[-0.01em]">VoicePaste</strong>
-                <small className="mt-0.5 block text-[9px] text-[#696d75]">首次设置</small>
+                <strong className="block text-[14px] font-semibold tracking-[-0.01em]">
+                  VoicePaste
+                </strong>
+                <small className="mt-0.5 block text-[9px] text-[#696d75]">
+                  首次设置
+                </small>
               </div>
             </div>
 
@@ -675,7 +832,9 @@ export function Settings({
                       type="button"
                       aria-current={active ? "step" : undefined}
                       disabled={!complete}
-                      onClick={() => goToOnboardingStep(index)}
+                      onClick={() => {
+                        goToOnboardingStep(index);
+                      }}
                     >
                       <span
                         className={`grid size-5 shrink-0 place-items-center rounded-full border text-[9px] ${
@@ -696,7 +855,9 @@ export function Settings({
               })}
             </ol>
 
-            <p className="mt-auto text-[9px] leading-4 text-[#777b84]">约 2 分钟完成，之后可随时在设置中修改。</p>
+            <p className="mt-auto text-[9px] leading-4 text-[#777b84]">
+              约 2 分钟完成，之后可随时在设置中修改。
+            </p>
           </aside>
 
           <section className="min-w-0 overflow-auto px-10 py-8 max-[720px]:px-5 max-[720px]:py-6">
@@ -708,7 +869,9 @@ export function Settings({
                 >
                   <AudioWaveform size={17} />
                 </div>
-                <strong className="text-[13px] font-semibold">VoicePaste</strong>
+                <strong className="text-[13px] font-semibold">
+                  VoicePaste
+                </strong>
                 <span className="ml-auto text-[10px] text-[#777b84]">
                   {onboardingStep + 1} / {ONBOARDING_STEPS.length}
                 </span>
@@ -723,7 +886,9 @@ export function Settings({
                     >
                       <AudioWaveform size={24} strokeWidth={2.2} />
                     </div>
-                    <p className="text-[10px] font-medium tracking-[0.12em] text-[#6558e8]">欢迎使用</p>
+                    <p className="text-[10px] font-medium tracking-[0.12em] text-[#6558e8]">
+                      欢迎使用
+                    </p>
                     <h1
                       ref={onboardingHeadingRef}
                       className="mt-2 text-[25px] font-semibold tracking-[-0.03em] text-[#202124] outline-none"
@@ -737,7 +902,13 @@ export function Settings({
                     </p>
                     <Feedback message={onboardingMessage} className="mt-5" />
                     <div className="mt-7 flex justify-end">
-                      <button className={PRIMARY_BUTTON_CLASS} type="button" onClick={() => goToOnboardingStep(1)}>
+                      <button
+                        className={PRIMARY_BUTTON_CLASS}
+                        type="button"
+                        onClick={() => {
+                          goToOnboardingStep(1);
+                        }}
+                      >
                         开始设置 <ChevronRight size={13} />
                       </button>
                     </div>
@@ -746,7 +917,9 @@ export function Settings({
 
                 {onboardingStep === 1 ? (
                   <div>
-                    <p className="text-[10px] font-medium tracking-[0.12em] text-[#6558e8]">第 1 步</p>
+                    <p className="text-[10px] font-medium tracking-[0.12em] text-[#6558e8]">
+                      第 1 步
+                    </p>
                     <h1
                       ref={onboardingHeadingRef}
                       className="mt-2 text-[22px] font-semibold tracking-[-0.02em] outline-none"
@@ -758,7 +931,10 @@ export function Settings({
                       API Key 会由系统凭据存储保管，不会写入应用日志。
                     </p>
 
-                    <label className="mt-6 block text-[11px] font-medium text-[#34373d]" htmlFor="onboarding-api-key">
+                    <label
+                      className="mt-6 block text-[11px] font-medium text-[#34373d]"
+                      htmlFor="onboarding-api-key"
+                    >
                       豆包 API Key
                     </label>
                     <div className="mt-2 flex h-10 items-center overflow-hidden rounded-lg border border-[#d7d9de] bg-white transition focus-within:border-[#7564e8] focus-within:ring-3 focus-within:ring-[#7564e8]/10">
@@ -779,8 +955,12 @@ export function Settings({
                       <button
                         className="mr-1 grid size-7 cursor-pointer place-items-center rounded-md border-0 bg-transparent text-[#777b84] hover:bg-[#f1f1f3] focus-visible:outline-2 focus-visible:outline-[#7564e8]"
                         type="button"
-                        onClick={() => setShowApiKey(!showApiKey)}
-                        aria-label={showApiKey ? "隐藏 API Key" : "显示 API Key"}
+                        onClick={() => {
+                          setShowApiKey(!showApiKey);
+                        }}
+                        aria-label={
+                          showApiKey ? "隐藏 API Key" : "显示 API Key"
+                        }
                         title={showApiKey ? "隐藏 API Key" : "显示 API Key"}
                       >
                         {showApiKey ? <EyeOff size={13} /> : <Eye size={13} />}
@@ -800,18 +980,31 @@ export function Settings({
                         onClick={() => void testDoubao(setOnboardingMessage)}
                         disabled={testingDoubao || !settings.apiKey.trim()}
                       >
-                        <Activity size={11} /> {testingDoubao ? "连接中…" : apiKeyVerified ? "重新测试" : "测试连接"}
+                        <Activity size={11} />{" "}
+                        {testingDoubao
+                          ? "连接中…"
+                          : apiKeyVerified
+                            ? "重新测试"
+                            : "测试连接"}
                       </button>
                     </div>
                     <Feedback message={onboardingMessage} className="mt-4" />
                     <div className="mt-7 flex items-center justify-between">
-                      <button className={SECONDARY_BUTTON_CLASS} type="button" onClick={() => goToOnboardingStep(0)}>
+                      <button
+                        className={SECONDARY_BUTTON_CLASS}
+                        type="button"
+                        onClick={() => {
+                          goToOnboardingStep(0);
+                        }}
+                      >
                         <ChevronLeft size={12} /> 返回
                       </button>
                       <button
                         className={PRIMARY_BUTTON_CLASS}
                         type="button"
-                        onClick={() => goToOnboardingStep(2)}
+                        onClick={() => {
+                          goToOnboardingStep(2);
+                        }}
                         disabled={!apiKeyVerified || testingDoubao}
                       >
                         继续 <ChevronRight size={13} />
@@ -822,7 +1015,9 @@ export function Settings({
 
                 {onboardingStep === 2 ? (
                   <div>
-                    <p className="text-[10px] font-medium tracking-[0.12em] text-[#6558e8]">第 2 步</p>
+                    <p className="text-[10px] font-medium tracking-[0.12em] text-[#6558e8]">
+                      第 2 步
+                    </p>
                     <h1
                       ref={onboardingHeadingRef}
                       className="mt-2 text-[22px] font-semibold tracking-[-0.02em] outline-none"
@@ -834,11 +1029,15 @@ export function Settings({
                       点击下方按钮，再按下包含修饰键的组合键。
                     </p>
 
-                    <div className="mt-7 rounded-xl border border-[#e1e2e6] bg-[#f8f8fa] px-5 py-5">
+                    <div className="mt-7 rounded-xl border border-[#e1e2e6] bg-[#f8f8fa] p-5">
                       <div className="flex items-center justify-between gap-5">
                         <div>
-                          <p className="text-[11px] font-medium text-[#34373d]">开始听写</p>
-                          <p className="mt-1 text-[10px] leading-5 text-[#777b84]">可在任何应用的输入框中使用</p>
+                          <p className="text-[11px] font-medium text-[#34373d]">
+                            开始听写
+                          </p>
+                          <p className="mt-1 text-[10px] leading-5 text-[#777b84]">
+                            可在任何应用的输入框中使用
+                          </p>
                         </div>
                         <button
                           ref={shortcutButtonRef}
@@ -854,20 +1053,35 @@ export function Settings({
                           }}
                           onBlur={shortcutRecorder.cancelRecording}
                         >
-                          {shortcutRecorder.isRecording ? "请按组合键…" : <ShortcutHint shortcut={settings.shortcut} />}
+                          {shortcutRecorder.isRecording ? (
+                            "请按组合键…"
+                          ) : (
+                            <ShortcutHint shortcut={settings.shortcut} />
+                          )}
                         </button>
                       </div>
                     </div>
                     <Feedback message={onboardingMessage} className="mt-4" />
                     <div className="mt-7 flex items-center justify-between">
-                      <button className={SECONDARY_BUTTON_CLASS} type="button" onClick={() => goToOnboardingStep(1)}>
+                      <button
+                        className={SECONDARY_BUTTON_CLASS}
+                        type="button"
+                        onClick={() => {
+                          goToOnboardingStep(1);
+                        }}
+                      >
                         <ChevronLeft size={12} /> 返回
                       </button>
                       <button
                         className={PRIMARY_BUTTON_CLASS}
                         type="button"
-                        onClick={() => goToOnboardingStep(3)}
-                        disabled={!settings.shortcut.trim() || shortcutRecorder.isRecording}
+                        onClick={() => {
+                          goToOnboardingStep(3);
+                        }}
+                        disabled={
+                          !settings.shortcut.trim() ||
+                          shortcutRecorder.isRecording
+                        }
                       >
                         继续 <ChevronRight size={13} />
                       </button>
@@ -877,7 +1091,9 @@ export function Settings({
 
                 {onboardingStep === 3 ? (
                   <div>
-                    <p className="text-[10px] font-medium tracking-[0.12em] text-[#6558e8]">第 3 步</p>
+                    <p className="text-[10px] font-medium tracking-[0.12em] text-[#6558e8]">
+                      第 3 步
+                    </p>
                     <h1
                       ref={onboardingHeadingRef}
                       className="mt-2 text-[22px] font-semibold tracking-[-0.02em] outline-none"
@@ -919,7 +1135,8 @@ export function Settings({
                         onClick={() => void testMicrophone()}
                         disabled={testingMicrophone}
                       >
-                        <Mic size={11} /> {testingMicrophone ? "测试中…" : "测试"}
+                        <Mic size={11} />{" "}
+                        {testingMicrophone ? "测试中…" : "测试"}
                       </button>
                     </div>
                     <div
@@ -932,7 +1149,9 @@ export function Settings({
                     >
                       <div
                         className="h-full rounded-full bg-[#6558e8] transition-[width] duration-75"
-                        style={{ width: `${Math.max(testingMicrophone ? 3 : 0, microphoneLevel * 100)}%` }}
+                        style={{
+                          width: `${Math.max(testingMicrophone ? 3 : 0, microphoneLevel * 100)}%`,
+                        }}
                       />
                     </div>
                     <Feedback message={microphoneMessage} className="mt-4" />
@@ -940,7 +1159,9 @@ export function Settings({
                       <button
                         className={SECONDARY_BUTTON_CLASS}
                         type="button"
-                        onClick={() => goToOnboardingStep(2)}
+                        onClick={() => {
+                          goToOnboardingStep(2);
+                        }}
                         disabled={testingMicrophone}
                       >
                         <ChevronLeft size={12} /> 返回
@@ -948,7 +1169,9 @@ export function Settings({
                       <button
                         className={PRIMARY_BUTTON_CLASS}
                         type="button"
-                        onClick={() => goToOnboardingStep(4)}
+                        onClick={() => {
+                          goToOnboardingStep(4);
+                        }}
                         disabled={testingMicrophone}
                       >
                         继续 <ChevronRight size={13} />
@@ -965,7 +1188,9 @@ export function Settings({
                     >
                       <CheckCircle2 size={25} strokeWidth={2.1} />
                     </div>
-                    <p className="text-[10px] font-medium tracking-[0.12em] text-[#6558e8]">设置完成</p>
+                    <p className="text-[10px] font-medium tracking-[0.12em] text-[#6558e8]">
+                      设置完成
+                    </p>
                     <h1
                       ref={onboardingHeadingRef}
                       className="mt-2 text-[22px] font-semibold tracking-[-0.02em] outline-none"
@@ -980,7 +1205,9 @@ export function Settings({
                     <dl className="mt-6 divide-y divide-[#ececef] overflow-hidden rounded-xl border border-[#e1e2e6] bg-[#fbfbfc] text-[11px]">
                       <div className="flex items-center justify-between gap-5 px-4 py-3">
                         <dt className="text-[#777b84]">豆包服务</dt>
-                        <dd className="font-medium text-[#17633f]">连接已验证</dd>
+                        <dd className="font-medium text-[#17633f]">
+                          连接已验证
+                        </dd>
                       </div>
                       <div className="flex items-center justify-between gap-5 px-4 py-3">
                         <dt className="text-[#777b84]">快捷键</dt>
@@ -990,7 +1217,9 @@ export function Settings({
                       </div>
                       <div className="flex items-center justify-between gap-5 px-4 py-3">
                         <dt className="text-[#777b84]">麦克风</dt>
-                        <dd className="max-w-[320px] truncate font-medium text-[#34373d]">{selectedMicrophone}</dd>
+                        <dd className="max-w-[320px] truncate font-medium text-[#34373d]">
+                          {selectedMicrophone}
+                        </dd>
                       </div>
                     </dl>
                     <Feedback message={onboardingMessage} className="mt-4" />
@@ -998,7 +1227,9 @@ export function Settings({
                       <button
                         className={SECONDARY_BUTTON_CLASS}
                         type="button"
-                        onClick={() => goToOnboardingStep(3)}
+                        onClick={() => {
+                          goToOnboardingStep(3);
+                        }}
                         disabled={saving}
                       >
                         <ChevronLeft size={12} /> 返回修改
@@ -1009,7 +1240,8 @@ export function Settings({
                         onClick={() => void finishOnboarding()}
                         disabled={saving}
                       >
-                        {saving ? "保存中…" : "完成设置"} <CheckCircle2 size={13} />
+                        {saving ? "保存中…" : "完成设置"}{" "}
+                        <CheckCircle2 size={13} />
                       </button>
                     </div>
                   </div>
@@ -1022,7 +1254,10 @@ export function Settings({
     );
   }
 
-  const microphoneStatus = microphones.length > 0 ? `原生采集可用（${microphones.length} 个设备）` : "未检测到麦克风";
+  const microphoneStatus =
+    microphones.length > 0
+      ? `原生采集可用（${microphones.length} 个设备）`
+      : "未检测到麦克风";
   const currentVersion = diagnostics?.appVersion ?? FALLBACK_APP_VERSION;
 
   return (
@@ -1038,8 +1273,12 @@ export function Settings({
               <AudioWaveform size={17} strokeWidth={2.4} />
             </div>
             <div>
-              <strong className="block text-[13px] font-semibold tracking-[-0.01em]">VoicePaste</strong>
-              <small className="mt-0.5 block text-[9px] text-[#696d75]">设置</small>
+              <strong className="block text-[13px] font-semibold tracking-[-0.01em]">
+                VoicePaste
+              </strong>
+              <small className="mt-0.5 block text-[9px] text-[#696d75]">
+                设置
+              </small>
             </div>
           </div>
 
@@ -1056,7 +1295,9 @@ export function Settings({
                   }`}
                   type="button"
                   aria-current={active ? "page" : undefined}
-                  onClick={() => selectSection(id)}
+                  onClick={() => {
+                    selectSection(id);
+                  }}
                 >
                   <Icon size={14} strokeWidth={active ? 2.2 : 1.8} />
                   {label}
@@ -1065,14 +1306,20 @@ export function Settings({
             })}
           </nav>
 
-          <p className="mt-auto px-3 pb-1 text-[9px] leading-4 text-[#696d75]">关闭窗口后继续在系统托盘运行</p>
+          <p className="mt-auto px-3 pb-1 text-[9px] leading-4 text-[#696d75]">
+            关闭窗口后继续在系统托盘运行
+          </p>
         </aside>
 
         <div className="flex min-w-0 flex-col">
           <header className="flex h-[72px] shrink-0 items-center justify-between border-b border-[#e4e5e8] bg-white px-8">
             <div>
-              <h1 className="text-[18px] font-semibold tracking-[-0.02em] text-[#202124]">设置</h1>
-              <p className="mt-1 text-[10px] text-[#6f737b]">{SECTION_DESCRIPTIONS[activeSection]}</p>
+              <h1 className="text-[18px] font-semibold tracking-[-0.02em] text-[#202124]">
+                设置
+              </h1>
+              <p className="mt-1 text-[10px] text-[#6f737b]">
+                {SECTION_DESCRIPTIONS[activeSection]}
+              </p>
             </div>
             <div className="flex gap-2">
               {activeSection === "shortcut" ? (
@@ -1098,19 +1345,34 @@ export function Settings({
 
           <main className="min-h-0 flex-1 overflow-auto scroll-smooth px-8 py-6">
             <div className="mx-auto max-w-[720px]">
-              <Feedback message={message?.kind === "error" ? message : null} className="mb-5" />
+              <Feedback
+                message={message?.kind === "error" ? message : null}
+                className="mb-5"
+              />
 
               <fieldset className="m-0 min-w-0 border-0 p-0" disabled={saving}>
                 {activeSection === "general" ? (
-                  <SettingsSection id="general" title="通用" description="控制 VoicePaste 的启动方式和悬浮窗位置。">
-                    <SettingRow title="开机启动" description="登录系统后自动启动 VoicePaste，并在托盘中等待。">
+                  <SettingsSection
+                    id="general"
+                    title="通用"
+                    description="控制 VoicePaste 的启动方式和悬浮窗位置。"
+                  >
+                    <SettingRow
+                      title="开机启动"
+                      description="登录系统后自动启动 VoicePaste，并在托盘中等待。"
+                    >
                       <Toggle
                         checked={settings.launchAtStartup}
-                        onChange={(checked) => updateSetting("launchAtStartup", checked)}
+                        onChange={(checked) => {
+                          updateSetting("launchAtStartup", checked);
+                        }}
                         label="开机启动"
                       />
                     </SettingRow>
-                    <SettingRow title="悬浮窗位置" description="选择听写状态悬浮窗出现的屏幕边缘。">
+                    <SettingRow
+                      title="悬浮窗位置"
+                      description="选择听写状态悬浮窗出现的屏幕边缘。"
+                    >
                       <div
                         className="grid w-[410px] grid-cols-3 gap-1 rounded-lg bg-[#f0f1f3] p-1 max-[800px]:w-[360px]"
                         role="radiogroup"
@@ -1135,7 +1397,9 @@ export function Settings({
                               type="button"
                               role="radio"
                               aria-checked={selected}
-                              onClick={() => updateSetting("overlayPosition", value)}
+                              onClick={() => {
+                                updateSetting("overlayPosition", value);
+                              }}
                             >
                               {label}
                             </button>
@@ -1155,7 +1419,9 @@ export function Settings({
                     <button
                       className="shrink-0 cursor-pointer border-0 bg-transparent p-0 font-medium text-[#5748ca] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8]"
                       type="button"
-                      onClick={() => selectSection("recognition")}
+                      onClick={() => {
+                        selectSection("recognition");
+                      }}
                     >
                       去配置
                     </button>
@@ -1163,8 +1429,15 @@ export function Settings({
                 ) : null}
 
                 {activeSection === "shortcut" ? (
-                  <SettingsSection id="shortcut" title="语音输入" description="在任意输入框按快捷键开始说话。">
-                    <SettingRow title="触发方式" description="选择快捷键按下后的行为。">
+                  <SettingsSection
+                    id="shortcut"
+                    title="语音输入"
+                    description="在任意输入框按快捷键开始说话。"
+                  >
+                    <SettingRow
+                      title="触发方式"
+                      description="选择快捷键按下后的行为。"
+                    >
                       <div
                         className="grid w-[286px] grid-cols-2 rounded-lg bg-[#f0f1f3] p-1"
                         role="radiogroup"
@@ -1188,7 +1461,9 @@ export function Settings({
                               type="button"
                               role="radio"
                               aria-checked={selected}
-                              onClick={() => updateSetting("activationMode", value)}
+                              onClick={() => {
+                                updateSetting("activationMode", value);
+                              }}
                             >
                               {label}
                             </button>
@@ -1197,7 +1472,10 @@ export function Settings({
                       </div>
                     </SettingRow>
 
-                    <SettingRow title="全局快捷键" description="点击后按下新的组合键。">
+                    <SettingRow
+                      title="全局快捷键"
+                      description="点击后按下新的组合键。"
+                    >
                       <button
                         ref={shortcutButtonRef}
                         className={`h-9 min-w-[184px] cursor-pointer rounded-lg border px-3 font-mono text-[10px] outline-none ${
@@ -1212,11 +1490,18 @@ export function Settings({
                         }}
                         onBlur={shortcutRecorder.cancelRecording}
                       >
-                        {shortcutRecorder.isRecording ? "请按组合键…" : <ShortcutHint shortcut={settings.shortcut} />}
+                        {shortcutRecorder.isRecording ? (
+                          "请按组合键…"
+                        ) : (
+                          <ShortcutHint shortcut={settings.shortcut} />
+                        )}
                       </button>
                     </SettingRow>
 
-                    <SettingRow title="麦克风" description="默认使用系统当前选择的输入设备。">
+                    <SettingRow
+                      title="麦克风"
+                      description="默认使用系统当前选择的输入设备。"
+                    >
                       <div className="w-[410px] max-[800px]:w-[360px]">
                         <div className="flex gap-2">
                           <select
@@ -1241,7 +1526,8 @@ export function Settings({
                             onClick={() => void testMicrophone()}
                             disabled={testingMicrophone}
                           >
-                            <Mic size={11} /> {testingMicrophone ? "测试中…" : "测试"}
+                            <Mic size={11} />{" "}
+                            {testingMicrophone ? "测试中…" : "测试"}
                           </button>
                         </div>
                         <div
@@ -1254,7 +1540,9 @@ export function Settings({
                         >
                           <div
                             className="h-full rounded-full bg-[#6558e8] transition-[width] duration-75"
-                            style={{ width: `${Math.max(testingMicrophone ? 3 : 0, microphoneLevel * 100)}%` }}
+                            style={{
+                              width: `${Math.max(testingMicrophone ? 3 : 0, microphoneLevel * 100)}%`,
+                            }}
                           />
                         </div>
                       </div>
@@ -1273,7 +1561,10 @@ export function Settings({
                     title="识别与词汇"
                     description="配置识别服务，并提高人名和专业词汇的准确率。"
                   >
-                    <SettingRow title="豆包 API Key" description="从火山引擎控制台获取，用于连接语音识别服务。">
+                    <SettingRow
+                      title="豆包 API Key"
+                      description="从火山引擎控制台获取，用于连接语音识别服务。"
+                    >
                       <div className="w-[410px] max-[800px]:w-[360px]">
                         <div className="flex h-9 items-center overflow-hidden rounded-lg border border-[#d7d9de] bg-white transition focus-within:border-[#7564e8] focus-within:ring-3 focus-within:ring-[#7564e8]/10">
                           <input
@@ -1292,11 +1583,19 @@ export function Settings({
                           <button
                             className="mr-1 grid size-7 cursor-pointer place-items-center rounded-md border-0 bg-transparent text-[#777b84] hover:bg-[#f1f1f3] focus-visible:outline-2 focus-visible:outline-[#7564e8]"
                             type="button"
-                            onClick={() => setShowApiKey(!showApiKey)}
-                            aria-label={showApiKey ? "隐藏 API Key" : "显示 API Key"}
+                            onClick={() => {
+                              setShowApiKey(!showApiKey);
+                            }}
+                            aria-label={
+                              showApiKey ? "隐藏 API Key" : "显示 API Key"
+                            }
                             title={showApiKey ? "隐藏 API Key" : "显示 API Key"}
                           >
-                            {showApiKey ? <EyeOff size={13} /> : <Eye size={13} />}
+                            {showApiKey ? (
+                              <EyeOff size={13} />
+                            ) : (
+                              <Eye size={13} />
+                            )}
                           </button>
                         </div>
                         <div className="mt-2 flex items-center justify-end gap-3">
@@ -1315,7 +1614,8 @@ export function Settings({
                             onClick={() => void testDoubao()}
                             disabled={testingDoubao || !settings.apiKey.trim()}
                           >
-                            <Activity size={11} /> {testingDoubao ? "连接中…" : "测试连接"}
+                            <Activity size={11} />{" "}
+                            {testingDoubao ? "连接中…" : "测试连接"}
                           </button>
                         </div>
                       </div>
@@ -1325,7 +1625,11 @@ export function Settings({
                         <Feedback message={doubaoMessage} />
                       </div>
                     ) : null}
-                    <SettingRow title="常用词" description="每行一个词，最多 100 个字符。" vertical>
+                    <SettingRow
+                      title="常用词"
+                      description="每行一个词，最多 100 个字符。"
+                      vertical
+                    >
                       <div className="mb-2 flex justify-end">
                         <button
                           className="cursor-pointer border-0 bg-transparent p-0 text-[10px] font-medium text-[#6558e8] hover:text-[#4f43bd] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8] disabled:cursor-default disabled:text-[#9a9da4]"
@@ -1339,7 +1643,9 @@ export function Settings({
                       <textarea
                         className="min-h-28 w-full resize-y rounded-lg border border-[#d7d9de] bg-white px-3 py-2.5 text-[12px] leading-6 text-[#202124] transition outline-none focus:border-[#7564e8] focus:ring-3 focus:ring-[#7564e8]/10 disabled:cursor-not-allowed disabled:bg-[#f5f5f6]"
                         value={hotwordsText}
-                        onChange={(event) => updateHotwordsText(event.target.value)}
+                        onChange={(event) => {
+                          updateHotwordsText(event.target.value);
+                        }}
                         placeholder={"VoicePaste\n你的名字\n常用产品名"}
                         rows={5}
                       />
@@ -1348,10 +1654,15 @@ export function Settings({
                 ) : null}
 
                 {activeSection === "diagnostics" ? (
-                  <SettingsSection id="diagnostics" title="权限与状态" description="仅在功能不可用时需要查看。">
+                  <SettingsSection
+                    id="diagnostics"
+                    title="权限与状态"
+                    description="仅在功能不可用时需要查看。"
+                  >
                     <SettingRow title="全局快捷键">
                       <span className="max-w-[410px] text-right text-[10px] leading-5 text-[#666a73]">
-                        {diagnostics?.shortcutStatus ?? "浏览器预览不注册快捷键"}
+                        {diagnostics?.shortcutStatus ??
+                          "浏览器预览不注册快捷键"}
                       </span>
                     </SettingRow>
                     <SettingRow title="麦克风">
@@ -1379,14 +1690,22 @@ export function Settings({
                         <button
                           className="flex h-9 cursor-pointer items-center gap-1.5 rounded-lg border border-[#cfc9f6] bg-[#f3f1ff] px-3 text-[10px] font-medium text-[#5748ca] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8]"
                           type="button"
-                          onClick={async () => {
-                            setMessage(null);
-                            try {
-                              await invoke("retry_input_access");
-                              await refreshDiagnostics();
-                            } catch (error) {
-                              showMessage({ kind: "error", text: safeError(error, settingsRef.current.apiKey) });
-                            }
+                          onClick={() => {
+                            void (async () => {
+                              setMessage(null);
+                              try {
+                                await invoke("retry_input_access");
+                                await refreshDiagnostics();
+                              } catch (error) {
+                                showMessage({
+                                  kind: "error",
+                                  text: safeError(
+                                    error,
+                                    settingsRef.current.apiKey
+                                  ),
+                                });
+                              }
+                            })();
                           }}
                         >
                           <CheckCircle2 size={11} /> 重试自动粘贴
@@ -1398,7 +1717,11 @@ export function Settings({
 
                 {activeSection === "about" ? (
                   <>
-                    <SettingsSection id="about-version" title="关于 VoicePaste" description="版本信息和正式发布。">
+                    <SettingsSection
+                      id="about-version"
+                      title="关于 VoicePaste"
+                      description="版本信息和正式发布。"
+                    >
                       <SettingRow
                         title={`VoicePaste ${currentVersion}`}
                         description="新版本由 GitHub Releases 发布，请手动下载安装。"
@@ -1418,7 +1741,10 @@ export function Settings({
                       title="日志与支持"
                       description="排查问题时可打开日志或复制不含凭据的诊断信息。"
                     >
-                      <SettingRow title="日志目录" description={diagnostics?.logDir ?? "应用日志目录"}>
+                      <SettingRow
+                        title="日志目录"
+                        description={diagnostics?.logDir ?? "应用日志目录"}
+                      >
                         <button
                           className={SECONDARY_BUTTON_CLASS}
                           type="button"
@@ -1427,18 +1753,30 @@ export function Settings({
                           <FolderOpen size={11} /> 打开目录
                         </button>
                       </SettingRow>
-                      <SettingRow title="诊断信息" description="复制版本、快捷键、自动粘贴和系统信息，不包含 API Key。">
+                      <SettingRow
+                        title="诊断信息"
+                        description="复制版本、快捷键、自动粘贴和系统信息，不包含 API Key。"
+                      >
                         <button
                           className={SECONDARY_BUTTON_CLASS}
                           type="button"
-                          onClick={() => void runAboutAction("copy_diagnostics", "诊断信息已复制")}
+                          onClick={() =>
+                            void runAboutAction(
+                              "copy_diagnostics",
+                              "诊断信息已复制"
+                            )
+                          }
                         >
                           <Copy size={11} /> 复制诊断信息
                         </button>
                       </SettingRow>
                     </SettingsSection>
 
-                    <SettingsSection id="about-links" title="产品链接" description="了解项目、获取帮助或查看隐私说明。">
+                    <SettingsSection
+                      id="about-links"
+                      title="产品链接"
+                      description="了解项目、获取帮助或查看隐私说明。"
+                    >
                       {(
                         [
                           ["homepage", "主页", "了解 VoicePaste 和最新动态"],
@@ -1446,7 +1784,11 @@ export function Settings({
                           ["privacy", "隐私说明", "了解数据处理和凭据存储方式"],
                         ] as const
                       ).map(([target, label, description]) => (
-                        <SettingRow key={target} title={label} description={description}>
+                        <SettingRow
+                          key={target}
+                          title={label}
+                          description={description}
+                        >
                           <button
                             className="flex cursor-pointer items-center gap-1.5 border-0 bg-transparent p-1 text-[10px] font-medium text-[#6558e8] hover:text-[#4f43bd] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8]"
                             type="button"
