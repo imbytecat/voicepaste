@@ -212,11 +212,13 @@ function SettingRow({
   title,
   description,
   children,
+  changed = false,
   vertical = false,
 }: {
   title: string;
   description?: string;
   children: ReactNode;
+  changed?: boolean;
   vertical?: boolean;
 }) {
   return (
@@ -228,7 +230,14 @@ function SettingRow({
       }
     >
       <div className={vertical ? "" : "min-w-0 flex-1"}>
-        <h3 className="text-[12px] font-medium text-[#2c2e33]">{title}</h3>
+        <div className="flex items-center gap-2">
+          <h3 className="text-[12px] font-medium text-[#2c2e33]">{title}</h3>
+          {changed ? (
+            <span className="rounded-full bg-[#fff2cc] px-1.5 py-0.5 text-[8px] font-medium text-[#7a5100]">
+              已修改
+            </span>
+          ) : null}
+        </div>
         {description ? (
           <p className="mt-1 text-[10px] leading-5 text-[#6f737b]">
             {description}
@@ -299,6 +308,10 @@ function microphoneTestError(error: unknown): string {
   return /permission|notallowederror|denied/iu.test(detail)
     ? "麦克风权限未开启。请在系统设置中允许 VoicePaste 使用麦克风，然后重试。"
     : `麦克风测试失败：${detail}`;
+}
+
+function stopCaptureIgnoringErrors(capture: AudioCapture): void {
+  void capture.stop().catch(() => {});
 }
 
 export function Settings({
@@ -652,55 +665,61 @@ export function Settings({
     showMessage({ kind: "info", text: "已清空常用词，保存后生效。" });
   };
 
-  const testMicrophone = async () => {
+  const startMicrophoneTest = async () => {
+    if (microphoneTestRef.current) return;
     setTestingMicrophone(true);
     setMicrophoneLevel(0);
     setMicrophoneMessage(null);
-    let failed = false;
     const capture = new AudioCapture(
       settingsRef.current.microphoneId,
       setMicrophoneLevel,
       (error) => {
-        failed = true;
-        if (microphoneTestRef.current === capture)
-          microphoneTestRef.current = null;
+        if (microphoneTestRef.current !== capture) return;
+        microphoneTestRef.current = null;
+        setMicrophoneLevel(0);
         setMicrophoneMessage({
           kind: "error",
           text: microphoneTestError(error),
         });
         setTestingMicrophone(false);
-        void capture.stop();
+        stopCaptureIgnoringErrors(capture);
       }
     );
+    microphoneTestRef.current = capture;
     try {
-      microphoneTestRef.current = capture;
       await capture.start();
-      window.setTimeout(() => {
-        void (async () => {
-          if (microphoneTestRef.current !== capture) return;
-          try {
-            await capture.stop();
-            microphoneTestRef.current = null;
-            await refreshMicrophones();
-            await refreshDiagnostics();
-            if (!failed)
-              setMicrophoneMessage({ kind: "success", text: "麦克风工作正常" });
-          } catch (error) {
-            setMicrophoneMessage({
-              kind: "error",
-              text: `停止麦克风测试失败：${String(error)}`,
-            });
-          } finally {
-            setTestingMicrophone(false);
-          }
-        })();
-      }, 2500);
     } catch (error) {
-      await microphoneTestRef.current?.stop().catch(() => {});
-      microphoneTestRef.current = null;
+      if (microphoneTestRef.current === capture)
+        microphoneTestRef.current = null;
+      await capture.stop().catch(() => {});
       setMicrophoneMessage({ kind: "error", text: microphoneTestError(error) });
       setTestingMicrophone(false);
     }
+  };
+
+  const stopMicrophoneTest = async () => {
+    const capture = microphoneTestRef.current;
+    if (!capture) return;
+    microphoneTestRef.current = null;
+    try {
+      await capture.stop();
+      await Promise.all([refreshMicrophones(), refreshDiagnostics()]);
+      setMicrophoneMessage({ kind: "info", text: "麦克风测试已停止" });
+    } catch (error) {
+      setMicrophoneMessage({
+        kind: "error",
+        text: `停止麦克风测试失败：${String(error)}`,
+      });
+    } finally {
+      setMicrophoneLevel(0);
+      setTestingMicrophone(false);
+    }
+  };
+
+  const toggleMicrophoneTest = () => {
+    void (microphoneTestRef.current
+      ? stopMicrophoneTest()
+      : startMicrophoneTest());
   };
 
   const testDoubao = async (
@@ -829,6 +848,36 @@ export function Settings({
       ? `原生采集可用（${microphones.length} 个设备）`
       : "未检测到麦克风";
   const currentVersion = diagnostics?.appVersion ?? FALLBACK_APP_VERSION;
+  const isSettingChanged = (key: keyof AppSettings) =>
+    settings[key] !== savedSettingsRef.current[key];
+  const hotwordsChanged = hotwordsText !== savedHotwordsTextRef.current;
+  const hasUnsavedChanges = settingsChanged(
+    settings,
+    hotwordsText,
+    savedSettingsRef.current,
+    savedHotwordsTextRef.current
+  );
+  const isSectionChanged = (section: SettingsSectionId) => {
+    if (section === "general")
+      return (
+        isSettingChanged("launchAtStartup") ||
+        isSettingChanged("openSettingsOnStartup") ||
+        isSettingChanged("overlayPosition")
+      );
+    if (section === "shortcut")
+      return (
+        isSettingChanged("activationMode") ||
+        isSettingChanged("shortcut") ||
+        isSettingChanged("microphoneId")
+      );
+    if (section === "recognition")
+      return (
+        isSettingChanged("apiKey") ||
+        isSettingChanged("hotwordsEnabled") ||
+        hotwordsChanged
+      );
+    return false;
+  };
 
   function renderSection(section: SettingsSectionId): ReactNode {
     switch (section) {
@@ -842,6 +891,7 @@ export function Settings({
             <SettingRow
               title="开机启动"
               description="登录系统后自动启动 VoicePaste，并在托盘中等待。"
+              changed={isSettingChanged("launchAtStartup")}
             >
               <Toggle
                 checked={settings.launchAtStartup}
@@ -854,6 +904,7 @@ export function Settings({
             <SettingRow
               title="启动时打开窗口"
               description="启动 VoicePaste 时显示设置窗口；关闭后仅在托盘中运行。"
+              changed={isSettingChanged("openSettingsOnStartup")}
             >
               <Toggle
                 checked={settings.openSettingsOnStartup}
@@ -866,6 +917,7 @@ export function Settings({
             <SettingRow
               title="悬浮窗位置"
               description="选择听写状态悬浮窗出现的屏幕边缘。"
+              changed={isSettingChanged("overlayPosition")}
             >
               <div
                 className="grid w-102.5 grid-cols-3 gap-1 rounded-lg bg-[#f0f1f3] p-1 max-[800px]:w-90"
@@ -932,6 +984,7 @@ export function Settings({
               <SettingRow
                 title="触发方式"
                 description="选择快捷键按下后的行为。"
+                changed={isSettingChanged("activationMode")}
               >
                 <div
                   className="grid w-71.5 grid-cols-2 rounded-lg bg-[#f0f1f3] p-1"
@@ -970,6 +1023,7 @@ export function Settings({
               <SettingRow
                 title="全局快捷键"
                 description="点击后按下新的组合键。"
+                changed={isSettingChanged("shortcut")}
               >
                 <button
                   ref={shortcutButtonRef}
@@ -996,6 +1050,7 @@ export function Settings({
               <SettingRow
                 title="麦克风"
                 description="默认使用系统当前选择的输入设备。"
+                changed={isSettingChanged("microphoneId")}
               >
                 <div className="w-102.5 max-[800px]:w-90">
                   <div className="flex gap-2">
@@ -1007,6 +1062,7 @@ export function Settings({
                         updateSetting("microphoneId", event.target.value);
                         setMicrophoneMessage(null);
                       }}
+                      disabled={testingMicrophone}
                     >
                       <option value="">系统默认麦克风</option>
                       {microphones.map((device) => (
@@ -1018,10 +1074,11 @@ export function Settings({
                     <button
                       className={SECONDARY_BUTTON_CLASS}
                       type="button"
-                      onClick={() => void testMicrophone()}
-                      disabled={testingMicrophone}
+                      aria-pressed={testingMicrophone}
+                      onClick={toggleMicrophoneTest}
                     >
-                      <Mic size={11} /> {testingMicrophone ? "测试中…" : "测试"}
+                      <Mic size={11} />{" "}
+                      {testingMicrophone ? "停止测试" : "开始测试"}
                     </button>
                   </div>
                   <div
@@ -1060,6 +1117,7 @@ export function Settings({
             <SettingRow
               title="豆包 API Key"
               description="从火山引擎控制台获取，用于连接语音识别服务。"
+              changed={isSettingChanged("apiKey")}
             >
               <div className="w-102.5 max-[800px]:w-90">
                 <div className="flex h-9 items-center overflow-hidden rounded-lg border border-[#d7d9de] bg-white transition focus-within:border-[#7564e8] focus-within:ring-3 focus-within:ring-[#7564e8]/10">
@@ -1118,6 +1176,7 @@ export function Settings({
             <SettingRow
               title="启用热词"
               description="关闭后保留词表，但听写时不发送给豆包。"
+              changed={isSettingChanged("hotwordsEnabled")}
             >
               <Toggle
                 checked={settings.hotwordsEnabled}
@@ -1131,6 +1190,7 @@ export function Settings({
               title="热词列表"
               description="每行一个词，最多 100 个字符。"
               vertical
+              changed={hotwordsChanged}
             >
               <div className="mb-2 flex justify-end">
                 <button
@@ -1663,11 +1723,11 @@ export function Settings({
                       <button
                         className={SECONDARY_BUTTON_CLASS}
                         type="button"
-                        onClick={() => void testMicrophone()}
-                        disabled={testingMicrophone}
+                        aria-pressed={testingMicrophone}
+                        onClick={toggleMicrophoneTest}
                       >
                         <Mic size={11} />{" "}
-                        {testingMicrophone ? "测试中…" : "测试"}
+                        {testingMicrophone ? "停止测试" : "开始测试"}
                       </button>
                     </div>
                     <div
@@ -1830,6 +1890,11 @@ export function Settings({
                   <>
                     <Icon size={14} strokeWidth={isActive ? 2.2 : 1.8} />
                     {label}
+                    {isSectionChanged(id) ? (
+                      <span className="ml-auto rounded-full bg-[#fff2cc] px-1.5 py-0.5 text-[8px] font-medium text-[#7a5100]">
+                        未保存
+                      </span>
+                    ) : null}
                   </>
                 )}
               </Link>
@@ -1844,9 +1909,16 @@ export function Settings({
         <div className="flex min-h-0 min-w-0 flex-col">
           <header className="flex h-18 shrink-0 items-center justify-between border-b border-[#e4e5e8] bg-white px-8">
             <div>
-              <h1 className="text-[18px] font-semibold tracking-[-0.02em] text-[#202124]">
-                设置
-              </h1>
+              <div className="flex items-center gap-2">
+                <h1 className="text-[18px] font-semibold tracking-[-0.02em] text-[#202124]">
+                  设置
+                </h1>
+                {hasUnsavedChanges ? (
+                  <span className="rounded-full bg-[#fff2cc] px-2 py-0.5 text-[9px] font-medium text-[#7a5100]">
+                    有未保存的修改
+                  </span>
+                ) : null}
+              </div>
               <p className="mt-1 text-[10px] text-[#6f737b]">
                 {SECTION_DESCRIPTIONS[activeSection]}
               </p>
@@ -1866,9 +1938,10 @@ export function Settings({
                 className="flex h-8 min-w-22 cursor-pointer items-center justify-center gap-1.5 rounded-lg border-0 bg-[#6558e8] px-3 text-[10px] font-medium text-white transition hover:bg-[#584bcf] focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8] disabled:cursor-wait disabled:opacity-55"
                 type="button"
                 onClick={() => void save()}
-                disabled={saving}
+                disabled={saving || !hasUnsavedChanges}
               >
-                <Save size={11} /> {saving ? "保存中…" : "保存"}
+                <Save size={11} />{" "}
+                {saving ? "保存中…" : hasUnsavedChanges ? "保存更改" : "已保存"}
               </button>
             </div>
           </header>
