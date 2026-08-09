@@ -21,7 +21,7 @@ import {
   ShieldCheck,
   Sparkles,
 } from "lucide-react";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { Toaster, toast } from "sonner";
 import { AudioCapture, type MicrophoneDevice } from "../audio";
 import { formatShortcut, formatShortcutLabel, useShortcutRecorder } from "../shortcut";
@@ -32,7 +32,7 @@ const INPUT_CLASS =
 const PRIMARY_BUTTON_CLASS =
   "flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-lg border-0 bg-[#6558e8] px-4 text-[11px] font-medium text-white transition hover:bg-[#584bcf] focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8] disabled:cursor-not-allowed disabled:opacity-55";
 const SECONDARY_BUTTON_CLASS =
-  "flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-[#d7d9de] bg-white px-3 text-[10px] font-medium text-[#555962] transition hover:bg-[#f5f5f6] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8] disabled:cursor-not-allowed disabled:opacity-55";
+  "flex h-9 shrink-0 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-[#d7d9de] bg-white px-3 text-[10px] font-medium text-[#555962] transition hover:bg-[#f5f5f6] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8] disabled:cursor-not-allowed disabled:opacity-55";
 const CONSOLE_URL = "https://console.volcengine.com/speech/new/setting/apikeys";
 const FALLBACK_APP_VERSION = "1.0.0";
 const SECTIONS = [
@@ -42,7 +42,7 @@ const SECTIONS = [
   ["diagnostics", "权限与状态", ShieldCheck],
   ["about", "关于", Info],
 ] as const;
-const SECTION_DESCRIPTIONS: Record<SectionId, string> = {
+const SECTION_DESCRIPTIONS: Record<SettingsSectionId, string> = {
   general: "管理启动行为和悬浮窗位置",
   shortcut: "调整快捷键、触发方式和麦克风",
   recognition: "配置识别服务和常用词",
@@ -51,7 +51,7 @@ const SECTION_DESCRIPTIONS: Record<SectionId, string> = {
 };
 const ONBOARDING_STEPS = ["欢迎", "豆包服务", "快捷键", "麦克风", "完成"] as const;
 
-type SectionId = (typeof SECTIONS)[number][0];
+export type SettingsSectionId = (typeof SECTIONS)[number][0];
 type Message = { kind: "success" | "error" | "info"; text: string } | null;
 type LoadSettingsResult = { settings: AppSettings; notice?: string };
 type ProductLinkTarget = "homepage" | "help" | "privacy" | "releases";
@@ -219,7 +219,15 @@ function microphoneTestError(error: unknown): string {
     : `麦克风测试失败：${detail}`;
 }
 
-export function Settings() {
+export function Settings({
+  activeSection,
+  onSelectSection,
+  previewOnboarding = false,
+}: {
+  activeSection: SettingsSectionId;
+  onSelectSection: (section: SettingsSectionId) => void;
+  previewOnboarding?: boolean;
+}) {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [hotwordsText, setHotwordsText] = useState("");
   const [loading, setLoading] = useState(true);
@@ -229,7 +237,6 @@ export function Settings() {
   const [microphoneMessage, setMicrophoneMessage] = useState<Message>(null);
   const [onboardingMessage, setOnboardingMessage] = useState<Message>(null);
   const [showApiKey, setShowApiKey] = useState(false);
-  const [activeSection, setActiveSection] = useState<SectionId>("general");
   const [onboardingStep, setOnboardingStep] = useState(0);
   const [verifiedApiKey, setVerifiedApiKey] = useState("");
   const [microphones, setMicrophones] = useState<MicrophoneDevice[]>([]);
@@ -288,10 +295,13 @@ export function Settings() {
     syncDirty(settingsChanged(settingsRef.current, value, savedSettingsRef.current, savedHotwordsTextRef.current));
   };
 
-  const selectSection = (section: SectionId) => {
-    toast.dismiss(SETTINGS_TOAST_ID);
-    setActiveSection(section);
-  };
+  const selectSection = useCallback(
+    (section: SettingsSectionId) => {
+      toast.dismiss(SETTINGS_TOAST_ID);
+      onSelectSection(section);
+    },
+    [onSelectSection],
+  );
 
   const goToOnboardingStep = (step: number) => {
     setOnboardingMessage(null);
@@ -334,7 +344,7 @@ export function Settings() {
   useEffect(() => {
     void refreshMicrophones();
     if (!isTauri()) {
-      const previewSettings = { ...DEFAULT_SETTINGS };
+      const previewSettings = { ...DEFAULT_SETTINGS, onboardingCompleted: !previewOnboarding };
       const previewHotwords = previewSettings.hotwords.join("\n");
       settingsRef.current = previewSettings;
       savedSettingsRef.current = previewSettings;
@@ -364,7 +374,7 @@ export function Settings() {
         setOnboardingMessage({ kind: "error", text: safeError(error) });
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [previewOnboarding]);
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -372,8 +382,7 @@ export function Settings() {
     let unlisten: (() => void) | undefined;
     listen<string>("settings-section", (event) => {
       if (event.payload !== "about") return;
-      toast.dismiss(SETTINGS_TOAST_ID);
-      setActiveSection("about");
+      selectSection("about");
     })
       .then((callback) => {
         if (disposed) callback();
@@ -384,7 +393,7 @@ export function Settings() {
       disposed = true;
       unlisten?.();
     };
-  }, []);
+  }, [selectSection]);
 
   useEffect(() => {
     if (settings.onboardingCompleted) return;
@@ -562,7 +571,7 @@ export function Settings() {
       const nextSettings = { ...settingsRef.current, apiKey, hotwords, onboardingCompleted: true };
       await persistSettings(nextSettings);
       commitSettings(nextSettings, hotwords.join("\n"));
-      setActiveSection("general");
+      selectSection("general");
       setShowApiKey(false);
       showMessage({ kind: "success", text: "设置完成，可以开始使用 VoicePaste" });
       await refreshDiagnostics();

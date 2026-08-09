@@ -35,5 +35,5 @@
     "es2024": true,
     "node": true
   },
-  "ignorePatterns": ["dist/**", "node_modules/**", "src-tauri/target/**"]
+  "ignorePatterns": ["dist/**", "node_modules/**", "src-tauri/target/**", "src/routeTree.gen.ts"]
 }

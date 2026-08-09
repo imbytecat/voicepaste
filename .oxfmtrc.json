@@ -14,5 +14,5 @@
   "sortTailwindcss": {
     "stylesheet": "./src/styles.css"
   },
-  "ignorePatterns": ["dist/**", "node_modules/**", "src-tauri/target/**"]
+  "ignorePatterns": ["dist/**", "node_modules/**", "src-tauri/target/**", "src/routeTree.gen.ts"]
 }

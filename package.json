@@ -4,17 +4,19 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc && vite build",
+    "build": "pnpm routes:generate && vite build && tsc",
     "check": "pnpm lint && pnpm format:check && pnpm build",
     "dev": "vite",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
     "lint": "oxlint .",
     "lint:fix": "oxlint . --fix && oxfmt",
+    "routes:generate": "tsr generate",
     "tauri": "tauri"
   },
   "dependencies": {
     "@tanstack/react-hotkeys": "^0.10.0",
+    "@tanstack/react-router": "^1.170.23",
     "@tauri-apps/api": "^2.11.0",
     "lucide-react": "^1.30.0",
     "react": "^19.2.0",
@@ -23,6 +25,8 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.0",
+    "@tanstack/router-cli": "^1.167.25",
+    "@tanstack/router-plugin": "^1.168.27",
     "@tauri-apps/cli": "^2.11.0",
     "@types/node": "^26.1.2",
     "@types/react": "^19.2.0",
