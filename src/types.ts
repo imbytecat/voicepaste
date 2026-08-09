@@ -40,6 +40,10 @@ export interface SystemDiagnostics {
   logDir: string;
 }
 
+export interface UpdateInfo {
+  version: string;
+}
+
 export const DEFAULT_SETTINGS: AppSettings = {
   activationMode: "toggle",
   apiKey: "",

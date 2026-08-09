@@ -28,8 +28,8 @@ VoicePaste 是完全开源的早期项目，目前不购买 Apple Developer 或 
 
 - **切换模式**：按一次全局快捷键开始，再按一次完成。
 - **按住模式**：按住全局快捷键说话，松开完成。
-- **托盘**：关闭设置窗口后 VoicePaste 继续在系统托盘运行。托盘菜单可打开设置、查看最新版本或完全退出。
-- **版本更新**：应用不自动检查、下载或安装更新；请从 GitHub Releases 手动获取新版本。
+- **托盘**：关闭设置窗口后 VoicePaste 继续在系统托盘运行。托盘菜单可打开设置、检查更新或完全退出。
+- **版本更新**：应用启动后会检查 GitHub Releases；发现新版本时，可在“关于”页确认安装。更新包使用 VoicePaste updater 密钥验证。
 
 ## 数据与隐私
 
@@ -53,3 +53,7 @@ sudo apt-get install -y libasound2-dev libwebkit2gtk-4.1-dev libayatana-appindic
 ```
 
 发布与签名流程见 [PACKAGING.md](PACKAGING.md)。
+
+## 许可证
+
+[MIT](LICENSE)

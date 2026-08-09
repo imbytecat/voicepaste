@@ -27,16 +27,16 @@ use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_clipboard_manager::ClipboardExt as _;
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 use tauri_plugin_global_shortcut::ShortcutState;
+use tauri_plugin_updater::UpdaterExt as _;
 use tokio::sync::{mpsc, watch};
 
 const API_KEY_CONSOLE_URL: &str = "https://console.volcengine.com/speech/new/setting/apikeys";
 const HOMEPAGE_URL: &str = "https://github.com/imbytecat/voicepaste";
-const RELEASES_URL: &str = "https://github.com/imbytecat/voicepaste/releases/latest";
 const HELP_URL: &str = "https://github.com/imbytecat/voicepaste/issues";
 const PRIVACY_URL: &str = "https://github.com/imbytecat/voicepaste/blob/main/PRIVACY.md";
 const TRAY_STATUS_ID: &str = "status";
 const TRAY_OPEN_ID: &str = "settings";
-const TRAY_RELEASES_ID: &str = "releases";
+const TRAY_UPDATE_ID: &str = "update";
 const TRAY_QUIT_ID: &str = "quit";
 #[cfg(target_os = "linux")]
 fn constrain_linux_overlay(window: &WebviewWindow) -> Result<(), String> {
@@ -138,11 +138,25 @@ struct SystemDiagnostics {
     log_dir: String,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateInfo {
+    version: String,
+}
+
 fn require_window(window: &WebviewWindow, expected: &str) -> Result<(), String> {
     if window.label() == expected {
         Ok(())
     } else {
         Err("当前窗口无权执行此操作".to_owned())
+    }
+}
+
+fn require_saved_settings(settings_dirty: bool) -> Result<(), String> {
+    if settings_dirty {
+        Err("请先保存当前设置，再安装更新".to_owned())
+    } else {
+        Ok(())
     }
 }
 
@@ -600,10 +614,66 @@ fn open_product_link(window: WebviewWindow, target: String) -> Result<(), String
         "homepage" => (HOMEPAGE_URL, "项目主页"),
         "help" => (HELP_URL, "帮助与反馈"),
         "privacy" => (PRIVACY_URL, "隐私说明"),
-        "releases" => (RELEASES_URL, "最新版本"),
         _ => return Err("未知链接".to_owned()),
     };
     open::that(url).map_err(|error| format!("打开{label}失败：{error}"))
+}
+
+#[tauri::command]
+async fn check_for_update(
+    window: WebviewWindow,
+    app: AppHandle,
+) -> Result<Option<UpdateInfo>, String> {
+    require_window(&window, "settings")?;
+    let update = app
+        .updater()
+        .map_err(|error| format!("初始化更新检查失败：{error}"))?
+        .check()
+        .await
+        .map_err(|error| format!("检查更新失败：{error}"))?;
+    Ok(update.map(|update| UpdateInfo {
+        version: update.version,
+    }))
+}
+
+#[tauri::command]
+async fn install_update(
+    window: WebviewWindow,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    require_window(&window, "settings")?;
+    require_saved_settings(state.settings_dirty.load(Ordering::Acquire))?;
+    let update = app
+        .updater()
+        .map_err(|error| format!("初始化更新安装失败：{error}"))?
+        .check()
+        .await
+        .map_err(|error| format!("检查更新失败：{error}"))?
+        .ok_or_else(|| "当前已是最新版本".to_owned())?;
+    let confirmed = app
+        .dialog()
+        .message(format!(
+            "发现 VoicePaste {}，立即下载并安装？应用将在完成后重启。",
+            update.version
+        ))
+        .title("安装 VoicePaste 更新")
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            "安装更新".to_owned(),
+            "稍后".to_owned(),
+        ))
+        .blocking_show();
+    if !confirmed {
+        return Ok(false);
+    }
+    update
+        .download_and_install(|_, _| {}, || {})
+        .await
+        .map_err(|error| format!("安装更新失败：{error}"))?;
+    #[cfg(target_os = "windows")]
+    return Ok(true);
+    #[cfg(not(target_os = "windows"))]
+    app.restart();
 }
 
 #[tauri::command]
@@ -873,7 +943,7 @@ fn setup_app(app: &mut tauri::App) -> Result<(), String> {
     .map_err(|error| format!("创建托盘状态失败：{error}"))?;
     let open_settings = MenuItem::with_id(app, TRAY_OPEN_ID, "打开 VoicePaste", true, None::<&str>)
         .map_err(|error| format!("创建托盘菜单失败：{error}"))?;
-    let releases = MenuItem::with_id(app, TRAY_RELEASES_ID, "查看最新版本…", true, None::<&str>)
+    let update = MenuItem::with_id(app, TRAY_UPDATE_ID, "检查更新…", true, None::<&str>)
         .map_err(|error| format!("创建托盘菜单失败：{error}"))?;
     let separator =
         PredefinedMenuItem::separator(app).map_err(|error| format!("创建托盘菜单失败：{error}"))?;
@@ -881,7 +951,7 @@ fn setup_app(app: &mut tauri::App) -> Result<(), String> {
         .map_err(|error| format!("创建托盘菜单失败：{error}"))?;
     let menu = Menu::with_items(
         app,
-        &[&status, &open_settings, &releases, &separator, &quit],
+        &[&status, &open_settings, &update, &separator, &quit],
     )
     .map_err(|error| format!("创建托盘菜单失败：{error}"))?;
     *app_state
@@ -894,7 +964,7 @@ fn setup_app(app: &mut tauri::App) -> Result<(), String> {
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
             TRAY_OPEN_ID => show_settings(app),
-            TRAY_RELEASES_ID => {
+            TRAY_UPDATE_ID => {
                 show_settings(app);
                 let _ = app.emit_to("settings", "settings-section", "about");
             }
@@ -954,6 +1024,7 @@ pub fn run() {
             show_settings_on_launch(app);
         }))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(
             tauri_plugin_log::Builder::new()
                 .level(tauri_plugin_log::log::LevelFilter::Info)
@@ -996,6 +1067,8 @@ pub fn run() {
             retry_input_access,
             open_api_key_console,
             open_product_link,
+            check_for_update,
+            install_update,
             open_log_dir,
             copy_diagnostics,
         ])
@@ -1007,8 +1080,8 @@ pub fn run() {
 mod tests {
     use super::{
         AudioCaptureKind, AudioCommand, RecognitionSession, can_replace_audio_capture,
-        offload_blocking_result, settings::AppSettings, should_show_settings_on_launch,
-        signal_cancel,
+        offload_blocking_result, require_saved_settings, settings::AppSettings,
+        should_show_settings_on_launch, signal_cancel,
     };
     use std::sync::Mutex;
     use tokio::sync::{mpsc, watch};
@@ -1034,6 +1107,15 @@ mod tests {
 
         settings.open_settings_on_startup = false;
         assert!(!should_show_settings_on_launch(&settings));
+    }
+
+    #[test]
+    fn update_install_requires_saved_settings() {
+        assert!(require_saved_settings(false).is_ok());
+        assert_eq!(
+            require_saved_settings(true).unwrap_err(),
+            "请先保存当前设置，再安装更新"
+        );
     }
 
     #[test]

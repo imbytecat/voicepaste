@@ -9,6 +9,7 @@ import {
   ChevronRight,
   Command,
   Copy,
+  Download,
   ExternalLink,
   Eye,
   EyeOff,
@@ -43,7 +44,7 @@ import {
   useShortcutRecorder,
 } from "@/shortcut";
 import { DEFAULT_SETTINGS } from "@/types";
-import type { AppSettings, SystemDiagnostics } from "@/types";
+import type { AppSettings, SystemDiagnostics, UpdateInfo } from "@/types";
 
 const INPUT_CLASS =
   "h-9 w-full rounded-lg border border-[#d7d9de] bg-white px-3 text-[12px] text-[#202124] outline-none transition focus:border-[#7564e8] focus:ring-3 focus:ring-[#7564e8]/10 disabled:cursor-not-allowed disabled:bg-[#f5f5f6] disabled:text-[#8b8f97]";
@@ -80,7 +81,7 @@ interface LoadSettingsResult {
   settings: AppSettings;
   notice?: string;
 }
-type ProductLinkTarget = "homepage" | "help" | "privacy" | "releases";
+type ProductLinkTarget = "homepage" | "help" | "privacy";
 
 const TRANSIENT_MESSAGE_DURATION = 2200;
 const SETTINGS_TOAST_ID = "settings-feedback";
@@ -343,6 +344,9 @@ export function Settings({
   const [diagnostics, setDiagnostics] = useState<SystemDiagnostics | null>(
     null
   );
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [installingUpdate, setInstallingUpdate] = useState(false);
 
   const settingsRef = useRef<AppSettings>(DEFAULT_SETTINGS);
   const hotwordsTextRef = useRef("");
@@ -474,6 +478,65 @@ export function Settings({
     }
   }, [reportPersistentError]);
 
+  const checkForUpdate = useCallback(
+    async (showResult: boolean) => {
+      if (!isTauri()) {
+        if (showResult)
+          showMessage({
+            kind: "error",
+            text: "浏览器预览无法检查桌面应用更新",
+          });
+        return;
+      }
+      setCheckingUpdate(true);
+      try {
+        const update = await invoke<UpdateInfo | null>("check_for_update");
+        setUpdateInfo(update);
+        if (showResult)
+          showMessage({
+            kind: "info",
+            text: update ? `发现新版本 ${update.version}` : "当前已是最新版本",
+          });
+      } catch (error) {
+        if (showResult)
+          showMessage({
+            kind: "error",
+            text: safeError(error, settingsRef.current.apiKey),
+          });
+      } finally {
+        setCheckingUpdate(false);
+      }
+    },
+    [showMessage]
+  );
+
+  const installUpdate = async () => {
+    if (!updateInfo || installingUpdate) return;
+    if (
+      settingsChanged(
+        settingsRef.current,
+        hotwordsTextRef.current,
+        savedSettingsRef.current,
+        savedHotwordsTextRef.current
+      )
+    ) {
+      showMessage({ kind: "error", text: "请先保存当前设置，再安装更新" });
+      return;
+    }
+    setInstallingUpdate(true);
+    setMessage(null);
+    try {
+      const started = await invoke<boolean>("install_update");
+      if (!started) setInstallingUpdate(false);
+    } catch (error) {
+      showMessage({
+        kind: "error",
+        text: safeError(error, settingsRef.current.apiKey),
+      });
+      setInstallingUpdate(false);
+    }
+  };
+
   useEffect(() => {
     void refreshMicrophones();
     if (!isTauri()) {
@@ -519,6 +582,10 @@ export function Settings({
     showMessage,
     syncDirty,
   ]);
+
+  useEffect(() => {
+    void checkForUpdate(false);
+  }, [checkForUpdate]);
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -1309,15 +1376,38 @@ export function Settings({
             >
               <SettingRow
                 title={`VoicePaste ${currentVersion}`}
-                description="新版本由 GitHub Releases 发布，请手动下载安装。"
+                description={
+                  updateInfo
+                    ? `发现新版本 ${updateInfo.version}，可直接下载并安装。`
+                    : "启动后自动检查 GitHub Releases，也可手动检查。"
+                }
               >
-                <button
-                  className={SECONDARY_BUTTON_CLASS}
-                  type="button"
-                  onClick={() => void openProductLink("releases")}
-                >
-                  <ExternalLink size={11} /> 查看最新版本
-                </button>
+                {updateInfo ? (
+                  <button
+                    className={PRIMARY_BUTTON_CLASS}
+                    type="button"
+                    onClick={() => void installUpdate()}
+                    disabled={installingUpdate}
+                  >
+                    <Download size={11} />{" "}
+                    {installingUpdate
+                      ? "安装中…"
+                      : `安装 ${updateInfo.version}`}
+                  </button>
+                ) : (
+                  <button
+                    className={SECONDARY_BUTTON_CLASS}
+                    type="button"
+                    onClick={() => void checkForUpdate(true)}
+                    disabled={checkingUpdate}
+                  >
+                    <RefreshCw
+                      className={checkingUpdate ? "animate-spin" : undefined}
+                      size={11}
+                    />{" "}
+                    {checkingUpdate ? "检查中…" : "检查更新"}
+                  </button>
+                )}
               </SettingRow>
             </SettingsSection>
 

@@ -45,7 +45,7 @@ VoicePaste 会在本机写入有限的运行日志，用于诊断启动、权限
 正常使用中可能产生以下网络访问：
 
 - 豆包语音识别 WebSocket：连接测试、认证和听写；
-- GitHub Releases：检查、下载并安装 VoicePaste 更新。
+- GitHub Releases：应用启动或用户手动操作时检查新版本；用户确认后下载并安装签名更新包。
 
 除上述用途外，VoicePaste 不主动向开发者发送使用数据。
 

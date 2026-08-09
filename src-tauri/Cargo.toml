@@ -3,6 +3,7 @@ name = "voicepaste"
 version = "1.0.0"
 description = "跨平台便捷语音输入工具"
 authors = ["imbytecat"]
+license = "MIT"
 edition = "2024"
 rust-version = "1.97.1"
 
@@ -35,6 +36,7 @@ tokio-tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
 uuid = { version = "1", features = ["v4"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-log = "2"
+tauri-plugin-updater = "2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 ashpd = { version = "0.13.13", default-features = false, features = [

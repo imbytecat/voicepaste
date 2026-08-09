@@ -4,7 +4,7 @@ VoicePaste 是完全开源的免费项目。当前发布不使用付费 Apple De
 
 - macOS Apple Silicon 使用 ad-hoc 签名，未做 Apple 公证；
 - Windows 安装包不做 Authenticode 签名；
-- 应用不提供自动更新，用户从 GitHub Releases 手动下载安装。
+- 应用使用 Tauri updater 从 GitHub Releases 检查并安装更新；更新包使用独立密钥签名。
 
 发布工作流位于 `.github/workflows/release.yml`。推送版本 tag 时构建 GitHub Release 草稿；手动运行 `workflow_dispatch` 时生成三平台测试产物。
 
@@ -16,7 +16,7 @@ VoicePaste 是完全开源的免费项目。当前发布不使用付费 Apple De
 - Apple Silicon Mac（macOS 11+）：DMG、`.app`；
 - Windows：NSIS `.exe`、MSI。
 
-Release 默认保持草稿，验证完成后再公开。工作流只使用 GitHub Actions 自动提供的 `GITHUB_TOKEN`，不需要 updater 或平台代码签名 secrets。
+Release 默认保持草稿，验证完成后再公开发布。工作流使用 GitHub Actions 自动提供的 `GITHUB_TOKEN`，并从 `TAURI_SIGNING_PRIVATE_KEY` secret 读取 updater 私钥；不需要平台代码签名 secrets。
 
 ## 工具链
 
@@ -32,6 +32,23 @@ mise install
 - Windows SmartScreen 可能显示未知发布者。用户应核对下载 URL 与 Release 信息后，通过“更多信息”继续。
 - 后续若项目获得签名条件，再加入 Developer ID、公证与 Authenticode；当前工作流不要求这些付费凭据。
 
+## Updater 签名
+
+Tauri updater 签名与 Apple Developer ID、Apple 公证、Windows Authenticode 相互独立。它只验证更新包确由 VoicePaste 发布，不能消除 Gatekeeper 或 SmartScreen 警告。
+
+- 公钥保存在 `src-tauri/tauri.conf.json`；
+- 私钥本机备份位于 `~/.tauri/voicepaste.key`，权限应为 `600`；
+- GitHub Actions 私钥保存在 `TAURI_SIGNING_PRIVATE_KEY` repository secret；
+- 私钥不得提交、上传到 Release 或写入日志。丢失后，已安装版本无法验证后续更新。
+
+构建 updater 产物时，`TAURI_SIGNING_PRIVATE_KEY` 可指向私钥文件：
+
+```bash
+export TAURI_SIGNING_PRIVATE_KEY="$HOME/.tauri/voicepaste.key"
+```
+
+NixOS 本地环境不能可靠生成 AppImage；本地只运行检查与原生构建，三平台安装包和 updater 产物统一通过 GitHub Actions `Release` 工作流构建。
+
 ## 发布版本
 
 1. 安装 `mise.toml` 中定义的工具链：
@@ -46,7 +63,7 @@ mise install
    node -e "const fs=require('fs');const p=require('./package.json').version;const t=require('./src-tauri/tauri.conf.json').version;const c=fs.readFileSync('./src-tauri/Cargo.toml','utf8').match(/^version = \"([^\"]+)\"/m)?.[1];console.log({package:p,tauri:t,cargo:c});if(p!==t||p!==c)process.exit(1)"
    ```
 
-3. 确认 CI 通过。可先手动运行 **Release** workflow，验证三平台测试构建。
+3. 确认 CI 通过。手动运行 **Release** workflow，下载三平台测试 artifact，验证安装包与 updater `.sig` 已生成。
 4. 创建并推送 tag：
 
    ```bash
@@ -62,9 +79,10 @@ mise install
 
 ### Release 资产
 
-- [ ] Linux 包含 `.deb`、`.AppImage`、`.rpm`。
-- [ ] macOS 包含 Apple Silicon `.dmg`。
-- [ ] Windows 包含 NSIS `.exe`、`.msi`。
+- [ ] Linux 包含 `.deb`、`.AppImage`、`.rpm`；`latest.json` 含对应 installer target。
+- [ ] macOS 包含 Apple Silicon `.dmg` 与 updater `.app.tar.gz`。
+- [ ] Windows 包含 NSIS `.exe`、MSI；`latest.json` 含对应 installer target。
+- [ ] Release 包含完整 `latest.json`，其中嵌入的签名匹配实际更新资产。
 - [ ] Release 中没有密钥、密码、本地路径或证书文件。
 
 ### 安装与功能
@@ -74,4 +92,5 @@ mise install
 - [ ] Windows 分别验证 NSIS、MSI 安装、启动、卸载；确认未知发布者提示符合预期。
 - [ ] 首次设置可完成：API Key 测试、快捷键、麦克风、保存设置。
 - [ ] 切换与按住模式均可完成听写，最终文本进入原输入位置。
-- [ ] 关闭设置窗口后仍在托盘运行；托盘可打开设置、查看最新版本、退出。
+- [ ] 关闭设置窗口后仍在托盘运行；托盘可打开设置、检查更新、退出。
+- [ ] “关于”页可检查更新；发现新版本后可下载、验证、安装并重启。
