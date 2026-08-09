@@ -1828,7 +1828,7 @@ export function Settings({
           </p>
         </aside>
 
-        <div className="flex min-w-0 flex-col">
+        <div className="flex min-h-0 min-w-0 flex-col">
           <header className="flex h-18 shrink-0 items-center justify-between border-b border-[#e4e5e8] bg-white px-8">
             <div>
               <h1 className="text-[18px] font-semibold tracking-[-0.02em] text-[#202124]">
