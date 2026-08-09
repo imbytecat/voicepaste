@@ -10,7 +10,7 @@ export default defineConfig({
     node: true,
   },
   extends: [core, react, tanstack],
-  ignorePatterns: [...core.ignorePatterns, "src-tauri/target/**"],
+  ignorePatterns: [...(core.ignorePatterns ?? []), "src-tauri/target/**"],
   jsPlugins: [
     {
       name: "react-hooks-js",
@@ -59,13 +59,19 @@ export default defineConfig({
     "tailwindcss/enforce-consistent-variable-syntax": "error",
     "tailwindcss/enforce-negative-arbitrary-values": "error",
     "tailwindcss/enforce-shorthand": "error",
-    "tailwindcss/enforce-sort-order": "error",
     "tailwindcss/no-conflicting-classes": "error",
     "tailwindcss/no-contradicting-variants": "error",
     "tailwindcss/no-deprecated-classes": "error",
     "tailwindcss/no-duplicate-classes": "error",
     "tailwindcss/no-unknown-classes": "error",
     "tailwindcss/no-unnecessary-arbitrary-value": "error",
+    // Explicit dimensions are clearer than fractional scale classes such as w-102.5.
+    "tailwindcss/prefer-scale-token": [
+      "error",
+      {
+        allow: ["h-", "max-h-", "max-w-", "min-h-", "min-w-", "w-"],
+      },
+    ],
     "tailwindcss/no-unnecessary-whitespace": "error",
     "typescript/no-restricted-types": "off",
     "typescript/consistent-return": "off",

@@ -80,7 +80,7 @@ function ShortcutHint({ shortcut }: { shortcut: string }) {
   return (
     <kbd
       aria-label={formatShortcutLabel(shortcut)}
-      className="rounded-[6px] border border-[#c8cdd7] bg-white px-1.5 py-1 font-sans text-[10px] leading-none font-semibold text-[#3d4454] shadow-[0_1px_0_#bfc4ce]"
+      className="rounded-md border border-[#c8cdd7] bg-white px-1.5 py-1 font-sans text-[10px] leading-none font-semibold text-[#3d4454] shadow-[0_1px_0_#bfc4ce]"
     >
       {formatShortcut(shortcut)}
     </kbd>
