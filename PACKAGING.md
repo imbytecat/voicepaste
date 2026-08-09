@@ -16,6 +16,18 @@ VoicePaste 是完全开源的免费项目。当前发布不使用付费 Apple De
 - Apple Silicon Mac（macOS 11+）：DMG、`.app`；
 - Windows：NSIS `.exe`、MSI。
 
+面向用户的 Release 文件名必须包含系统与架构：
+
+| 系统                | 推荐文件                                     |
+| ------------------- | -------------------------------------------- |
+| Windows 10/11 x64   | `VoicePaste_<version>_Windows_x64-setup.exe` |
+| Apple Silicon Mac   | `VoicePaste_<version>_macOS_aarch64.dmg`     |
+| Debian / Ubuntu x64 | `VoicePaste_<version>_Linux_amd64.deb`       |
+| Fedora / RHEL x64   | `VoicePaste_<version>_Linux_x86_64.rpm`      |
+| 其他 x64 Linux      | `VoicePaste_<version>_Linux_amd64.AppImage`  |
+
+MSI 是 Windows 备选安装包。`latest.json`、`.sig` 与 `.app.tar.gz` 服务于 updater，普通用户无需手动下载。
+
 Release 默认保持草稿，验证完成后再公开发布。工作流使用 GitHub Actions 自动提供的 `GITHUB_TOKEN`，并从 `TAURI_SIGNING_PRIVATE_KEY` secret 读取 updater 私钥；不需要平台代码签名 secrets。
 
 ## 工具链
@@ -40,6 +52,8 @@ Tauri updater 签名与 Apple Developer ID、Apple 公证、Windows Authenticode
 - 私钥本机备份位于 `~/.tauri/voicepaste.key`，权限应为 `600`；
 - GitHub Actions 私钥保存在 `TAURI_SIGNING_PRIVATE_KEY` repository secret；
 - 私钥不得提交、上传到 Release 或写入日志。丢失后，已安装版本无法验证后续更新。
+
+Updater 不要求安装包使用固定文件名；`latest.json` 记录实际资产 URL 与签名。`latest.json` 文件名和配置 endpoint 必须保持一致，安装包扩展名必须保留。Release 资产统一由 `tauri-action` 的 `releaseAssetNamePattern` 重命名，不在构建后手工改动文件配对关系。
 
 构建 updater 产物时，`TAURI_SIGNING_PRIVATE_KEY` 可指向私钥文件：
 

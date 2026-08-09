@@ -18,6 +18,16 @@ jobs:
     timeout-minutes: 60
     env:
       MISE_AUTO_INSTALL: "false"
+      RELEASE_BODY: |
+        ## 下载指南
+
+        - Windows 10/11 x64：下载 `*_Windows_x64-setup.exe`。
+        - Apple Silicon Mac：下载 `*_macOS_aarch64.dmg`。
+        - Debian / Ubuntu x64：下载 `*_Linux_amd64.deb`。
+        - Fedora / RHEL x64：下载 `*_Linux_x86_64.rpm`。
+        - 其他 x64 Linux：下载 `*_Linux_amd64.AppImage`。
+
+        `latest.json`、`.sig` 和 `.app.tar.gz` 用于应用内更新，普通用户无需手动下载。
     steps:
       - uses: actions/checkout@v7
 
@@ -83,6 +93,8 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: VoicePaste ${{ github.ref_name }}
+          releaseBody: ${{ env.RELEASE_BODY }}
+          releaseAssetNamePattern: "[name]_[version]_Linux_[arch][setup][ext]"
           generateReleaseNotes: true
           releaseDraft: true
           prerelease: false
@@ -96,6 +108,8 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: VoicePaste ${{ github.ref_name }}
+          releaseBody: ${{ env.RELEASE_BODY }}
+          releaseAssetNamePattern: "[name]_[version]_macOS_[arch][setup][ext]"
           generateReleaseNotes: true
           releaseDraft: true
           prerelease: false
@@ -109,6 +123,8 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: VoicePaste ${{ github.ref_name }}
+          releaseBody: ${{ env.RELEASE_BODY }}
+          releaseAssetNamePattern: "[name]_[version]_Windows_[arch][setup][ext]"
           generateReleaseNotes: true
           releaseDraft: true
           prerelease: false
