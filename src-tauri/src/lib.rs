@@ -983,10 +983,10 @@ mod tests {
         assert!(should_show_settings_on_launch(&settings));
 
         settings.onboarding_completed = true;
-        assert!(!should_show_settings_on_launch(&settings));
-
-        settings.open_settings_on_startup = true;
         assert!(should_show_settings_on_launch(&settings));
+
+        settings.open_settings_on_startup = false;
+        assert!(!should_show_settings_on_launch(&settings));
     }
 
     #[test]

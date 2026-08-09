@@ -55,10 +55,14 @@ impl Default for AppSettings {
             hotwords_enabled: true,
             onboarding_completed: false,
             launch_at_startup: false,
-            open_settings_on_startup: false,
+            open_settings_on_startup: true,
             overlay_position: OverlayPosition::default(),
         }
     }
+}
+
+fn default_open_settings_on_startup() -> bool {
+    true
 }
 
 #[derive(Default, Deserialize, Serialize)]
@@ -70,6 +74,7 @@ struct PersistedSettings {
     hotwords: Vec<String>,
     hotwords_enabled: Option<bool>,
     onboarding_completed: bool,
+    #[serde(default = "default_open_settings_on_startup")]
     open_settings_on_startup: bool,
     overlay_position: OverlayPosition,
     #[serde(skip_serializing)]
@@ -244,7 +249,7 @@ mod tests {
         .unwrap();
 
         assert!(!persisted.onboarding_completed);
-        assert!(!persisted.open_settings_on_startup);
+        assert!(persisted.open_settings_on_startup);
         assert!(matches!(
             persisted.overlay_position,
             OverlayPosition::Bottom
