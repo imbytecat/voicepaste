@@ -40,6 +40,7 @@ pub struct AppSettings {
     pub hotwords_enabled: bool,
     pub onboarding_completed: bool,
     pub launch_at_startup: bool,
+    pub open_settings_on_startup: bool,
     pub overlay_position: OverlayPosition,
 }
 
@@ -54,6 +55,7 @@ impl Default for AppSettings {
             hotwords_enabled: true,
             onboarding_completed: false,
             launch_at_startup: false,
+            open_settings_on_startup: false,
             overlay_position: OverlayPosition::default(),
         }
     }
@@ -68,6 +70,7 @@ struct PersistedSettings {
     hotwords: Vec<String>,
     hotwords_enabled: Option<bool>,
     onboarding_completed: bool,
+    open_settings_on_startup: bool,
     overlay_position: OverlayPosition,
     #[serde(skip_serializing)]
     api_key_fallback: Option<String>,
@@ -144,6 +147,7 @@ pub fn load(app: &AppHandle) -> Result<LoadedSettings, String> {
             hotwords_enabled: persisted.hotwords_enabled.unwrap_or(true),
             onboarding_completed: persisted.onboarding_completed,
             launch_at_startup: false,
+            open_settings_on_startup: persisted.open_settings_on_startup,
             overlay_position: persisted.overlay_position,
         },
         notice,
@@ -174,6 +178,7 @@ pub fn save(app: &AppHandle, settings: &AppSettings) -> Result<CredentialStorage
             hotwords: settings.hotwords.clone(),
             hotwords_enabled: Some(settings.hotwords_enabled),
             onboarding_completed: settings.onboarding_completed,
+            open_settings_on_startup: settings.open_settings_on_startup,
             overlay_position: settings.overlay_position,
             api_key_fallback: None,
         },
@@ -239,6 +244,7 @@ mod tests {
         .unwrap();
 
         assert!(!persisted.onboarding_completed);
+        assert!(!persisted.open_settings_on_startup);
         assert!(matches!(
             persisted.overlay_position,
             OverlayPosition::Bottom

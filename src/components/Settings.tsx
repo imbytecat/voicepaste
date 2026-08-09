@@ -166,6 +166,7 @@ function settingsChanged(
     current.onboardingCompleted !== saved.onboardingCompleted ||
     current.hotwordsEnabled !== saved.hotwordsEnabled ||
     current.launchAtStartup !== saved.launchAtStartup ||
+    current.openSettingsOnStartup !== saved.openSettingsOnStartup ||
     current.overlayPosition !== saved.overlayPosition ||
     hotwordsText !== savedHotwordsText
   );
@@ -848,6 +849,18 @@ export function Settings({
                   updateSetting("launchAtStartup", checked);
                 }}
                 label="开机启动"
+              />
+            </SettingRow>
+            <SettingRow
+              title="启动时打开窗口"
+              description="启动 VoicePaste 时显示设置窗口；关闭后仅在托盘中运行。"
+            >
+              <Toggle
+                checked={settings.openSettingsOnStartup}
+                onChange={(checked) => {
+                  updateSetting("openSettingsOnStartup", checked);
+                }}
+                label="启动时打开窗口"
               />
             </SettingRow>
             <SettingRow

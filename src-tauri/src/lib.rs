@@ -762,6 +762,22 @@ fn show_overlay(app: &AppHandle) -> Result<(), String> {
         .map_err(|error| format!("显示悬浮窗失败：{error}"))
 }
 
+fn should_show_settings_on_launch(settings: &AppSettings) -> bool {
+    !settings.onboarding_completed || settings.open_settings_on_startup
+}
+
+fn show_settings_on_launch(app: &AppHandle) {
+    let should_show = app
+        .state::<AppState>()
+        .settings
+        .read()
+        .map(|settings| should_show_settings_on_launch(&settings))
+        .unwrap_or(true);
+    if should_show {
+        show_settings(app);
+    }
+}
+
 fn show_settings(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("settings") {
         let _ = window.show();
@@ -876,11 +892,10 @@ fn setup_app(app: &mut tauri::App) -> Result<(), String> {
     app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
     if let Some(window) = app.get_webview_window("settings") {
-        if loaded.settings.onboarding_completed {
-            let _ = window.hide();
+        if should_show_settings_on_launch(&loaded.settings) {
+            show_settings(app.handle());
         } else {
-            let _ = window.show();
-            let _ = window.set_focus();
+            let _ = window.hide();
         }
         let close_window = window.clone();
         window.on_window_event(move |event| {
@@ -900,6 +915,9 @@ fn setup_app(app: &mut tauri::App) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            show_settings_on_launch(app);
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(
             tauri_plugin_log::Builder::new()
@@ -952,9 +970,24 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{AudioCommand, RecognitionSession, offload_blocking_result, signal_cancel};
+    use super::{
+        AudioCommand, RecognitionSession, offload_blocking_result, settings::AppSettings,
+        should_show_settings_on_launch, signal_cancel,
+    };
     use std::sync::Mutex;
     use tokio::sync::{mpsc, watch};
+
+    #[test]
+    fn startup_window_setting_controls_completed_onboarding() {
+        let mut settings = AppSettings::default();
+        assert!(should_show_settings_on_launch(&settings));
+
+        settings.onboarding_completed = true;
+        assert!(!should_show_settings_on_launch(&settings));
+
+        settings.open_settings_on_startup = true;
+        assert!(should_show_settings_on_launch(&settings));
+    }
 
     #[test]
     fn blocking_operations_can_create_their_own_runtime() {

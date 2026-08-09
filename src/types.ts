@@ -11,6 +11,7 @@ export interface AppSettings {
   hotwordsEnabled: boolean;
   onboardingCompleted: boolean;
   launchAtStartup: boolean;
+  openSettingsOnStartup: boolean;
   overlayPosition: OverlayPosition;
 }
 
@@ -45,6 +46,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   hotwords: [],
   hotwordsEnabled: true,
   launchAtStartup: false,
+  openSettingsOnStartup: false,
   microphoneId: "",
   onboardingCompleted: false,
   overlayPosition: "bottom",
