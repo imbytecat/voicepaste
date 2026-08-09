@@ -12,6 +12,7 @@ export class AudioCapture {
   private readonly deviceId: string;
   private readonly onLevel: (level: number) => void;
   private readonly onError: (error: string) => void;
+  private readonly onInterrupted: (message: string) => void;
   private unlisteners: UnlistenFn[] = [];
   private started = false;
   private startPromise: Promise<void> | null = null;
@@ -19,11 +20,13 @@ export class AudioCapture {
   constructor(
     deviceId: string,
     onLevel: (level: number) => void,
-    onError: (error: string) => void
+    onError: (error: string) => void,
+    onInterrupted: (message: string) => void = onError
   ) {
     this.deviceId = deviceId;
     this.onLevel = onLevel;
     this.onError = onError;
+    this.onInterrupted = onInterrupted;
   }
 
   static async devices(): Promise<MicrophoneDevice[]> {
@@ -44,6 +47,9 @@ export class AudioCapture {
       }),
       listen<string>("microphone-error", (event) => {
         this.onError(event.payload);
+      }),
+      listen<string>("microphone-interrupted", (event) => {
+        this.onInterrupted(event.payload);
       }),
     ]);
     this.startPromise = invoke("start_audio_capture", {

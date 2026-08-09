@@ -549,7 +549,9 @@ export function Settings({
   useEffect(
     () => () => {
       toast.dismiss(SETTINGS_TOAST_ID);
-      void microphoneTestRef.current?.stop();
+      const capture = microphoneTestRef.current;
+      microphoneTestRef.current = null;
+      if (capture) stopCaptureIgnoringErrors(capture);
     },
     []
   );
@@ -683,6 +685,14 @@ export function Settings({
         });
         setTestingMicrophone(false);
         stopCaptureIgnoringErrors(capture);
+      },
+      (reason) => {
+        if (microphoneTestRef.current !== capture) return;
+        microphoneTestRef.current = null;
+        setMicrophoneLevel(0);
+        setMicrophoneMessage({ kind: "info", text: reason });
+        setTestingMicrophone(false);
+        stopCaptureIgnoringErrors(capture);
       }
     );
     microphoneTestRef.current = capture;
@@ -721,6 +731,20 @@ export function Settings({
       ? stopMicrophoneTest()
       : startMicrophoneTest());
   };
+
+  useEffect(() => {
+    if (activeSection === "shortcut") return;
+    const capture = microphoneTestRef.current;
+    if (!capture) return;
+    microphoneTestRef.current = null;
+    stopCaptureIgnoringErrors(capture);
+    setMicrophoneLevel(0);
+    setTestingMicrophone(false);
+    setMicrophoneMessage({
+      kind: "info",
+      text: "离开语音输入后，麦克风测试已自动停止",
+    });
+  }, [activeSection]);
 
   const testDoubao = async (
     setFeedback: (message: Message) => void = setDoubaoMessage

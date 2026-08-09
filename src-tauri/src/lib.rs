@@ -56,8 +56,20 @@ struct RecognitionSession {
     cancel: watch::Sender<bool>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum AudioCaptureKind {
+    Test,
+    Recognition,
+}
+
+fn can_replace_audio_capture(active: AudioCaptureKind, requested: AudioCaptureKind) -> bool {
+    !(active == AudioCaptureKind::Recognition && requested == AudioCaptureKind::Test)
+}
+
 struct ActiveAudioCapture {
     id: String,
+    kind: AudioCaptureKind,
+    window_label: String,
     _capture: audio::AudioCapture,
 }
 
@@ -393,6 +405,11 @@ fn start_audio_capture(
         ("overlay", Some(_)) | ("settings", None) => {}
         _ => return Err("当前窗口无权执行此音频操作".to_owned()),
     }
+    let capture_kind = if session_id.is_some() {
+        AudioCaptureKind::Recognition
+    } else {
+        AudioCaptureKind::Test
+    };
 
     let on_audio: Option<Arc<audio::AudioSink>> = if let Some(session_id) = session_id {
         let sender = current_audio_sender(&state, &session_id)?;
@@ -415,16 +432,34 @@ fn start_audio_capture(
     let on_level = Arc::new(move |level| {
         let _ = level_app.emit_to(&level_window, "microphone-level", level);
     });
+    let error_app = app.clone();
+    let error_window = window_label.clone();
     let on_error = Arc::new(move |error| {
-        let _ = app.emit_to(&window_label, "microphone-error", error);
+        let _ = error_app.emit_to(&error_window, "microphone-error", error);
     });
-    let capture = audio::AudioCapture::start(&device_id, on_audio, on_level, on_error)?;
     let mut active = state
         .audio_capture
         .lock()
         .map_err(|_| "麦克风状态已损坏，请重启应用".to_owned())?;
+    if let Some(current) = active.as_ref()
+        && !can_replace_audio_capture(current.kind, capture_kind)
+    {
+        return Err("正在进行语音输入，请结束后再测试麦克风".to_owned());
+    }
+    if let Some(previous) = active.take() {
+        let previous_window = previous.window_label.clone();
+        drop(previous);
+        let _ = app.emit_to(
+            &previous_window,
+            "microphone-interrupted",
+            "麦克风测试已自动停止：另一项语音操作正在使用麦克风",
+        );
+    }
+    let capture = audio::AudioCapture::start(&device_id, on_audio, on_level, on_error)?;
     *active = Some(ActiveAudioCapture {
         id: capture_id,
+        kind: capture_kind,
+        window_label,
         _capture: capture,
     });
     Ok(())
@@ -971,11 +1006,23 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        AudioCommand, RecognitionSession, offload_blocking_result, settings::AppSettings,
-        should_show_settings_on_launch, signal_cancel,
+        AudioCaptureKind, AudioCommand, RecognitionSession, can_replace_audio_capture,
+        offload_blocking_result, settings::AppSettings, should_show_settings_on_launch,
+        signal_cancel,
     };
     use std::sync::Mutex;
     use tokio::sync::{mpsc, watch};
+    #[test]
+    fn recognition_preempts_tests_but_tests_do_not_preempt_recognition() {
+        assert!(can_replace_audio_capture(
+            AudioCaptureKind::Test,
+            AudioCaptureKind::Recognition
+        ));
+        assert!(!can_replace_audio_capture(
+            AudioCaptureKind::Recognition,
+            AudioCaptureKind::Test
+        ));
+    }
 
     #[test]
     fn startup_window_setting_controls_completed_onboarding() {
