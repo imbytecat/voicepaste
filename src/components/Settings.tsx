@@ -164,6 +164,7 @@ function settingsChanged(
     current.activationMode !== saved.activationMode ||
     current.microphoneId !== saved.microphoneId ||
     current.onboardingCompleted !== saved.onboardingCompleted ||
+    current.hotwordsEnabled !== saved.hotwordsEnabled ||
     current.launchAtStartup !== saved.launchAtStartup ||
     current.overlayPosition !== saved.overlayPosition ||
     hotwordsText !== savedHotwordsText
@@ -1102,7 +1103,19 @@ export function Settings({
               </div>
             ) : null}
             <SettingRow
-              title="常用词"
+              title="启用热词"
+              description="关闭后保留词表，但听写时不发送给豆包。"
+            >
+              <Toggle
+                checked={settings.hotwordsEnabled}
+                onChange={(checked) => {
+                  updateSetting("hotwordsEnabled", checked);
+                }}
+                label="启用热词"
+              />
+            </SettingRow>
+            <SettingRow
+              title="热词列表"
               description="每行一个词，最多 100 个字符。"
               vertical
             >
@@ -1111,7 +1124,7 @@ export function Settings({
                   className="cursor-pointer border-0 bg-transparent p-0 text-[10px] font-medium text-[#6558e8] hover:text-[#4f43bd] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8] disabled:cursor-default disabled:text-[#9a9da4]"
                   type="button"
                   onClick={clearHotwords}
-                  disabled={!hotwordsText.trim()}
+                  disabled={!settings.hotwordsEnabled || !hotwordsText.trim()}
                 >
                   清空
                 </button>
@@ -1122,6 +1135,7 @@ export function Settings({
                 onChange={(event) => {
                   updateHotwordsText(event.target.value);
                 }}
+                disabled={!settings.hotwordsEnabled}
                 placeholder={"VoicePaste\n你的名字\n常用产品名"}
                 rows={5}
               />

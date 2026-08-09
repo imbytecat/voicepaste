@@ -37,6 +37,7 @@ pub struct AppSettings {
     pub activation_mode: ActivationMode,
     pub microphone_id: String,
     pub hotwords: Vec<String>,
+    pub hotwords_enabled: bool,
     pub onboarding_completed: bool,
     pub launch_at_startup: bool,
     pub overlay_position: OverlayPosition,
@@ -50,6 +51,7 @@ impl Default for AppSettings {
             activation_mode: ActivationMode::default(),
             microphone_id: String::new(),
             hotwords: Vec::new(),
+            hotwords_enabled: true,
             onboarding_completed: false,
             launch_at_startup: false,
             overlay_position: OverlayPosition::default(),
@@ -64,6 +66,7 @@ struct PersistedSettings {
     activation_mode: ActivationMode,
     microphone_id: String,
     hotwords: Vec<String>,
+    hotwords_enabled: Option<bool>,
     onboarding_completed: bool,
     overlay_position: OverlayPosition,
     #[serde(skip_serializing)]
@@ -138,6 +141,7 @@ pub fn load(app: &AppHandle) -> Result<LoadedSettings, String> {
             activation_mode: persisted.activation_mode,
             microphone_id: persisted.microphone_id,
             hotwords: persisted.hotwords,
+            hotwords_enabled: persisted.hotwords_enabled.unwrap_or(true),
             onboarding_completed: persisted.onboarding_completed,
             launch_at_startup: false,
             overlay_position: persisted.overlay_position,
@@ -168,6 +172,7 @@ pub fn save(app: &AppHandle, settings: &AppSettings) -> Result<CredentialStorage
             activation_mode: settings.activation_mode,
             microphone_id: settings.microphone_id.clone(),
             hotwords: settings.hotwords.clone(),
+            hotwords_enabled: Some(settings.hotwords_enabled),
             onboarding_completed: settings.onboarding_completed,
             overlay_position: settings.overlay_position,
             api_key_fallback: None,
@@ -238,5 +243,12 @@ mod tests {
             persisted.overlay_position,
             OverlayPosition::Bottom
         ));
+
+        let settings: AppSettings = serde_json::from_value(serde_json::json!({
+            "shortcut": "Control+Space",
+            "hotwords": ["VoicePaste"]
+        }))
+        .unwrap();
+        assert!(settings.hotwords_enabled);
     }
 }

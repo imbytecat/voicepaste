@@ -8,6 +8,7 @@ export interface AppSettings {
   activationMode: ActivationMode;
   microphoneId: string;
   hotwords: string[];
+  hotwordsEnabled: boolean;
   onboardingCompleted: boolean;
   launchAtStartup: boolean;
   overlayPosition: OverlayPosition;
@@ -42,6 +43,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   activationMode: "toggle",
   apiKey: "",
   hotwords: [],
+  hotwordsEnabled: true,
   launchAtStartup: false,
   microphoneId: "",
   onboardingCompleted: false,

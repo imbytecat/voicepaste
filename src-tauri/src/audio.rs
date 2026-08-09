@@ -16,7 +16,7 @@ use rubato::{Fft, FixedSync, Indexing, Resampler, audioadapter_buffers::direct::
 use serde::Serialize;
 
 const OUTPUT_SAMPLE_RATE: usize = 16_000;
-const CHUNKS_PER_SECOND: usize = 50;
+const CHUNKS_PER_SECOND: usize = 5;
 const RING_SECONDS: usize = 2;
 
 pub(crate) type AudioSink = dyn Fn(Vec<u8>) -> Result<(), String> + Send + Sync;
@@ -316,7 +316,6 @@ fn run_worker(
     on_error: Arc<ErrorSink>,
 ) {
     let mut input = vec![0.0; converter.input_frames()];
-    let mut level_tick = 0_u8;
 
     loop {
         if overflowed.swap(false, Ordering::AcqRel) {
@@ -326,14 +325,9 @@ fn run_worker(
         if consumer.slots() >= input.len() {
             let (_, remaining) = consumer.pop_partial_slice(&mut input);
             debug_assert!(remaining.is_empty());
-            if let Err(error) = process_chunk(
-                &mut converter,
-                &input,
-                input.len(),
-                &on_audio,
-                &on_level,
-                &mut level_tick,
-            ) {
+            if let Err(error) =
+                process_chunk(&mut converter, &input, input.len(), &on_audio, &on_level)
+            {
                 on_error(error);
                 return;
             }
@@ -344,28 +338,15 @@ fn run_worker(
             let (samples, _) = consumer.pop_partial_slice(&mut input);
             let valid_frames = samples.len();
             if valid_frames > 0
-                && let Err(error) = process_chunk(
-                    &mut converter,
-                    &input,
-                    valid_frames,
-                    &on_audio,
-                    &on_level,
-                    &mut level_tick,
-                )
+                && let Err(error) =
+                    process_chunk(&mut converter, &input, valid_frames, &on_audio, &on_level)
             {
                 on_error(error);
                 return;
             }
             if converter.is_resampled() {
                 input.fill(0.0);
-                if let Err(error) = process_chunk(
-                    &mut converter,
-                    &input,
-                    0,
-                    &on_audio,
-                    &on_level,
-                    &mut level_tick,
-                ) {
+                if let Err(error) = process_chunk(&mut converter, &input, 0, &on_audio, &on_level) {
                     on_error(error);
                 }
             }
@@ -381,13 +362,9 @@ fn process_chunk(
     valid_frames: usize,
     on_audio: &Option<Arc<AudioSink>>,
     on_level: &Arc<LevelSink>,
-    level_tick: &mut u8,
 ) -> Result<(), String> {
     let output = converter.process(input, valid_frames)?;
-    *level_tick = level_tick.wrapping_add(1);
-    if (*level_tick).is_multiple_of(2) {
-        on_level(signal_level(output));
-    }
+    on_level(signal_level(output));
     if let Some(on_audio) = on_audio {
         on_audio(pcm_s16le(output))?;
     }
@@ -414,7 +391,12 @@ fn pcm_s16le(samples: &[f32]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
 
-    use super::{pcm_s16le, signal_level};
+    use super::{Converter, pcm_s16le, signal_level};
+
+    #[test]
+    fn uses_documented_200ms_audio_packets() {
+        assert_eq!(Converter::new(16_000).unwrap().input_frames(), 3_200);
+    }
 
     #[test]
     fn encodes_clamped_little_endian_pcm() {

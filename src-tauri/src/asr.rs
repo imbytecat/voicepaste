@@ -359,15 +359,16 @@ fn process_response(
 }
 
 fn encode_full_request(settings: &AppSettings, connection_id: &str) -> Result<Vec<u8>, String> {
-    let corpus = if settings.hotwords.is_empty() {
-        None
-    } else {
+    let use_hotwords = settings.hotwords_enabled && !settings.hotwords.is_empty();
+    let corpus = if use_hotwords {
         Some(Corpus {
             context: serde_json::to_string(&json!({
                 "hotwords": settings.hotwords.iter().map(|word| json!({ "word": word })).collect::<Vec<_>>()
             }))
             .map_err(|error| format!("编码热词失败：{error}"))?,
         })
+    } else {
+        None
     };
     let request = FullClientRequest {
         user: UserMeta {
@@ -384,10 +385,10 @@ fn encode_full_request(settings: &AppSettings, connection_id: &str) -> Result<Ve
             model_name: "bigmodel",
             enable_itn: true,
             enable_punc: true,
-            enable_ddc: true,
-            show_utterances: true,
+            enable_ddc: !use_hotwords,
+            show_utterances: false,
             result_type: "full",
-            enable_nonstream: true,
+            enable_nonstream: !use_hotwords,
             end_window_size: 800,
             corpus,
         },
@@ -579,8 +580,40 @@ mod tests {
             serde_json::from_slice(&gunzip(&frame[8..]).expect("decompress request"))
                 .expect("parse request");
         assert_eq!(payload["request"]["model_name"], "bigmodel");
+        assert_eq!(payload["request"]["enable_nonstream"], true);
+        assert_eq!(payload["request"]["show_utterances"], false);
+        assert_eq!(payload["request"]["enable_ddc"], true);
     }
 
+    #[test]
+    fn hotword_request_avoids_second_pass_overwrite() {
+        let settings = AppSettings {
+            hotwords: vec!["VoicePaste".to_owned()],
+            ..AppSettings::default()
+        };
+        let frame = encode_full_request(&settings, "request-id").expect("encode request");
+        let payload: serde_json::Value =
+            serde_json::from_slice(&gunzip(&frame[8..]).expect("decompress request"))
+                .expect("parse request");
+        assert_eq!(payload["request"]["enable_nonstream"], false);
+        assert_eq!(payload["request"]["enable_ddc"], false);
+    }
+
+    #[test]
+    fn disabled_hotwords_are_preserved_but_not_sent() {
+        let settings = AppSettings {
+            hotwords: vec!["VoicePaste".to_owned()],
+            hotwords_enabled: false,
+            ..AppSettings::default()
+        };
+        let frame = encode_full_request(&settings, "request-id").expect("encode request");
+        let payload: serde_json::Value =
+            serde_json::from_slice(&gunzip(&frame[8..]).expect("decompress request"))
+                .expect("parse request");
+        assert!(payload["request"].get("corpus").is_none());
+        assert_eq!(payload["request"]["enable_nonstream"], true);
+        assert_eq!(payload["request"]["enable_ddc"], true);
+    }
     #[test]
     fn parses_empty_final_response_as_final() {
         let payload = gzip(b"{}").expect("gzip response");
