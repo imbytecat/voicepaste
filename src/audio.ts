@@ -15,14 +15,10 @@ export class AudioCapture {
   private started = false;
   private startPromise: Promise<void> | null = null;
 
-  private constructor(deviceId: string, onLevel: (level: number) => void, onError: (error: string) => void) {
+  constructor(deviceId: string, onLevel: (level: number) => void, onError: (error: string) => void) {
     this.deviceId = deviceId;
     this.onLevel = onLevel;
     this.onError = onError;
-  }
-
-  static create(deviceId: string, onLevel: (level: number) => void, onError: (error: string) => void): AudioCapture {
-    return new AudioCapture(deviceId, onLevel, onError);
   }
 
   static async devices(): Promise<MicrophoneDevice[]> {

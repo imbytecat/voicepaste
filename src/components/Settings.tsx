@@ -493,7 +493,7 @@ export function Settings() {
     setMicrophoneLevel(0);
     setMicrophoneMessage(null);
     let failed = false;
-    const capture = AudioCapture.create(settingsRef.current.microphoneId, setMicrophoneLevel, (error) => {
+    const capture = new AudioCapture(settingsRef.current.microphoneId, setMicrophoneLevel, (error) => {
       failed = true;
       if (microphoneTestRef.current === capture) microphoneTestRef.current = null;
       setMicrophoneMessage({ kind: "error", text: microphoneTestError(error) });

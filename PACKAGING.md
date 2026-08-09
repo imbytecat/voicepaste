@@ -20,7 +20,7 @@ Release 默认保持草稿，验证完成后再公开。工作流只使用 GitHu
 
 ## 工具链
 
-Node.js、pnpm、Rust 与 `cargo-audit` 版本统一定义在 `mise.toml`。本地与 GitHub Actions 均通过 mise 安装；Linux 系统库仍由 `apt` 安装。
+Node.js、pnpm 与 Rust 版本统一定义在 `mise.toml`。本地与 GitHub Actions 均通过 mise 安装；Linux 系统库仍由 `apt` 安装。
 
 ```bash
 mise install

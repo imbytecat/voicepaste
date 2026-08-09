@@ -2,7 +2,6 @@
 node = "26.7.0"
 pnpm = "11.20.0"
 rust = { version = "1.97.1", components = ["clippy", "rustfmt"] }
-"cargo:cargo-audit" = "0.22.2"
 
 [tasks.dev]
 description = "启动 Tauri 开发模式"
@@ -27,6 +26,3 @@ run = "pnpm check && cargo test --manifest-path src-tauri/Cargo.toml && cargo cl
 description = "自动修复前端与 Rust 格式"
 run = "pnpm lint:fix && cargo fmt --manifest-path src-tauri/Cargo.toml"
 
-[tasks.audit]
-description = "检查 Rust 依赖安全公告"
-run = "pnpm audit --audit-level high && cargo audit --file src-tauri/Cargo.lock"

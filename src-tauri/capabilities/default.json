@@ -4,5 +4,5 @@
   "description": "VoicePaste 桌面窗口权限",
   "windows": ["settings", "overlay"],
   "platforms": ["macOS", "windows", "linux"],
-  "permissions": ["core:default", "autostart:default", "window-state:default"]
+  "permissions": ["core:default"]
 }

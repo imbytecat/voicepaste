@@ -38,6 +38,17 @@ const TRAY_STATUS_ID: &str = "status";
 const TRAY_OPEN_ID: &str = "settings";
 const TRAY_RELEASES_ID: &str = "releases";
 const TRAY_QUIT_ID: &str = "quit";
+#[cfg(target_os = "linux")]
+fn constrain_linux_overlay(window: &WebviewWindow) -> Result<(), String> {
+    use gtk::prelude::WidgetExt;
+
+    window
+        .with_webview(|webview| webview.inner().set_size_request(420, 64))
+        .map_err(|error| format!("设置 Linux 悬浮窗 WebView 尺寸失败：{error}"))?;
+    window
+        .set_size(tauri::LogicalSize::new(420.0, 64.0))
+        .map_err(|error| format!("设置 Linux 悬浮窗尺寸失败：{error}"))
+}
 
 struct RecognitionSession {
     id: String,
@@ -795,11 +806,11 @@ fn setup_app(app: &mut tauri::App) -> Result<(), String> {
         .lock()
         .map_err(|_| "设置提示状态已损坏，请重启应用".to_owned())? = loaded.notice;
     let should_initialize_input = !loaded.settings.api_key.is_empty();
-    Arc::clone(&app_state.shortcut_manager)
-        .register_initial(app.handle().clone(), loaded.settings.shortcut.clone());
     if should_initialize_input {
         initialize_input_session(Arc::clone(&app_state.input_session));
     }
+    Arc::clone(&app_state.shortcut_manager)
+        .register_initial(app.handle().clone(), loaded.settings.shortcut.clone());
 
     let status = MenuItem::with_id(
         app,
@@ -879,13 +890,17 @@ fn setup_app(app: &mut tauri::App) -> Result<(), String> {
             }
         });
     }
+    #[cfg(target_os = "linux")]
+    if let Some(window) = app.get_webview_window("overlay") {
+        constrain_linux_overlay(&window)?;
+    }
     Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_window_state::Builder::new().build())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(
             tauri_plugin_log::Builder::new()
                 .level(tauri_plugin_log::log::LevelFilter::Info)
@@ -900,9 +915,6 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_autostart::Builder::new().build())
-        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
-            show_settings(app)
-        }))
         .manage(AppState::default())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_store::Builder::default().build())

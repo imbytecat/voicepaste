@@ -107,7 +107,7 @@ export function Overlay() {
     setLevel(0);
 
     try {
-      const capture = AudioCapture.create(shortcut.microphoneId, setLevel, (error) => {
+      const capture = new AudioCapture(shortcut.microphoneId, setLevel, (error) => {
         void failSession(sessionId, error);
       });
       captureRef.current = capture;
@@ -223,7 +223,7 @@ export function Overlay() {
 
   return (
     <main className="grid h-screen w-screen place-items-center overflow-hidden bg-transparent p-1 select-none">
-      <div className="grid h-full w-full animate-in grid-cols-[40px_minmax(0,1fr)_74px] items-center gap-2.5 rounded-[28px] border border-white/13 bg-[linear-gradient(110deg,rgba(27,29,38,0.96),rgba(11,12,17,0.97))] py-2 pr-3.5 pl-2.5 shadow-[0_14px_38px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.05)] backdrop-blur-3xl duration-200 zoom-in-95 fade-in slide-in-from-bottom-2">
+      <div className="grid h-full w-full animate-in grid-cols-[40px_minmax(0,1fr)_74px] items-center gap-2.5 rounded-[24px] border border-white/13 bg-[linear-gradient(110deg,rgba(27,29,38,0.96),rgba(11,12,17,0.97))] py-2 pr-3.5 pl-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] duration-200 zoom-in-95 fade-in slide-in-from-bottom-2">
         <div
           className={`relative grid size-10 place-items-center rounded-full bg-linear-to-br ${orbColor}`}
           aria-hidden="true"
