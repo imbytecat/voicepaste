@@ -65,13 +65,7 @@ export default defineConfig({
     "tailwindcss/no-duplicate-classes": "error",
     "tailwindcss/no-unknown-classes": "error",
     "tailwindcss/no-unnecessary-arbitrary-value": "error",
-    // Explicit dimensions are clearer than fractional scale classes such as w-102.5.
-    "tailwindcss/prefer-scale-token": [
-      "error",
-      {
-        allow: ["h-", "max-h-", "max-w-", "min-h-", "min-w-", "w-"],
-      },
-    ],
+    "tailwindcss/prefer-scale-token": "error",
     "tailwindcss/no-unnecessary-whitespace": "error",
     "typescript/no-restricted-types": "off",
     "typescript/consistent-return": "off",

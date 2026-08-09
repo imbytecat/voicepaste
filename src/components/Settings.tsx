@@ -176,7 +176,7 @@ function SettingRow({
       className={
         vertical
           ? "px-5 py-4.5"
-          : "flex min-h-[66px] items-center justify-between gap-8 px-5 py-3.5 max-[800px]:items-start"
+          : "flex min-h-16.5 items-center justify-between gap-8 px-5 py-3.5 max-[800px]:items-start"
       }
     >
       <div className={vertical ? "" : "min-w-0 flex-1"}>
@@ -861,7 +861,7 @@ export function Settings({
           </aside>
 
           <section className="min-w-0 overflow-auto px-10 py-8 max-[720px]:px-5 max-[720px]:py-6">
-            <div className="mx-auto flex min-h-full max-w-[620px] flex-col justify-center">
+            <div className="mx-auto flex min-h-full max-w-155 flex-col justify-center">
               <div className="mb-7 hidden items-center gap-2.5 max-[720px]:flex">
                 <div
                   className="grid size-8 place-items-center rounded-[10px] bg-[#6558e8] text-white"
@@ -896,7 +896,7 @@ export function Settings({
                     >
                       用说话代替打字
                     </h1>
-                    <p className="mt-3 max-w-[500px] text-[12px] leading-6 text-[#62666f]">
+                    <p className="mt-3 max-w-125 text-[12px] leading-6 text-[#62666f]">
                       VoicePaste
                       在任意输入框中听写，并把识别结果直接输入到光标位置。接下来完成服务、快捷键和麦克风设置。
                     </p>
@@ -1041,7 +1041,7 @@ export function Settings({
                         </div>
                         <button
                           ref={shortcutButtonRef}
-                          className={`h-10 min-w-[190px] cursor-pointer rounded-lg border px-3 font-mono text-[10px] outline-none ${
+                          className={`h-10 min-w-47.5 cursor-pointer rounded-lg border px-3 font-mono text-[10px] outline-none ${
                             shortcutRecorder.isRecording
                               ? "border-[#8f83e8] bg-[#f1efff] text-[#5748ca] ring-3 ring-[#7564e8]/10"
                               : "border-[#d7d9de] bg-white text-[#3f434b] hover:bg-[#f5f5f6] focus-visible:ring-3 focus-visible:ring-[#7564e8]/10"
@@ -1217,7 +1217,7 @@ export function Settings({
                       </div>
                       <div className="flex items-center justify-between gap-5 px-4 py-3">
                         <dt className="text-[#777b84]">麦克风</dt>
-                        <dd className="max-w-[320px] truncate font-medium text-[#34373d]">
+                        <dd className="max-w-xs truncate font-medium text-[#34373d]">
                           {selectedMicrophone}
                         </dd>
                       </div>
@@ -1312,7 +1312,7 @@ export function Settings({
         </aside>
 
         <div className="flex min-w-0 flex-col">
-          <header className="flex h-[72px] shrink-0 items-center justify-between border-b border-[#e4e5e8] bg-white px-8">
+          <header className="flex h-18 shrink-0 items-center justify-between border-b border-[#e4e5e8] bg-white px-8">
             <div>
               <h1 className="text-[18px] font-semibold tracking-[-0.02em] text-[#202124]">
                 设置
@@ -1333,7 +1333,7 @@ export function Settings({
                 </button>
               ) : null}
               <button
-                className="flex h-8 min-w-[88px] cursor-pointer items-center justify-center gap-1.5 rounded-lg border-0 bg-[#6558e8] px-3 text-[10px] font-medium text-white transition hover:bg-[#584bcf] focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8] disabled:cursor-wait disabled:opacity-55"
+                className="flex h-8 min-w-22 cursor-pointer items-center justify-center gap-1.5 rounded-lg border-0 bg-[#6558e8] px-3 text-[10px] font-medium text-white transition hover:bg-[#584bcf] focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8] disabled:cursor-wait disabled:opacity-55"
                 type="button"
                 onClick={() => void save()}
                 disabled={saving}
@@ -1344,7 +1344,7 @@ export function Settings({
           </header>
 
           <main className="min-h-0 flex-1 overflow-auto scroll-smooth px-8 py-6">
-            <div className="mx-auto max-w-[720px]">
+            <div className="mx-auto max-w-180">
               <Feedback
                 message={message?.kind === "error" ? message : null}
                 className="mb-5"
@@ -1374,7 +1374,7 @@ export function Settings({
                       description="选择听写状态悬浮窗出现的屏幕边缘。"
                     >
                       <div
-                        className="grid w-[410px] grid-cols-3 gap-1 rounded-lg bg-[#f0f1f3] p-1 max-[800px]:w-[360px]"
+                        className="grid w-102.5 grid-cols-3 gap-1 rounded-lg bg-[#f0f1f3] p-1 max-[800px]:w-90"
                         role="radiogroup"
                         aria-label="悬浮窗位置"
                       >
@@ -1439,7 +1439,7 @@ export function Settings({
                       description="选择快捷键按下后的行为。"
                     >
                       <div
-                        className="grid w-[286px] grid-cols-2 rounded-lg bg-[#f0f1f3] p-1"
+                        className="grid w-71.5 grid-cols-2 rounded-lg bg-[#f0f1f3] p-1"
                         role="radiogroup"
                         aria-label="听写触发方式"
                       >
@@ -1478,7 +1478,7 @@ export function Settings({
                     >
                       <button
                         ref={shortcutButtonRef}
-                        className={`h-9 min-w-[184px] cursor-pointer rounded-lg border px-3 font-mono text-[10px] outline-none ${
+                        className={`h-9 min-w-46 cursor-pointer rounded-lg border px-3 font-mono text-[10px] outline-none ${
                           shortcutRecorder.isRecording
                             ? "border-[#8f83e8] bg-[#f1efff] text-[#5748ca] ring-3 ring-[#7564e8]/10"
                             : "border-[#d7d9de] bg-white text-[#3f434b] hover:bg-[#f8f8f9] focus-visible:ring-3 focus-visible:ring-[#7564e8]/10"
@@ -1502,7 +1502,7 @@ export function Settings({
                       title="麦克风"
                       description="默认使用系统当前选择的输入设备。"
                     >
-                      <div className="w-[410px] max-[800px]:w-[360px]">
+                      <div className="w-102.5 max-[800px]:w-90">
                         <div className="flex gap-2">
                           <select
                             className={INPUT_CLASS}
@@ -1565,7 +1565,7 @@ export function Settings({
                       title="豆包 API Key"
                       description="从火山引擎控制台获取，用于连接语音识别服务。"
                     >
-                      <div className="w-[410px] max-[800px]:w-[360px]">
+                      <div className="w-102.5 max-[800px]:w-90">
                         <div className="flex h-9 items-center overflow-hidden rounded-lg border border-[#d7d9de] bg-white transition focus-within:border-[#7564e8] focus-within:ring-3 focus-within:ring-[#7564e8]/10">
                           <input
                             className="min-w-0 flex-1 border-0 bg-transparent px-3 text-[12px] text-[#202124] outline-none disabled:cursor-not-allowed disabled:bg-[#f5f5f6]"
@@ -1660,18 +1660,18 @@ export function Settings({
                     description="仅在功能不可用时需要查看。"
                   >
                     <SettingRow title="全局快捷键">
-                      <span className="max-w-[410px] text-right text-[10px] leading-5 text-[#666a73]">
+                      <span className="max-w-102.5 text-right text-[10px] leading-5 text-[#666a73]">
                         {diagnostics?.shortcutStatus ??
                           "浏览器预览不注册快捷键"}
                       </span>
                     </SettingRow>
                     <SettingRow title="麦克风">
-                      <span className="max-w-[410px] text-right text-[10px] leading-5 text-[#666a73]">
+                      <span className="max-w-102.5 text-right text-[10px] leading-5 text-[#666a73]">
                         {microphoneStatus}
                       </span>
                     </SettingRow>
                     <SettingRow title="自动粘贴">
-                      <span className="max-w-[410px] text-right text-[10px] leading-5 text-[#666a73]">
+                      <span className="max-w-102.5 text-right text-[10px] leading-5 text-[#666a73]">
                         {diagnostics?.inputStatus ?? "浏览器预览不检查自动粘贴"}
                       </span>
                     </SettingRow>
