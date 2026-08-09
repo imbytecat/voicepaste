@@ -1,3 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-export const Route = createFileRoute("/settings/recognition")({});
+import { RecognitionSettingsPage } from "@/components/Settings";
+
+export const Route = createFileRoute("/settings/recognition")({
+  component: RecognitionSettingsPage,
+});

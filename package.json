@@ -4,11 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "pnpm routes:generate && vite build && tsc",
+    "build": "vite build && tsc",
     "check": "ultracite check && pnpm build",
     "dev": "vite",
     "fix": "ultracite fix",
-    "routes:generate": "tsr generate",
     "tauri": "tauri"
   },
   "dependencies": {
@@ -22,7 +21,6 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.0",
-    "@tanstack/router-cli": "^1.167.25",
     "@tanstack/router-plugin": "^1.168.27",
     "@tauri-apps/cli": "^2.11.0",
     "@types/node": "^26.1.2",

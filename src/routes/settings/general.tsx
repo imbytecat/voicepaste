@@ -1,3 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-export const Route = createFileRoute("/settings/general")({});
+import { GeneralSettingsPage } from "@/components/Settings";
+
+export const Route = createFileRoute("/settings/general")({
+  component: GeneralSettingsPage,
+});

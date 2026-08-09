@@ -1,3 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-export const Route = createFileRoute("/settings/diagnostics")({});
+import { DiagnosticsSettingsPage } from "@/components/Settings";
+
+export const Route = createFileRoute("/settings/diagnostics")({
+  component: DiagnosticsSettingsPage,
+});

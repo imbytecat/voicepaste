@@ -3,8 +3,8 @@ import { listen } from "@tauri-apps/api/event";
 import { Check, LoaderCircle, Mic, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { AudioCapture } from "../audio";
-import type { AsrEvent, ShortcutEvent } from "../types";
+import { AudioCapture } from "@/audio";
+import type { AsrEvent, ShortcutEvent } from "@/types";
 
 type Phase =
   | "idle"

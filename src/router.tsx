@@ -10,6 +10,8 @@ const router = createRouter({
   defaultPreload: "intent",
   history: createHashHistory(),
   routeTree,
+  scrollRestoration: true,
+  scrollToTopSelectors: ['[data-scroll-restoration-id="settings-content"]'],
 });
 
 declare module "@tanstack/react-router" {

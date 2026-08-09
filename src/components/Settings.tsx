@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
@@ -21,19 +22,28 @@ import {
   ShieldCheck,
   Sparkles,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import type { ReactNode } from "react";
 import { Toaster, toast } from "sonner";
 
-import { AudioCapture } from "../audio";
-import type { MicrophoneDevice } from "../audio";
+import { AudioCapture } from "@/audio";
+import type { MicrophoneDevice } from "@/audio";
+import { SETTINGS_PATHS } from "@/routes/-settings-navigation";
+import type { SettingsSectionId } from "@/routes/-settings-navigation";
 import {
   formatShortcut,
   formatShortcutLabel,
   useShortcutRecorder,
-} from "../shortcut";
-import { DEFAULT_SETTINGS } from "../types";
-import type { AppSettings, SystemDiagnostics } from "../types";
+} from "@/shortcut";
+import { DEFAULT_SETTINGS } from "@/types";
+import type { AppSettings, SystemDiagnostics } from "@/types";
 
 const INPUT_CLASS =
   "h-9 w-full rounded-lg border border-[#d7d9de] bg-white px-3 text-[12px] text-[#202124] outline-none transition focus:border-[#7564e8] focus:ring-3 focus:ring-[#7564e8]/10 disabled:cursor-not-allowed disabled:bg-[#f5f5f6] disabled:text-[#8b8f97]";
@@ -65,7 +75,6 @@ const ONBOARDING_STEPS = [
   "完成",
 ] as const;
 
-export type SettingsSectionId = (typeof SECTIONS)[number][0];
 type Message = { kind: "success" | "error" | "info"; text: string } | null;
 interface LoadSettingsResult {
   settings: AppSettings;
@@ -75,6 +84,43 @@ type ProductLinkTarget = "homepage" | "help" | "privacy" | "releases";
 
 const TRANSIENT_MESSAGE_DURATION = 2200;
 const SETTINGS_TOAST_ID = "settings-feedback";
+
+type SettingsSectionRenderer = (section: SettingsSectionId) => ReactNode;
+
+const SettingsOutletContext = createContext<SettingsSectionRenderer | null>(
+  null
+);
+
+function SettingsRouteSection({
+  section,
+}: {
+  section: SettingsSectionId;
+}): ReactNode {
+  const renderSection = useContext(SettingsOutletContext);
+  if (!renderSection)
+    throw new Error("Settings route must render inside the settings layout");
+  return renderSection(section);
+}
+
+export function GeneralSettingsPage() {
+  return <SettingsRouteSection section="general" />;
+}
+
+export function VoiceInputSettingsPage() {
+  return <SettingsRouteSection section="shortcut" />;
+}
+
+export function RecognitionSettingsPage() {
+  return <SettingsRouteSection section="recognition" />;
+}
+
+export function DiagnosticsSettingsPage() {
+  return <SettingsRouteSection section="diagnostics" />;
+}
+
+export function AboutSettingsPage() {
+  return <SettingsRouteSection section="about" />;
+}
 
 function ShortcutHint({ shortcut }: { shortcut: string }) {
   return (
@@ -255,10 +301,12 @@ function microphoneTestError(error: unknown): string {
 
 export function Settings({
   activeSection,
+  children,
   onSelectSection,
   previewOnboarding = false,
 }: {
   activeSection: SettingsSectionId;
+  children?: ReactNode;
   onSelectSection: (section: SettingsSectionId) => void;
   previewOnboarding?: boolean;
 }) {
@@ -774,6 +822,462 @@ export function Settings({
     />
   );
 
+  const microphoneStatus =
+    microphones.length > 0
+      ? `原生采集可用（${microphones.length} 个设备）`
+      : "未检测到麦克风";
+  const currentVersion = diagnostics?.appVersion ?? FALLBACK_APP_VERSION;
+
+  function renderSection(section: SettingsSectionId): ReactNode {
+    switch (section) {
+      case "general": {
+        return (
+          <SettingsSection
+            id="general"
+            title="通用"
+            description="控制 VoicePaste 的启动方式和悬浮窗位置。"
+          >
+            <SettingRow
+              title="开机启动"
+              description="登录系统后自动启动 VoicePaste，并在托盘中等待。"
+            >
+              <Toggle
+                checked={settings.launchAtStartup}
+                onChange={(checked) => {
+                  updateSetting("launchAtStartup", checked);
+                }}
+                label="开机启动"
+              />
+            </SettingRow>
+            <SettingRow
+              title="悬浮窗位置"
+              description="选择听写状态悬浮窗出现的屏幕边缘。"
+            >
+              <div
+                className="grid w-102.5 grid-cols-3 gap-1 rounded-lg bg-[#f0f1f3] p-1 max-[800px]:w-90"
+                role="radiogroup"
+                aria-label="悬浮窗位置"
+              >
+                {(
+                  [
+                    ["bottom", "底部"],
+                    ["left", "左侧"],
+                    ["right", "右侧"],
+                  ] as const
+                ).map(([value, label]) => {
+                  const selected = settings.overlayPosition === value;
+                  return (
+                    <button
+                      key={value}
+                      className={`h-7 cursor-pointer rounded-md border-0 text-[10px] font-medium transition focus-visible:outline-2 focus-visible:outline-[#7564e8] ${
+                        selected
+                          ? "bg-white text-[#4f43bd] shadow-[0_1px_3px_rgba(25,28,36,0.12)]"
+                          : "bg-transparent text-[#62666f]"
+                      }`}
+                      type="button"
+                      role="radio"
+                      aria-checked={selected}
+                      onClick={() => {
+                        updateSetting("overlayPosition", value);
+                      }}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </SettingRow>
+          </SettingsSection>
+        );
+      }
+      case "shortcut": {
+        return (
+          <>
+            {settings.apiKey ? null : (
+              <div
+                className="mb-5 flex items-center justify-between gap-4 rounded-lg border border-[#ead9b7] bg-[#fff8ea] px-3.5 py-2.5 text-[10px] text-[#6d511e]"
+                role="status"
+              >
+                <span>开始听写前，需要先配置语音识别服务。</span>
+                <button
+                  className="shrink-0 cursor-pointer border-0 bg-transparent p-0 font-medium text-[#5748ca] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8]"
+                  type="button"
+                  onClick={() => {
+                    selectSection("recognition");
+                  }}
+                >
+                  去配置
+                </button>
+              </div>
+            )}
+            <SettingsSection
+              id="shortcut"
+              title="语音输入"
+              description="在任意输入框按快捷键开始说话。"
+            >
+              <SettingRow
+                title="触发方式"
+                description="选择快捷键按下后的行为。"
+              >
+                <div
+                  className="grid w-71.5 grid-cols-2 rounded-lg bg-[#f0f1f3] p-1"
+                  role="radiogroup"
+                  aria-label="听写触发方式"
+                >
+                  {(
+                    [
+                      ["toggle", "按一下切换"],
+                      ["hold", "按住说话"],
+                    ] as const
+                  ).map(([value, label]) => {
+                    const selected = settings.activationMode === value;
+                    return (
+                      <button
+                        key={value}
+                        className={`h-7 cursor-pointer rounded-md border-0 text-[10px] font-medium transition focus-visible:outline-2 focus-visible:outline-[#7564e8] ${
+                          selected
+                            ? "bg-white text-[#4f43bd] shadow-[0_1px_3px_rgba(25,28,36,0.12)]"
+                            : "bg-transparent text-[#62666f]"
+                        }`}
+                        type="button"
+                        role="radio"
+                        aria-checked={selected}
+                        onClick={() => {
+                          updateSetting("activationMode", value);
+                        }}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </SettingRow>
+
+              <SettingRow
+                title="全局快捷键"
+                description="点击后按下新的组合键。"
+              >
+                <button
+                  ref={shortcutButtonRef}
+                  className={`h-9 min-w-46 cursor-pointer rounded-lg border px-3 font-mono text-[10px] outline-none ${
+                    shortcutRecorder.isRecording
+                      ? "border-[#8f83e8] bg-[#f1efff] text-[#5748ca] ring-3 ring-[#7564e8]/10"
+                      : "border-[#d7d9de] bg-white text-[#3f434b] hover:bg-[#f8f8f9] focus-visible:ring-3 focus-visible:ring-[#7564e8]/10"
+                  }`}
+                  type="button"
+                  onClick={() => {
+                    setMessage(null);
+                    shortcutRecorder.startRecording();
+                  }}
+                  onBlur={shortcutRecorder.cancelRecording}
+                >
+                  {shortcutRecorder.isRecording ? (
+                    "请按组合键…"
+                  ) : (
+                    <ShortcutHint shortcut={settings.shortcut} />
+                  )}
+                </button>
+              </SettingRow>
+
+              <SettingRow
+                title="麦克风"
+                description="默认使用系统当前选择的输入设备。"
+              >
+                <div className="w-102.5 max-[800px]:w-90">
+                  <div className="flex gap-2">
+                    <select
+                      className={INPUT_CLASS}
+                      aria-label="麦克风"
+                      value={settings.microphoneId}
+                      onChange={(event) => {
+                        updateSetting("microphoneId", event.target.value);
+                        setMicrophoneMessage(null);
+                      }}
+                    >
+                      <option value="">系统默认麦克风</option>
+                      {microphones.map((device) => (
+                        <option key={device.id} value={device.id}>
+                          {device.label}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      className={SECONDARY_BUTTON_CLASS}
+                      type="button"
+                      onClick={() => void testMicrophone()}
+                      disabled={testingMicrophone}
+                    >
+                      <Mic size={11} /> {testingMicrophone ? "测试中…" : "测试"}
+                    </button>
+                  </div>
+                  <div
+                    className="mt-2 h-1 overflow-hidden rounded-full bg-[#ececef]"
+                    role="meter"
+                    aria-label="麦克风音量"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={Math.round(microphoneLevel * 100)}
+                  >
+                    <div
+                      className="h-full rounded-full bg-[#6558e8] transition-[width] duration-75"
+                      style={{
+                        width: `${Math.max(testingMicrophone ? 3 : 0, microphoneLevel * 100)}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+              </SettingRow>
+              {microphoneMessage ? (
+                <div className="px-5 py-3">
+                  <Feedback message={microphoneMessage} />
+                </div>
+              ) : null}
+            </SettingsSection>
+          </>
+        );
+      }
+      case "recognition": {
+        return (
+          <SettingsSection
+            id="recognition"
+            title="识别与词汇"
+            description="配置识别服务，并提高人名和专业词汇的准确率。"
+          >
+            <SettingRow
+              title="豆包 API Key"
+              description="从火山引擎控制台获取，用于连接语音识别服务。"
+            >
+              <div className="w-102.5 max-[800px]:w-90">
+                <div className="flex h-9 items-center overflow-hidden rounded-lg border border-[#d7d9de] bg-white transition focus-within:border-[#7564e8] focus-within:ring-3 focus-within:ring-[#7564e8]/10">
+                  <input
+                    className="min-w-0 flex-1 border-0 bg-transparent px-3 text-[12px] text-[#202124] outline-none disabled:cursor-not-allowed disabled:bg-[#f5f5f6]"
+                    type={showApiKey ? "text" : "password"}
+                    value={settings.apiKey}
+                    onChange={(event) => {
+                      updateSetting("apiKey", event.target.value);
+                      setVerifiedApiKey("");
+                      setDoubaoMessage(null);
+                    }}
+                    placeholder="粘贴 API Key"
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                  <button
+                    className="mr-1 grid size-7 cursor-pointer place-items-center rounded-md border-0 bg-transparent text-[#777b84] hover:bg-[#f1f1f3] focus-visible:outline-2 focus-visible:outline-[#7564e8]"
+                    type="button"
+                    onClick={() => {
+                      setShowApiKey(!showApiKey);
+                    }}
+                    aria-label={showApiKey ? "隐藏 API Key" : "显示 API Key"}
+                    title={showApiKey ? "隐藏 API Key" : "显示 API Key"}
+                  >
+                    {showApiKey ? <EyeOff size={13} /> : <Eye size={13} />}
+                  </button>
+                </div>
+                <div className="mt-2 flex items-center justify-end gap-3">
+                  <button
+                    className="cursor-pointer border-0 bg-transparent p-0 text-[10px] text-[#6558e8] hover:text-[#4f43bd] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8]"
+                    type="button"
+                    onClick={() => void openConsole()}
+                  >
+                    <span className="flex items-center gap-1">
+                      获取 API Key <ExternalLink size={10} />
+                    </span>
+                  </button>
+                  <button
+                    className="flex h-7 cursor-pointer items-center gap-1.5 rounded-md border border-[#d7d9de] bg-white px-2.5 text-[10px] font-medium text-[#555962] hover:bg-[#f5f5f6] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8] disabled:cursor-wait disabled:opacity-55"
+                    type="button"
+                    onClick={() => void testDoubao()}
+                    disabled={testingDoubao || !settings.apiKey.trim()}
+                  >
+                    <Activity size={11} />{" "}
+                    {testingDoubao ? "连接中…" : "测试连接"}
+                  </button>
+                </div>
+              </div>
+            </SettingRow>
+            {doubaoMessage ? (
+              <div className="px-5 py-3">
+                <Feedback message={doubaoMessage} />
+              </div>
+            ) : null}
+            <SettingRow
+              title="常用词"
+              description="每行一个词，最多 100 个字符。"
+              vertical
+            >
+              <div className="mb-2 flex justify-end">
+                <button
+                  className="cursor-pointer border-0 bg-transparent p-0 text-[10px] font-medium text-[#6558e8] hover:text-[#4f43bd] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8] disabled:cursor-default disabled:text-[#9a9da4]"
+                  type="button"
+                  onClick={clearHotwords}
+                  disabled={!hotwordsText.trim()}
+                >
+                  清空
+                </button>
+              </div>
+              <textarea
+                className="min-h-28 w-full resize-y rounded-lg border border-[#d7d9de] bg-white px-3 py-2.5 text-[12px] leading-6 text-[#202124] transition outline-none focus:border-[#7564e8] focus:ring-3 focus:ring-[#7564e8]/10 disabled:cursor-not-allowed disabled:bg-[#f5f5f6]"
+                value={hotwordsText}
+                onChange={(event) => {
+                  updateHotwordsText(event.target.value);
+                }}
+                placeholder={"VoicePaste\n你的名字\n常用产品名"}
+                rows={5}
+              />
+            </SettingRow>
+          </SettingsSection>
+        );
+      }
+      case "diagnostics": {
+        return (
+          <SettingsSection
+            id="diagnostics"
+            title="权限与状态"
+            description="仅在功能不可用时需要查看。"
+          >
+            <SettingRow title="全局快捷键">
+              <span className="max-w-102.5 text-right text-[10px] leading-5 text-[#666a73]">
+                {diagnostics?.shortcutStatus ?? "浏览器预览不注册快捷键"}
+              </span>
+            </SettingRow>
+            <SettingRow title="麦克风">
+              <span className="max-w-102.5 text-right text-[10px] leading-5 text-[#666a73]">
+                {microphoneStatus}
+              </span>
+            </SettingRow>
+            <SettingRow title="自动粘贴">
+              <span className="max-w-102.5 text-right text-[10px] leading-5 text-[#666a73]">
+                {diagnostics?.inputStatus ?? "浏览器预览不检查自动粘贴"}
+              </span>
+            </SettingRow>
+            <div className="flex justify-end gap-2 px-5 py-3">
+              <button
+                className={SECONDARY_BUTTON_CLASS}
+                type="button"
+                onClick={() => {
+                  setMessage(null);
+                  void refreshDiagnostics();
+                }}
+              >
+                <RefreshCw size={11} /> 刷新
+              </button>
+              {diagnostics && !diagnostics.inputReady ? (
+                <button
+                  className="flex h-9 cursor-pointer items-center gap-1.5 rounded-lg border border-[#cfc9f6] bg-[#f3f1ff] px-3 text-[10px] font-medium text-[#5748ca] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8]"
+                  type="button"
+                  onClick={() => {
+                    void (async () => {
+                      setMessage(null);
+                      try {
+                        await invoke("retry_input_access");
+                        await refreshDiagnostics();
+                      } catch (error) {
+                        showMessage({
+                          kind: "error",
+                          text: safeError(error, settingsRef.current.apiKey),
+                        });
+                      }
+                    })();
+                  }}
+                >
+                  <CheckCircle2 size={11} /> 重试自动粘贴
+                </button>
+              ) : null}
+            </div>
+          </SettingsSection>
+        );
+      }
+      case "about": {
+        return (
+          <>
+            <SettingsSection
+              id="about-version"
+              title="关于 VoicePaste"
+              description="版本信息和正式发布。"
+            >
+              <SettingRow
+                title={`VoicePaste ${currentVersion}`}
+                description="新版本由 GitHub Releases 发布，请手动下载安装。"
+              >
+                <button
+                  className={SECONDARY_BUTTON_CLASS}
+                  type="button"
+                  onClick={() => void openProductLink("releases")}
+                >
+                  <ExternalLink size={11} /> 查看最新版本
+                </button>
+              </SettingRow>
+            </SettingsSection>
+
+            <SettingsSection
+              id="about-support"
+              title="日志与支持"
+              description="排查问题时可打开日志或复制不含凭据的诊断信息。"
+            >
+              <SettingRow
+                title="日志目录"
+                description={diagnostics?.logDir ?? "应用日志目录"}
+              >
+                <button
+                  className={SECONDARY_BUTTON_CLASS}
+                  type="button"
+                  onClick={() => void runAboutAction("open_log_dir")}
+                >
+                  <FolderOpen size={11} /> 打开目录
+                </button>
+              </SettingRow>
+              <SettingRow
+                title="诊断信息"
+                description="复制版本、快捷键、自动粘贴和系统信息，不包含 API Key。"
+              >
+                <button
+                  className={SECONDARY_BUTTON_CLASS}
+                  type="button"
+                  onClick={() =>
+                    void runAboutAction("copy_diagnostics", "诊断信息已复制")
+                  }
+                >
+                  <Copy size={11} /> 复制诊断信息
+                </button>
+              </SettingRow>
+            </SettingsSection>
+
+            <SettingsSection
+              id="about-links"
+              title="产品链接"
+              description="了解项目、获取帮助或查看隐私说明。"
+            >
+              {(
+                [
+                  ["homepage", "主页", "了解 VoicePaste 和最新动态"],
+                  ["help", "帮助与反馈", "查看使用帮助并反馈问题"],
+                  ["privacy", "隐私说明", "了解数据处理和凭据存储方式"],
+                ] as const
+              ).map(([target, label, description]) => (
+                <SettingRow
+                  key={target}
+                  title={label}
+                  description={description}
+                >
+                  <button
+                    className="flex cursor-pointer items-center gap-1.5 border-0 bg-transparent p-1 text-[10px] font-medium text-[#6558e8] hover:text-[#4f43bd] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8]"
+                    type="button"
+                    onClick={() => void openProductLink(target)}
+                  >
+                    打开 <ExternalLink size={10} />
+                  </button>
+                </SettingRow>
+              ))}
+            </SettingsSection>
+          </>
+        );
+      }
+      default: {
+        throw new Error("Unknown settings section");
+      }
+    }
+  }
   if (loading) {
     return (
       <>
@@ -1254,14 +1758,9 @@ export function Settings({
     );
   }
 
-  const microphoneStatus =
-    microphones.length > 0
-      ? `原生采集可用（${microphones.length} 个设备）`
-      : "未检测到麦克风";
-  const currentVersion = diagnostics?.appVersion ?? FALLBACK_APP_VERSION;
-
   return (
-    <>
+    // oxlint-disable-next-line react/jsx-no-constructed-context-values -- renderer must capture current settings state
+    <SettingsOutletContext.Provider value={renderSection}>
       {settingsToaster}
       <div className="grid h-screen w-screen grid-cols-[188px_minmax(0,1fr)] overflow-hidden bg-[#f6f7f9] text-[#202124]">
         <aside className="flex flex-col border-r border-[#e4e5e8] bg-[#fbfbfc] px-3.5 py-4">
@@ -1283,27 +1782,31 @@ export function Settings({
           </div>
 
           <nav className="mt-5 grid gap-1" aria-label="设置分类">
-            {SECTIONS.map(([id, label, Icon]) => {
-              const active = activeSection === id;
-              return (
-                <button
-                  key={id}
-                  className={`flex h-9 w-full cursor-pointer items-center gap-2.5 rounded-lg border-0 px-3 text-left text-[11px] font-medium transition focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#7564e8] ${
-                    active
-                      ? "bg-[#efedff] text-[#5748ca]"
-                      : "bg-transparent text-[#666a73] hover:bg-[#f0f1f3] hover:text-[#282b31]"
-                  }`}
-                  type="button"
-                  aria-current={active ? "page" : undefined}
-                  onClick={() => {
-                    selectSection(id);
-                  }}
-                >
-                  <Icon size={14} strokeWidth={active ? 2.2 : 1.8} />
-                  {label}
-                </button>
-              );
-            })}
+            {SECTIONS.map(([id, label, Icon]) => (
+              <Link
+                key={id}
+                activeOptions={{ exact: true }}
+                activeProps={{
+                  className: "bg-[#efedff] text-[#5748ca]",
+                }}
+                className="flex h-9 w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 text-left text-[11px] font-medium transition focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#7564e8]"
+                inactiveProps={{
+                  className:
+                    "bg-transparent text-[#666a73] hover:bg-[#f0f1f3] hover:text-[#282b31]",
+                }}
+                to={SETTINGS_PATHS[id]}
+                onClick={() => {
+                  toast.dismiss(SETTINGS_TOAST_ID);
+                }}
+              >
+                {({ isActive }) => (
+                  <>
+                    <Icon size={14} strokeWidth={isActive ? 2.2 : 1.8} />
+                    {label}
+                  </>
+                )}
+              </Link>
+            ))}
           </nav>
 
           <p className="mt-auto px-3 pb-1 text-[9px] leading-4 text-[#696d75]">
@@ -1343,7 +1846,10 @@ export function Settings({
             </div>
           </header>
 
-          <main className="min-h-0 flex-1 overflow-auto scroll-smooth px-8 py-6">
+          <main
+            className="min-h-0 flex-1 overflow-auto scroll-smooth px-8 py-6"
+            data-scroll-restoration-id="settings-content"
+          >
             <div className="mx-auto max-w-180">
               <Feedback
                 message={message?.kind === "error" ? message : null}
@@ -1351,461 +1857,12 @@ export function Settings({
               />
 
               <fieldset className="m-0 min-w-0 border-0 p-0" disabled={saving}>
-                {activeSection === "general" ? (
-                  <SettingsSection
-                    id="general"
-                    title="通用"
-                    description="控制 VoicePaste 的启动方式和悬浮窗位置。"
-                  >
-                    <SettingRow
-                      title="开机启动"
-                      description="登录系统后自动启动 VoicePaste，并在托盘中等待。"
-                    >
-                      <Toggle
-                        checked={settings.launchAtStartup}
-                        onChange={(checked) => {
-                          updateSetting("launchAtStartup", checked);
-                        }}
-                        label="开机启动"
-                      />
-                    </SettingRow>
-                    <SettingRow
-                      title="悬浮窗位置"
-                      description="选择听写状态悬浮窗出现的屏幕边缘。"
-                    >
-                      <div
-                        className="grid w-102.5 grid-cols-3 gap-1 rounded-lg bg-[#f0f1f3] p-1 max-[800px]:w-90"
-                        role="radiogroup"
-                        aria-label="悬浮窗位置"
-                      >
-                        {(
-                          [
-                            ["bottom", "底部"],
-                            ["left", "左侧"],
-                            ["right", "右侧"],
-                          ] as const
-                        ).map(([value, label]) => {
-                          const selected = settings.overlayPosition === value;
-                          return (
-                            <button
-                              key={value}
-                              className={`h-7 cursor-pointer rounded-md border-0 text-[10px] font-medium transition focus-visible:outline-2 focus-visible:outline-[#7564e8] ${
-                                selected
-                                  ? "bg-white text-[#4f43bd] shadow-[0_1px_3px_rgba(25,28,36,0.12)]"
-                                  : "bg-transparent text-[#62666f]"
-                              }`}
-                              type="button"
-                              role="radio"
-                              aria-checked={selected}
-                              onClick={() => {
-                                updateSetting("overlayPosition", value);
-                              }}
-                            >
-                              {label}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </SettingRow>
-                  </SettingsSection>
-                ) : null}
-
-                {activeSection === "shortcut" && !settings.apiKey ? (
-                  <div
-                    className="mb-5 flex items-center justify-between gap-4 rounded-lg border border-[#ead9b7] bg-[#fff8ea] px-3.5 py-2.5 text-[10px] text-[#6d511e]"
-                    role="status"
-                  >
-                    <span>开始听写前，需要先配置语音识别服务。</span>
-                    <button
-                      className="shrink-0 cursor-pointer border-0 bg-transparent p-0 font-medium text-[#5748ca] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8]"
-                      type="button"
-                      onClick={() => {
-                        selectSection("recognition");
-                      }}
-                    >
-                      去配置
-                    </button>
-                  </div>
-                ) : null}
-
-                {activeSection === "shortcut" ? (
-                  <SettingsSection
-                    id="shortcut"
-                    title="语音输入"
-                    description="在任意输入框按快捷键开始说话。"
-                  >
-                    <SettingRow
-                      title="触发方式"
-                      description="选择快捷键按下后的行为。"
-                    >
-                      <div
-                        className="grid w-71.5 grid-cols-2 rounded-lg bg-[#f0f1f3] p-1"
-                        role="radiogroup"
-                        aria-label="听写触发方式"
-                      >
-                        {(
-                          [
-                            ["toggle", "按一下切换"],
-                            ["hold", "按住说话"],
-                          ] as const
-                        ).map(([value, label]) => {
-                          const selected = settings.activationMode === value;
-                          return (
-                            <button
-                              key={value}
-                              className={`h-7 cursor-pointer rounded-md border-0 text-[10px] font-medium transition focus-visible:outline-2 focus-visible:outline-[#7564e8] ${
-                                selected
-                                  ? "bg-white text-[#4f43bd] shadow-[0_1px_3px_rgba(25,28,36,0.12)]"
-                                  : "bg-transparent text-[#62666f]"
-                              }`}
-                              type="button"
-                              role="radio"
-                              aria-checked={selected}
-                              onClick={() => {
-                                updateSetting("activationMode", value);
-                              }}
-                            >
-                              {label}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </SettingRow>
-
-                    <SettingRow
-                      title="全局快捷键"
-                      description="点击后按下新的组合键。"
-                    >
-                      <button
-                        ref={shortcutButtonRef}
-                        className={`h-9 min-w-46 cursor-pointer rounded-lg border px-3 font-mono text-[10px] outline-none ${
-                          shortcutRecorder.isRecording
-                            ? "border-[#8f83e8] bg-[#f1efff] text-[#5748ca] ring-3 ring-[#7564e8]/10"
-                            : "border-[#d7d9de] bg-white text-[#3f434b] hover:bg-[#f8f8f9] focus-visible:ring-3 focus-visible:ring-[#7564e8]/10"
-                        }`}
-                        type="button"
-                        onClick={() => {
-                          setMessage(null);
-                          shortcutRecorder.startRecording();
-                        }}
-                        onBlur={shortcutRecorder.cancelRecording}
-                      >
-                        {shortcutRecorder.isRecording ? (
-                          "请按组合键…"
-                        ) : (
-                          <ShortcutHint shortcut={settings.shortcut} />
-                        )}
-                      </button>
-                    </SettingRow>
-
-                    <SettingRow
-                      title="麦克风"
-                      description="默认使用系统当前选择的输入设备。"
-                    >
-                      <div className="w-102.5 max-[800px]:w-90">
-                        <div className="flex gap-2">
-                          <select
-                            className={INPUT_CLASS}
-                            aria-label="麦克风"
-                            value={settings.microphoneId}
-                            onChange={(event) => {
-                              updateSetting("microphoneId", event.target.value);
-                              setMicrophoneMessage(null);
-                            }}
-                          >
-                            <option value="">系统默认麦克风</option>
-                            {microphones.map((device) => (
-                              <option key={device.id} value={device.id}>
-                                {device.label}
-                              </option>
-                            ))}
-                          </select>
-                          <button
-                            className={SECONDARY_BUTTON_CLASS}
-                            type="button"
-                            onClick={() => void testMicrophone()}
-                            disabled={testingMicrophone}
-                          >
-                            <Mic size={11} />{" "}
-                            {testingMicrophone ? "测试中…" : "测试"}
-                          </button>
-                        </div>
-                        <div
-                          className="mt-2 h-1 overflow-hidden rounded-full bg-[#ececef]"
-                          role="meter"
-                          aria-label="麦克风音量"
-                          aria-valuemin={0}
-                          aria-valuemax={100}
-                          aria-valuenow={Math.round(microphoneLevel * 100)}
-                        >
-                          <div
-                            className="h-full rounded-full bg-[#6558e8] transition-[width] duration-75"
-                            style={{
-                              width: `${Math.max(testingMicrophone ? 3 : 0, microphoneLevel * 100)}%`,
-                            }}
-                          />
-                        </div>
-                      </div>
-                    </SettingRow>
-                    {microphoneMessage ? (
-                      <div className="px-5 py-3">
-                        <Feedback message={microphoneMessage} />
-                      </div>
-                    ) : null}
-                  </SettingsSection>
-                ) : null}
-
-                {activeSection === "recognition" ? (
-                  <SettingsSection
-                    id="recognition"
-                    title="识别与词汇"
-                    description="配置识别服务，并提高人名和专业词汇的准确率。"
-                  >
-                    <SettingRow
-                      title="豆包 API Key"
-                      description="从火山引擎控制台获取，用于连接语音识别服务。"
-                    >
-                      <div className="w-102.5 max-[800px]:w-90">
-                        <div className="flex h-9 items-center overflow-hidden rounded-lg border border-[#d7d9de] bg-white transition focus-within:border-[#7564e8] focus-within:ring-3 focus-within:ring-[#7564e8]/10">
-                          <input
-                            className="min-w-0 flex-1 border-0 bg-transparent px-3 text-[12px] text-[#202124] outline-none disabled:cursor-not-allowed disabled:bg-[#f5f5f6]"
-                            type={showApiKey ? "text" : "password"}
-                            value={settings.apiKey}
-                            onChange={(event) => {
-                              updateSetting("apiKey", event.target.value);
-                              setVerifiedApiKey("");
-                              setDoubaoMessage(null);
-                            }}
-                            placeholder="粘贴 API Key"
-                            autoComplete="off"
-                            spellCheck={false}
-                          />
-                          <button
-                            className="mr-1 grid size-7 cursor-pointer place-items-center rounded-md border-0 bg-transparent text-[#777b84] hover:bg-[#f1f1f3] focus-visible:outline-2 focus-visible:outline-[#7564e8]"
-                            type="button"
-                            onClick={() => {
-                              setShowApiKey(!showApiKey);
-                            }}
-                            aria-label={
-                              showApiKey ? "隐藏 API Key" : "显示 API Key"
-                            }
-                            title={showApiKey ? "隐藏 API Key" : "显示 API Key"}
-                          >
-                            {showApiKey ? (
-                              <EyeOff size={13} />
-                            ) : (
-                              <Eye size={13} />
-                            )}
-                          </button>
-                        </div>
-                        <div className="mt-2 flex items-center justify-end gap-3">
-                          <button
-                            className="cursor-pointer border-0 bg-transparent p-0 text-[10px] text-[#6558e8] hover:text-[#4f43bd] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8]"
-                            type="button"
-                            onClick={() => void openConsole()}
-                          >
-                            <span className="flex items-center gap-1">
-                              获取 API Key <ExternalLink size={10} />
-                            </span>
-                          </button>
-                          <button
-                            className="flex h-7 cursor-pointer items-center gap-1.5 rounded-md border border-[#d7d9de] bg-white px-2.5 text-[10px] font-medium text-[#555962] hover:bg-[#f5f5f6] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8] disabled:cursor-wait disabled:opacity-55"
-                            type="button"
-                            onClick={() => void testDoubao()}
-                            disabled={testingDoubao || !settings.apiKey.trim()}
-                          >
-                            <Activity size={11} />{" "}
-                            {testingDoubao ? "连接中…" : "测试连接"}
-                          </button>
-                        </div>
-                      </div>
-                    </SettingRow>
-                    {doubaoMessage ? (
-                      <div className="px-5 py-3">
-                        <Feedback message={doubaoMessage} />
-                      </div>
-                    ) : null}
-                    <SettingRow
-                      title="常用词"
-                      description="每行一个词，最多 100 个字符。"
-                      vertical
-                    >
-                      <div className="mb-2 flex justify-end">
-                        <button
-                          className="cursor-pointer border-0 bg-transparent p-0 text-[10px] font-medium text-[#6558e8] hover:text-[#4f43bd] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8] disabled:cursor-default disabled:text-[#9a9da4]"
-                          type="button"
-                          onClick={clearHotwords}
-                          disabled={!hotwordsText.trim()}
-                        >
-                          清空
-                        </button>
-                      </div>
-                      <textarea
-                        className="min-h-28 w-full resize-y rounded-lg border border-[#d7d9de] bg-white px-3 py-2.5 text-[12px] leading-6 text-[#202124] transition outline-none focus:border-[#7564e8] focus:ring-3 focus:ring-[#7564e8]/10 disabled:cursor-not-allowed disabled:bg-[#f5f5f6]"
-                        value={hotwordsText}
-                        onChange={(event) => {
-                          updateHotwordsText(event.target.value);
-                        }}
-                        placeholder={"VoicePaste\n你的名字\n常用产品名"}
-                        rows={5}
-                      />
-                    </SettingRow>
-                  </SettingsSection>
-                ) : null}
-
-                {activeSection === "diagnostics" ? (
-                  <SettingsSection
-                    id="diagnostics"
-                    title="权限与状态"
-                    description="仅在功能不可用时需要查看。"
-                  >
-                    <SettingRow title="全局快捷键">
-                      <span className="max-w-102.5 text-right text-[10px] leading-5 text-[#666a73]">
-                        {diagnostics?.shortcutStatus ??
-                          "浏览器预览不注册快捷键"}
-                      </span>
-                    </SettingRow>
-                    <SettingRow title="麦克风">
-                      <span className="max-w-102.5 text-right text-[10px] leading-5 text-[#666a73]">
-                        {microphoneStatus}
-                      </span>
-                    </SettingRow>
-                    <SettingRow title="自动粘贴">
-                      <span className="max-w-102.5 text-right text-[10px] leading-5 text-[#666a73]">
-                        {diagnostics?.inputStatus ?? "浏览器预览不检查自动粘贴"}
-                      </span>
-                    </SettingRow>
-                    <div className="flex justify-end gap-2 px-5 py-3">
-                      <button
-                        className={SECONDARY_BUTTON_CLASS}
-                        type="button"
-                        onClick={() => {
-                          setMessage(null);
-                          void refreshDiagnostics();
-                        }}
-                      >
-                        <RefreshCw size={11} /> 刷新
-                      </button>
-                      {diagnostics && !diagnostics.inputReady ? (
-                        <button
-                          className="flex h-9 cursor-pointer items-center gap-1.5 rounded-lg border border-[#cfc9f6] bg-[#f3f1ff] px-3 text-[10px] font-medium text-[#5748ca] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8]"
-                          type="button"
-                          onClick={() => {
-                            void (async () => {
-                              setMessage(null);
-                              try {
-                                await invoke("retry_input_access");
-                                await refreshDiagnostics();
-                              } catch (error) {
-                                showMessage({
-                                  kind: "error",
-                                  text: safeError(
-                                    error,
-                                    settingsRef.current.apiKey
-                                  ),
-                                });
-                              }
-                            })();
-                          }}
-                        >
-                          <CheckCircle2 size={11} /> 重试自动粘贴
-                        </button>
-                      ) : null}
-                    </div>
-                  </SettingsSection>
-                ) : null}
-
-                {activeSection === "about" ? (
-                  <>
-                    <SettingsSection
-                      id="about-version"
-                      title="关于 VoicePaste"
-                      description="版本信息和正式发布。"
-                    >
-                      <SettingRow
-                        title={`VoicePaste ${currentVersion}`}
-                        description="新版本由 GitHub Releases 发布，请手动下载安装。"
-                      >
-                        <button
-                          className={SECONDARY_BUTTON_CLASS}
-                          type="button"
-                          onClick={() => void openProductLink("releases")}
-                        >
-                          <ExternalLink size={11} /> 查看最新版本
-                        </button>
-                      </SettingRow>
-                    </SettingsSection>
-
-                    <SettingsSection
-                      id="about-support"
-                      title="日志与支持"
-                      description="排查问题时可打开日志或复制不含凭据的诊断信息。"
-                    >
-                      <SettingRow
-                        title="日志目录"
-                        description={diagnostics?.logDir ?? "应用日志目录"}
-                      >
-                        <button
-                          className={SECONDARY_BUTTON_CLASS}
-                          type="button"
-                          onClick={() => void runAboutAction("open_log_dir")}
-                        >
-                          <FolderOpen size={11} /> 打开目录
-                        </button>
-                      </SettingRow>
-                      <SettingRow
-                        title="诊断信息"
-                        description="复制版本、快捷键、自动粘贴和系统信息，不包含 API Key。"
-                      >
-                        <button
-                          className={SECONDARY_BUTTON_CLASS}
-                          type="button"
-                          onClick={() =>
-                            void runAboutAction(
-                              "copy_diagnostics",
-                              "诊断信息已复制"
-                            )
-                          }
-                        >
-                          <Copy size={11} /> 复制诊断信息
-                        </button>
-                      </SettingRow>
-                    </SettingsSection>
-
-                    <SettingsSection
-                      id="about-links"
-                      title="产品链接"
-                      description="了解项目、获取帮助或查看隐私说明。"
-                    >
-                      {(
-                        [
-                          ["homepage", "主页", "了解 VoicePaste 和最新动态"],
-                          ["help", "帮助与反馈", "查看使用帮助并反馈问题"],
-                          ["privacy", "隐私说明", "了解数据处理和凭据存储方式"],
-                        ] as const
-                      ).map(([target, label, description]) => (
-                        <SettingRow
-                          key={target}
-                          title={label}
-                          description={description}
-                        >
-                          <button
-                            className="flex cursor-pointer items-center gap-1.5 border-0 bg-transparent p-1 text-[10px] font-medium text-[#6558e8] hover:text-[#4f43bd] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8]"
-                            type="button"
-                            onClick={() => void openProductLink(target)}
-                          >
-                            打开 <ExternalLink size={10} />
-                          </button>
-                        </SettingRow>
-                      ))}
-                    </SettingsSection>
-                  </>
-                ) : null}
+                {children}
               </fieldset>
             </div>
           </main>
         </div>
       </div>
-    </>
+    </SettingsOutletContext.Provider>
   );
 }
