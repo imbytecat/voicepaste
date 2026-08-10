@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use tauri::AppHandle;
 use tauri::async_runtime::JoinHandle;
-use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
+use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Shortcut};
 
 #[derive(Default)]
 pub struct ShortcutManager {
@@ -12,6 +12,29 @@ pub struct ShortcutManager {
 fn uses_portal() -> bool {
     cfg!(target_os = "linux") && std::env::var_os("WAYLAND_DISPLAY").is_some()
 }
+const PORTABLE_SINGLE_KEY_ERROR: &str = "无修饰单键仅支持 F13–F20；其他按键请搭配修饰键";
+
+fn parse_portable_shortcut(shortcut: &str) -> Result<Shortcut, String> {
+    let parsed: Shortcut = shortcut
+        .parse()
+        .map_err(|error| format!("快捷键格式无效：{error}"))?;
+    if parsed.mods.is_empty()
+        && !matches!(
+            parsed.key,
+            Code::F13
+                | Code::F14
+                | Code::F15
+                | Code::F16
+                | Code::F17
+                | Code::F18
+                | Code::F19
+                | Code::F20
+        )
+    {
+        return Err(PORTABLE_SINGLE_KEY_ERROR.to_owned());
+    }
+    Ok(parsed)
+}
 
 impl ShortcutManager {
     pub async fn replace(
@@ -20,6 +43,7 @@ impl ShortcutManager {
         shortcut: &str,
         previous: Option<&str>,
     ) -> Result<(), String> {
+        let parsed = parse_portable_shortcut(shortcut)?;
         if uses_portal() {
             #[cfg(target_os = "linux")]
             {
@@ -37,9 +61,6 @@ impl ShortcutManager {
             }
         }
 
-        let parsed: Shortcut = shortcut
-            .parse()
-            .map_err(|error| format!("快捷键格式无效：{error}"))?;
         if previous == Some(shortcut) && app.global_shortcut().is_registered(parsed) {
             return Ok(());
         }
@@ -201,10 +222,29 @@ fn xdg_key_name(key: &str) -> String {
     }
 }
 
-#[cfg(all(test, target_os = "linux"))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
+    #[test]
+    fn accepts_combinations_and_portable_single_keys() {
+        assert!(parse_portable_shortcut("CommandOrControl+Shift+Space").is_ok());
+        assert!(parse_portable_shortcut("Control+F12").is_ok());
+        assert!(parse_portable_shortcut("F13").is_ok());
+        assert!(parse_portable_shortcut("F20").is_ok());
+    }
+
+    #[test]
+    fn rejects_non_portable_single_keys() {
+        for shortcut in ["A", "Space", "F12", "F21"] {
+            assert_eq!(
+                parse_portable_shortcut(shortcut).unwrap_err(),
+                PORTABLE_SINGLE_KEY_ERROR
+            );
+        }
+    }
+
+    #[cfg(target_os = "linux")]
     #[test]
     fn converts_tauri_shortcut_to_xdg_syntax() {
         assert_eq!(
@@ -212,6 +252,7 @@ mod tests {
             "CTRL+SHIFT+space"
         );
         assert_eq!(to_xdg_shortcut("Super+Alt+K").unwrap(), "LOGO+ALT+k");
+        assert_eq!(to_xdg_shortcut("F13").unwrap(), "F13");
         assert_ne!(
             portal_shortcut_id("Control+Shift+Space"),
             portal_shortcut_id("Control+Alt+0")

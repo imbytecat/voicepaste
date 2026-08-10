@@ -1401,7 +1401,7 @@ export function Settings({
 
               <SettingRow
                 title="全局快捷键"
-                description="点击后按下新的组合键。"
+                description="按下组合键，或使用 F13–F20 单键。"
                 changed={isSettingChanged("shortcut")}
               >
                 <button
@@ -1419,7 +1419,7 @@ export function Settings({
                   onBlur={shortcutRecorder.cancelRecording}
                 >
                   {shortcutRecorder.isRecording ? (
-                    "请按组合键…"
+                    "请按按键或组合键…"
                   ) : (
                     <ShortcutHint shortcut={settings.shortcut} />
                   )}

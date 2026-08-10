@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "build": "vite build && tsc",
+    "test:shortcut": "node --experimental-strip-types --test tests/shortcut.test.mjs",
     "check": "ultracite check && pnpm build",
     "dev": "vite",
     "fix": "ultracite fix",
