@@ -65,6 +65,21 @@ Could not create default EGL display: EGL_BAD_PARAMETER. Aborting...
 
 Tauri 在 linuxdeploy 与 AppImage 打包之间没有 hook，因此 `tools/repack-appimage.sh` 在打包完成后删掉这四个库、用 Tauri 已缓存的 `linuxdeploy-plugin-appimage` 重新打包并重新签名。发布流程会用重打包后的产物覆盖 Release 资产，并在所有平台 job 结束后由 `sync-updater-signature` job 把 `latest.json` 的 Linux 签名同步成新文件的签名。
 
+#### 上游状态
+
+这不是本项目独有的问题，也不是我们绕开了官方做法：
+
+- [tauri-apps/tauri#15665](https://github.com/tauri-apps/tauri/issues/15665)（2026-07-07 提交，仍 open）描述的就是这条链路：默认 bundler 配置 + ubuntu-24.04 runner 构建的 AppImage，在 Mesa 25+ 的发行版上 WebKitWebProcess 直接 abort。
+- Tauri 维护者的回应是更新 linuxdeploy 每次都会让 AppImage 更坏，且 `bundle.linux.appimage` 至今没有 `excludeLibraries` 之类的配置口，所以受影响项目一致采用“在 CI 里 post-process AppImage”。本仓库的 `tools/repack-appimage.sh` 就是这个做法。
+- 真正的上游修复是 [tauri-apps/tauri#12491](https://github.com/tauri-apps/tauri/pull/12491)（Truly portable appimage，仍是 draft），它要求在 Arch 上构建。等它合并并支持 Ubuntu runner，或等 Tauri 提供官方排除配置，就可以删掉 `tools/repack-appimage.sh` 与对应的两个工作流步骤。
+
+#### 同一 issue 里另外两条机制（本项目不受影响，故不处理）
+
+- **`GST_PLUGIN_SYSTEM_PATH_1_0` 指向不存在的目录**：AppImageKit 的 `AppRun.wrapped` 无条件导出它（`grep -a` 可在二进制里看到），而 `bundleMediaFramework` 为默认 false 时 `usr/lib/gstreamer-1.0` 根本不会创建。对使用 WebKit 媒体能力的应用，这会让 GStreamer 找不到插件并可能写坏用户的 `~/.cache/gstreamer-1.0/registry.*.bin`。VoicePaste 的录音全在 Rust 侧（`start_audio_capture`/`list_microphones`），webview 不碰 `getUserMedia`、`<audio>` 或 WebRTC，实测运行前后宿主 registry 未被改写，因此不做处理。**若以后在 webview 里引入任何媒体能力，必须重新评估这一条。**
+- **WebKit 辅助进程只有 `RUNPATH=$ORIGIN`**：只有绕过 AppRun 直接执行内层 `usr/bin/voicepaste` 才会触发（AppRun 的 `chdir($APPDIR/usr)` 是关键）。正常下载运行与桌面项都经过 AppRun，因此属于潜在项。
+
+另外注意：上游报告者还额外删掉了 glib 家族、`libgst*`、`libmount`/`libblkid`/`libselinux`/`libpcre2-8`、`libzstd`/`libelf`/`libffi`。本仓库只删 4 个 Wayland 库，已在 Mesa 26.2 + wayland 1.26 上实测通过；如果将来更新的发行版又出现同类崩溃，glib 家族是下一个排查对象。
+
 ## 工具链
 
 Node.js、pnpm 与 Rust 版本统一定义在 `mise.toml`。本地与 GitHub Actions 均通过 mise 安装；Linux 系统库仍由 `apt` 安装。

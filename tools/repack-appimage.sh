@@ -9,6 +9,10 @@
 #
 # Tauri has no hook between linuxdeploy and the AppImage packing step, so the AppDir
 # is cleaned up and repacked here, then re-signed because the file changed.
+#
+# Upstream: tauri-apps/tauri#15665 (open, no config surface to exclude libraries) and
+# tauri-apps/tauri#12491 (portable appimage bundler, still draft, Arch-only). Delete this
+# script once either lands.
 set -euo pipefail
 
 bundle_dir="src-tauri/target/release/bundle/appimage"
