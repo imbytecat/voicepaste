@@ -720,7 +720,7 @@ export function Settings({
           setSettings(loadedSettings);
           setHotwordsText(loadedHotwords);
           setHotwordStatus(loadedHotwordStatus);
-          syncDirty(false);
+          syncDirty(loadedHotwordStatus.state === "pending");
           if (notice) showMessage({ kind: "info", text: notice });
           void refreshDiagnostics();
         }
@@ -1213,12 +1213,14 @@ export function Settings({
           : visibleHotwordState === "syncing"
             ? "bg-[#efedff] text-[#5748ca]"
             : "bg-[#f0f1f3] text-[#666a73]";
-  const hasUnsavedChanges = settingsChanged(
-    settings,
-    hotwordsText,
-    savedSettingsRef.current,
-    savedHotwordsTextRef.current
-  );
+  const hasUnsavedChanges =
+    hotwordStatus.state === "pending" ||
+    settingsChanged(
+      settings,
+      hotwordsText,
+      savedSettingsRef.current,
+      savedHotwordsTextRef.current
+    );
   const isSectionChanged = (section: SettingsSectionId) => {
     if (section === "general")
       return (
@@ -1234,6 +1236,7 @@ export function Settings({
       );
     if (section === "recognition")
       return (
+        hotwordStatus.state === "pending" ||
         isSettingChanged("apiKey") ||
         isSettingChanged("hotwordsEnabled") ||
         hotwordsChanged
