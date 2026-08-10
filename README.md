@@ -11,6 +11,7 @@ VoicePaste 是跨平台桌面语音输入工具。按全局快捷键开始听写
 - **Debian / Ubuntu**：下载 `.deb` 后运行 `sudo apt install ./VoicePaste_*.deb`。
 - **Fedora / RHEL**：下载 `.rpm` 后运行 `sudo dnf install ./VoicePaste-*.rpm`。
 - **其他常见 Linux 发行版**：下载 AppImage，运行 `chmod +x VoicePaste_*.AppImage`，再双击或执行 `./VoicePaste_*.AppImage`。
+- **NixOS 等非 FHS 发行版**：AppImage 需要 FHS 运行环境，直接执行会报 `libasound.so.2: cannot open shared object file`。开启 `programs.appimage.enable = true;`（可再加 `programs.appimage.binfmt = true;` 直接双击运行），或临时用 `nix run nixpkgs#appimage-run -- ./VoicePaste_*.AppImage`。详见 [PACKAGING.md](PACKAGING.md#appimage-与宿主库)。
 
 VoicePaste 是完全开源的早期项目，目前不购买 Apple Developer 或 Windows 代码签名证书。macOS Gatekeeper 与 Windows SmartScreen 可能因此显示“未知开发者”提示；请核对下载来源确为本仓库 Release。
 

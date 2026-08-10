@@ -30,6 +30,29 @@ MSI 是 Windows 备选安装包。`latest.json`、`.sig` 与 `.app.tar.gz` 服�
 
 Release 默认保持草稿，验证完成后再公开发布。工作流使用 GitHub Actions 自动提供的 `GITHUB_TOKEN`，并从 `TAURI_SIGNING_PRIVATE_KEY` secret 读取 updater 私钥；不需要平台代码签名 secrets。
 
+## AppImage 与宿主库
+
+AppImage 不是完全自包含的容器。linuxdeploy 按 [AppImage excludelist](https://github.com/AppImage/pkg2appimage/blob/master/excludelist) 主动排除一批“假定宿主已提供”的基础库，因此产物依赖宿主的 FHS 库路径。VoicePaste 1.1.0 的 AppImage 打进了 167 个 `.so`，但以下 17 个按 excludelist 被排除：
+
+```
+libEGL.so.1      libGL.so.1        libX11-xcb.so.1   libX11.so.6
+libasound.so.2   libcom_err.so.2   libdrm.so.2       libexpat.so.1
+libfontconfig.so.1  libfreetype.so.6  libfribidi.so.0  libgbm.so.1
+libgpg-error.so.0   libharfbuzz.so.0  libstdc++.so.6   libxcb.so.1
+libz.so.1
+```
+
+`libasound.so.2` 排在最前面被 loader 报出来，是因为 cpal 在编译期链接 ALSA（`readelf -d` 可见 `NEEDED libasound.so.2`）；excludelist 对它的注释是“绑定后会导致找不到声卡”。在 Debian、Ubuntu、Fedora 上这些库来自系统路径，所以能直接运行；NixOS 没有 `/usr/lib`，17 个全部找不到——只补 `libasound` 不解决问题，会立刻撞上后面 16 个。
+
+因此这不是打包漏了库，也不是用户系统损坏，而是 AppImage 的前提假设与非 FHS 发行版冲突。NixOS 用户应走 FHS 包装层：
+
+```nix
+programs.appimage.enable = true;   # 提供 appimage-run
+programs.appimage.binfmt = true;   # 可选：直接执行 .AppImage
+```
+
+或临时执行 `nix run nixpkgs#appimage-run -- ./VoicePaste_*.AppImage`（已在 NixOS 上实测可正常启动并完成 libei 输入初始化）。
+
 ## 工具链
 
 Node.js、pnpm 与 Rust 版本统一定义在 `mise.toml`。本地与 GitHub Actions 均通过 mise 安装；Linux 系统库仍由 `apt` 安装。
