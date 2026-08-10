@@ -13,7 +13,7 @@ use std::{
     },
 };
 
-use asr::{AsrOutcome, AudioCommand};
+use asr::{AsrOutcome, AudioCommand, ServiceIssue};
 use hotwords::{Binding as HotwordBinding, SyncOutcome};
 use paste::{InputStatus, PasteOutcome};
 use serde::Serialize;
@@ -36,6 +36,8 @@ const API_KEY_CONSOLE_URL: &str = "https://console.volcengine.com/speech/new/set
 const HOMEPAGE_URL: &str = "https://github.com/imbytecat/voicepaste";
 const HELP_URL: &str = "https://github.com/imbytecat/voicepaste/issues";
 const PRIVACY_URL: &str = "https://github.com/imbytecat/voicepaste/blob/main/PRIVACY.md";
+const SPEECH_CONSOLE_URL: &str = "https://console.volcengine.com/speech/";
+const SERVICE_DOCS_URL: &str = "https://www.volcengine.com/docs/6561/1354869";
 const TRAY_STATUS_ID: &str = "status";
 const TRAY_OPEN_ID: &str = "settings";
 const TRAY_UPDATE_ID: &str = "update";
@@ -132,7 +134,17 @@ struct LoadSettingsResult {
 struct HotwordSyncStatus {
     state: &'static str,
     count: usize,
+    cloud_count: usize,
     limit: usize,
+    table_id: Option<String>,
+    foreign_tables: Vec<hotwords::ForeignTable>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HotwordSnapshotResult {
+    hotword_status: HotwordSyncStatus,
+    cloud_hotwords: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -141,7 +153,8 @@ struct SaveSettingsResult {
     kind: &'static str,
     credential_storage: Option<CredentialStorage>,
     hotword_status: Option<HotwordSyncStatus>,
-    remote_hotwords: Vec<String>,
+    hotword_action: Option<&'static str>,
+    cloud_hotwords: Vec<String>,
     hotword_limit: usize,
 }
 
@@ -151,19 +164,50 @@ struct TestDoubaoResult {
     hotword_count: usize,
     hotword_limit: usize,
 }
-fn hotword_status(settings: &AppSettings, binding: Option<&HotwordBinding>) -> HotwordSyncStatus {
+
+/// Status backed by a fresh cloud snapshot: the cloud is the truth.
+fn hotword_status(settings: &AppSettings, snapshot: &hotwords::Snapshot) -> HotwordSyncStatus {
     HotwordSyncStatus {
-        state: if settings.hotwords.is_empty() {
+        state: if !settings.hotwords_enabled {
+            "disabled"
+        } else if settings.hotwords.is_empty() && snapshot.words.is_empty() {
             "empty"
-        } else if binding.is_some() {
+        } else if snapshot.words == settings.hotwords {
             "synced"
         } else {
             "pending"
         },
         count: settings.hotwords.len(),
-        limit: binding
-            .map(|binding| binding.limit)
-            .unwrap_or(hotwords::DEFAULT_TABLE_LIMIT),
+        cloud_count: snapshot.words.len(),
+        limit: snapshot.limit,
+        table_id: snapshot
+            .binding
+            .as_ref()
+            .map(|binding| binding.table_id.clone()),
+        foreign_tables: snapshot.foreign_tables.clone(),
+    }
+}
+
+/// Status from the local store alone; the cloud has not been contacted yet.
+fn unverified_hotword_status(
+    settings: &AppSettings,
+    binding: Option<&HotwordBinding>,
+) -> HotwordSyncStatus {
+    HotwordSyncStatus {
+        state: if !settings.hotwords_enabled {
+            "disabled"
+        } else if settings.hotwords.is_empty() && binding.is_none() {
+            "empty"
+        } else if binding.is_some() {
+            "unknown"
+        } else {
+            "pending"
+        },
+        count: settings.hotwords.len(),
+        cloud_count: 0,
+        limit: binding.map_or(hotwords::DEFAULT_TABLE_LIMIT, |binding| binding.limit),
+        table_id: binding.map(|binding| binding.table_id.clone()),
+        foreign_tables: Vec::new(),
     }
 }
 
@@ -171,16 +215,16 @@ impl SaveSettingsResult {
     fn saved(
         credential_storage: CredentialStorage,
         settings: &AppSettings,
-        binding: Option<&HotwordBinding>,
+        snapshot: hotwords::Snapshot,
+        action: &'static str,
     ) -> Self {
         Self {
             kind: "saved",
             credential_storage: Some(credential_storage),
-            hotword_status: Some(hotword_status(settings, binding)),
-            remote_hotwords: Vec::new(),
-            hotword_limit: binding
-                .map(|binding| binding.limit)
-                .unwrap_or(hotwords::DEFAULT_TABLE_LIMIT),
+            hotword_status: Some(hotword_status(settings, &snapshot)),
+            hotword_action: Some(action),
+            hotword_limit: snapshot.limit,
+            cloud_hotwords: snapshot.words,
         }
     }
 
@@ -189,8 +233,9 @@ impl SaveSettingsResult {
             kind: "conflict",
             credential_storage: None,
             hotword_status: None,
+            hotword_action: None,
             hotword_limit: snapshot.limit,
-            remote_hotwords: snapshot.words,
+            cloud_hotwords: snapshot.words,
         }
     }
 }
@@ -307,7 +352,7 @@ fn load_settings(
         .map_err(|_| "设置提示状态已损坏，请重启应用".to_owned())?
         .take();
     Ok(LoadSettingsResult {
-        hotword_status: hotword_status(&settings, binding.as_ref()),
+        hotword_status: unverified_hotword_status(&settings, binding.as_ref()),
         settings,
         notice,
     })
@@ -344,11 +389,10 @@ async fn save_settings(
         .map_err(|_| "常用词状态已损坏，请重启应用".to_owned())?
         .clone();
     let key_changed = settings.api_key != old_settings.api_key;
-    let binding_mismatch = settings.hotwords.is_empty() == old_binding.is_some();
-    let needs_cloud_sync =
-        key_changed || settings.hotwords != old_settings.hotwords || binding_mismatch;
 
-    let cloud = if settings.api_key.is_empty() {
+    // Always reconcile against the cloud: local state is never trusted as proof
+    // of what the remote table holds.
+    let (cloud, hotword_action) = if settings.api_key.is_empty() {
         if key_changed && !old_settings.api_key.is_empty() && old_binding.is_some() {
             match hotwords::sync(
                 &old_settings.api_key,
@@ -359,17 +403,13 @@ async fn save_settings(
             )
             .await?
             {
-                SyncOutcome::Saved(snapshot) => snapshot,
+                SyncOutcome::Saved { snapshot, action } => (snapshot, action.label()),
                 SyncOutcome::Conflict(_) => unreachable!("forced cloud deletion cannot conflict"),
             }
         } else {
-            hotwords::Snapshot {
-                binding: None,
-                words: Vec::new(),
-                limit: hotwords::DEFAULT_TABLE_LIMIT,
-            }
+            (hotwords::Snapshot::default(), "none")
         }
-    } else if needs_cloud_sync {
+    } else {
         let expected_binding = if key_changed {
             None
         } else {
@@ -384,19 +424,10 @@ async fn save_settings(
         )
         .await?
         {
-            SyncOutcome::Saved(snapshot) => snapshot,
+            SyncOutcome::Saved { snapshot, action } => (snapshot, action.label()),
             SyncOutcome::Conflict(snapshot) => {
                 return Ok(SaveSettingsResult::conflict(snapshot));
             }
-        }
-    } else {
-        hotwords::Snapshot {
-            binding: old_binding.clone(),
-            words: settings.hotwords.clone(),
-            limit: old_binding
-                .as_ref()
-                .map(|binding| binding.limit)
-                .unwrap_or(hotwords::DEFAULT_TABLE_LIMIT),
         }
     };
 
@@ -412,7 +443,7 @@ async fn save_settings(
         return Err(error);
     }
 
-    let new_binding = cloud.binding;
+    let new_binding = cloud.binding.clone();
     let save_app = app.clone();
     let settings_to_save = settings.clone();
     let binding_to_save = new_binding.clone();
@@ -454,8 +485,58 @@ async fn save_settings(
     Ok(SaveSettingsResult::saved(
         credential_storage,
         &settings,
-        new_binding.as_ref(),
+        cloud,
+        hotword_action,
     ))
+}
+
+/// Re-reads the cloud tables and makes local state tell the truth again.
+#[tauri::command]
+async fn refresh_hotwords(
+    window: WebviewWindow,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<HotwordSnapshotResult, String> {
+    require_window(&window, "settings")?;
+    let settings = state
+        .settings
+        .read()
+        .map_err(|_| "设置状态已损坏，请重启应用".to_owned())?
+        .clone();
+    let binding = state
+        .hotword_binding
+        .read()
+        .map_err(|_| "常用词状态已损坏，请重启应用".to_owned())?
+        .clone();
+    if settings.api_key.is_empty() {
+        return Ok(HotwordSnapshotResult {
+            hotword_status: unverified_hotword_status(&settings, binding.as_ref()),
+            cloud_hotwords: Vec::new(),
+        });
+    }
+
+    let snapshot = hotwords::inspect(&settings.api_key).await?;
+    let new_binding = snapshot.binding.clone();
+    if new_binding.as_ref().map(|binding| &binding.table_id)
+        != binding.as_ref().map(|binding| &binding.table_id)
+    {
+        let save_app = app.clone();
+        let settings_to_save = settings.clone();
+        let binding_to_save = new_binding.clone();
+        // Linux keyring uses its own async runtime, so it must not run on a Tokio worker.
+        offload_blocking_result(move || {
+            settings::save(&save_app, &settings_to_save, binding_to_save.as_ref())
+        })
+        .await?;
+    }
+    *state
+        .hotword_binding
+        .write()
+        .map_err(|_| "常用词状态已损坏，请重启应用".to_owned())? = new_binding;
+    Ok(HotwordSnapshotResult {
+        hotword_status: hotword_status(&settings, &snapshot),
+        cloud_hotwords: snapshot.words,
+    })
 }
 
 #[tauri::command]
@@ -730,13 +811,16 @@ fn overlay_ready(
 }
 
 #[tauri::command]
-async fn test_doubao(window: WebviewWindow, api_key: String) -> Result<TestDoubaoResult, String> {
-    require_window(&window, "settings")?;
+async fn test_doubao(
+    window: WebviewWindow,
+    api_key: String,
+) -> Result<TestDoubaoResult, ServiceIssue> {
+    require_window(&window, "settings").map_err(ServiceIssue::unknown)?;
     let api_key = api_key.trim().to_owned();
     asr::test_connection(api_key.clone()).await?;
     let snapshot = hotwords::inspect(&api_key)
         .await
-        .map_err(|error| format!("语音识别连接正常，但常用词同步不可用：{error}"))?;
+        .map_err(ServiceIssue::hotwords_unavailable)?;
     Ok(TestDoubaoResult {
         hotword_count: snapshot.words.len(),
         hotword_limit: snapshot.limit,
@@ -796,6 +880,9 @@ fn open_product_link(window: WebviewWindow, target: String) -> Result<(), String
         "homepage" => (HOMEPAGE_URL, "项目主页"),
         "help" => (HELP_URL, "帮助与反馈"),
         "privacy" => (PRIVACY_URL, "隐私说明"),
+        "speechConsole" => (SPEECH_CONSOLE_URL, "语音控制台"),
+        "apiKeyConsole" => (API_KEY_CONSOLE_URL, "API Key 管理"),
+        "serviceDocs" => (SERVICE_DOCS_URL, "接入文档"),
         _ => return Err("未知链接".to_owned()),
     };
     open::that(url).map_err(|error| format!("打开{label}失败：{error}"))
@@ -1238,6 +1325,7 @@ pub fn run() {
             load_settings,
             set_settings_dirty,
             save_settings,
+            refresh_hotwords,
             start_recognition,
             list_microphones,
             start_audio_capture,

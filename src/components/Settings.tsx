@@ -36,6 +36,13 @@ import { Toaster, toast } from "sonner";
 
 import { AudioCapture } from "@/audio";
 import type { MicrophoneDevice } from "@/audio";
+import {
+  hotwordActionMessage,
+  hotwordChip,
+  hotwordDiff,
+  normalizeHotwords,
+  uniqueHotwords,
+} from "@/hotwords";
 import { SETTINGS_PATHS } from "@/routes/-settings-navigation";
 import type { SettingsSectionId } from "@/routes/-settings-navigation";
 import {
@@ -46,8 +53,11 @@ import {
 import { DEFAULT_SETTINGS } from "@/types";
 import type {
   AppSettings,
+  HotwordSnapshotResult,
   HotwordSyncStatus,
   SaveSettingsResult,
+  ServiceIssue,
+  ServiceIssueLink,
   SystemDiagnostics,
   TestDoubaoResult,
   UpdateInfo,
@@ -59,6 +69,8 @@ const PRIMARY_BUTTON_CLASS =
   "flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-lg border-0 bg-[#6558e8] px-4 text-[11px] font-medium text-white transition hover:bg-[#584bcf] focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8] disabled:cursor-not-allowed disabled:opacity-55";
 const SECONDARY_BUTTON_CLASS =
   "flex h-9 shrink-0 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-[#d7d9de] bg-white px-3 text-[10px] font-medium text-[#555962] transition hover:bg-[#f5f5f6] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8] disabled:cursor-not-allowed disabled:opacity-55";
+const TEXT_BUTTON_CLASS =
+  "cursor-pointer border-0 bg-transparent p-0 text-[10px] font-medium text-[#6558e8] hover:text-[#4f43bd] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8] disabled:cursor-default disabled:text-[#9a9da4]";
 const CONSOLE_URL = "https://console.volcengine.com/speech/new/setting/apikeys";
 const SECTIONS = [
   ["general", "通用", Settings2],
@@ -82,14 +94,21 @@ const ONBOARDING_STEPS = [
   "完成",
 ] as const;
 const DEFAULT_HOTWORD_STATUS: HotwordSyncStatus = {
+  cloudCount: 0,
   count: 0,
+  foreignTables: [],
   limit: 5000,
   state: "empty",
+  tableId: null,
 };
-const UTF8_ENCODER = new TextEncoder();
-const CHARACTER_SEGMENTER = new Intl.Segmenter("zh", {
-  granularity: "grapheme",
-});
+const HOTWORD_CHIP_CLASS = {
+  dirty: "bg-[#fff2cc] text-[#7a5100]",
+  error: "bg-[#fff0ee] text-[#8d261f]",
+  neutral: "bg-[#f0f1f3] text-[#666a73]",
+  synced: "bg-[#eaf8f1] text-[#17633f]",
+  syncing: "bg-[#efedff] text-[#5748ca]",
+};
+const HOTWORD_DIFF_PREVIEW = 6;
 
 type Message = { kind: "success" | "error" | "info"; text: string } | null;
 interface LoadSettingsResult {
@@ -98,12 +117,16 @@ interface LoadSettingsResult {
   notice?: string;
 }
 interface HotwordConflict {
-  limit: number;
+  cloudHotwords: string[];
   pendingSettings: AppSettings;
-  remoteHotwords: string[];
   source: "onboarding" | "settings";
 }
-type ProductLinkTarget = "homepage" | "help" | "privacy";
+type SavedSettingsResult = Extract<SaveSettingsResult, { kind: "saved" }>;
+type ProductLinkTarget =
+  | "homepage"
+  | "help"
+  | "privacy"
+  | ServiceIssueLink["target"];
 
 const TRANSIENT_MESSAGE_DURATION = 2200;
 const SETTINGS_TOAST_ID = "settings-feedback";
@@ -156,36 +179,6 @@ function ShortcutHint({ shortcut }: { shortcut: string }) {
   );
 }
 
-function uniqueHotwords(value: string): string[] {
-  const seen = new Set<string>();
-  const hotwords: string[] = [];
-  for (const line of value.split("\n")) {
-    const word = line.trim();
-    const identity = word.toLocaleLowerCase();
-    if (!word || seen.has(identity)) continue;
-    seen.add(identity);
-    hotwords.push(word);
-  }
-  return hotwords;
-}
-
-function normalizeHotwords(value: string, limit: number): string[] {
-  const hotwords = uniqueHotwords(value);
-  if (hotwords.length > limit)
-    throw new Error(
-      `常用词数量不能超过 ${limit} 条，当前为 ${hotwords.length} 条`
-    );
-  for (const word of hotwords) {
-    if (/\s/u.test(word)) throw new Error(`常用词“${word}”不能包含空格`);
-    if (
-      [...CHARACTER_SEGMENTER.segment(word)].length > 10 ||
-      UTF8_ENCODER.encode(word).length > 30
-    )
-      throw new Error(`常用词“${word}”过长：最多 10 个字符且不超过 30 字节`);
-  }
-  return hotwords;
-}
-
 function settingsChanged(
   current: AppSettings,
   hotwordsText: string,
@@ -221,16 +214,25 @@ async function persistSettings(
       forceHotwordOverwrite,
       settings: nextSettings,
     });
+  const cloudHotwords = nextSettings.hotwords;
   return {
+    cloudHotwords,
     credentialStorage: nextSettings.apiKey ? "keyring" : "removed",
+    hotwordAction: cloudHotwords.length ? "updated" : "none",
     hotwordLimit: DEFAULT_HOTWORD_STATUS.limit,
     hotwordStatus: {
-      count: nextSettings.hotwords.length,
+      cloudCount: cloudHotwords.length,
+      count: cloudHotwords.length,
+      foreignTables: [],
       limit: DEFAULT_HOTWORD_STATUS.limit,
-      state: nextSettings.hotwords.length ? "synced" : "empty",
+      state: cloudHotwords.length
+        ? nextSettings.hotwordsEnabled
+          ? "synced"
+          : "disabled"
+        : "empty",
+      tableId: null,
     },
     kind: "saved",
-    remoteHotwords: [],
   };
 }
 
@@ -327,6 +329,81 @@ function Feedback({
   );
 }
 
+function isServiceIssue(payload: unknown): payload is ServiceIssue {
+  return (
+    typeof payload === "object" &&
+    payload !== null &&
+    "kind" in payload &&
+    "title" in payload &&
+    "steps" in payload
+  );
+}
+
+function ServiceIssueCard({
+  issue,
+  onOpenLink,
+  className,
+}: {
+  issue: ServiceIssue;
+  onOpenLink: (target: ServiceIssueLink["target"]) => void;
+  className?: string;
+}) {
+  const warning = issue.kind === "notActivated";
+  return (
+    <section
+      className={`rounded-[10px] border px-3.5 py-2.5 text-[11px] leading-5 ${warning ? "border-[#e8b7b0] bg-[#fff0ee] text-[#8d261f]" : "border-[#c9c2f5] bg-[#f3f0ff] text-[#5142a8]"} ${className ?? ""}`}
+      role="alert"
+      aria-live="assertive"
+      aria-atomic="true"
+    >
+      <div className="flex items-start gap-3">
+        <div
+          className={`grid size-9 shrink-0 place-items-center rounded-[10px] ${warning ? "bg-[#fff2cc] text-[#7a5100]" : "bg-white text-[#5142a8]"}`}
+          aria-hidden="true"
+        >
+          <Info size={17} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <h3 className="text-[12px] font-semibold">{issue.title}</h3>
+          {issue.steps.length > 0 ? (
+            <ol className="mt-1.5 list-decimal pl-4">
+              {issue.steps.map((step) => (
+                <li key={step}>{step}</li>
+              ))}
+            </ol>
+          ) : (
+            <p className="mt-1.5">{issue.detail}</p>
+          )}
+          {issue.links.length > 0 ? (
+            <div className="mt-2.5 flex flex-wrap gap-2">
+              {issue.links.map((link) => (
+                <button
+                  className={SECONDARY_BUTTON_CLASS}
+                  key={link.target}
+                  type="button"
+                  onClick={() => {
+                    onOpenLink(link.target);
+                  }}
+                >
+                  <ExternalLink size={11} /> {link.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
+          {issue.steps.length > 0 ? (
+            <details className="mt-2.5">
+              <summary className="cursor-pointer text-[10px]">技术详情</summary>
+              <p className="mt-1 text-[10px] leading-4 wrap-break-word">
+                {issue.detail}
+              </p>
+            </details>
+          ) : null}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function Toggle({
   checked,
   onChange,
@@ -354,16 +431,23 @@ function Toggle({
     </button>
   );
 }
+function describeHotwords(words: string[]): string {
+  const preview = words.slice(0, HOTWORD_DIFF_PREVIEW).join("、");
+  return words.length > HOTWORD_DIFF_PREVIEW
+    ? `${preview} 等 ${words.length} 个`
+    : preview;
+}
+
 function HotwordConflictDialog({
   conflict,
   onCancel,
-  onLoadRemote,
-  onOverwrite,
+  onUseCloud,
+  onOverwriteCloud,
 }: {
   conflict: HotwordConflict;
   onCancel: () => void;
-  onLoadRemote: () => void;
-  onOverwrite: () => void;
+  onUseCloud: () => void;
+  onOverwriteCloud: () => void;
 }) {
   const primaryButtonRef = useRef<HTMLButtonElement | null>(null);
   useEffect(() => {
@@ -376,6 +460,10 @@ function HotwordConflictDialog({
       window.removeEventListener("keydown", closeOnEscape);
     };
   }, [onCancel]);
+  const { onlyCloud, onlyLocal } = hotwordDiff(
+    conflict.pendingSettings.hotwords,
+    conflict.cloudHotwords
+  );
 
   return (
     <div
@@ -403,14 +491,25 @@ function HotwordConflictDialog({
             >
               云端常用词已被修改
             </h2>
-            <p
+            <div
               className="mt-1.5 text-[11px] leading-5 text-[#62666f]"
               id="hotword-conflict-description"
             >
-              云端有 {conflict.remoteHotwords.length} 条，本机准备保存{" "}
-              {conflict.pendingSettings.hotwords.length}{" "}
-              条。请选择保留哪个版本。
-            </p>
+              <p>
+                云端多出 {onlyCloud.length} 个词，本机多出 {onlyLocal.length}{" "}
+                个词。请选择保留哪个版本。
+              </p>
+              {onlyCloud.length > 0 ? (
+                <p className="mt-1.5 text-[10px] text-[#6f737b]">
+                  云端多出：{describeHotwords(onlyCloud)}
+                </p>
+              ) : null}
+              {onlyLocal.length > 0 ? (
+                <p className="mt-1 text-[10px] text-[#6f737b]">
+                  本机多出：{describeHotwords(onlyLocal)}
+                </p>
+              ) : null}
+            </div>
           </div>
         </div>
         <div className="mt-5 flex flex-wrap justify-end gap-2">
@@ -424,17 +523,17 @@ function HotwordConflictDialog({
           <button
             className={SECONDARY_BUTTON_CLASS}
             type="button"
-            onClick={onOverwrite}
+            onClick={onOverwriteCloud}
           >
-            用本机内容覆盖
+            用本机覆盖云端
           </button>
           <button
             ref={primaryButtonRef}
             className={PRIMARY_BUTTON_CLASS}
             type="button"
-            onClick={onLoadRemote}
+            onClick={onUseCloud}
           >
-            加载云端版本
+            用云端替换本机
           </button>
         </div>
       </section>
@@ -474,8 +573,12 @@ export function Settings({
   const [hotwordConflict, setHotwordConflict] =
     useState<HotwordConflict | null>(null);
   const [hotwordSyncFailed, setHotwordSyncFailed] = useState(false);
+  const [cloudHotwords, setCloudHotwords] = useState<string[]>([]);
+  const [checkingHotwords, setCheckingHotwords] = useState(false);
+  const [hotwordMessage, setHotwordMessage] = useState<Message>(null);
   const [message, setMessage] = useState<Message>(null);
   const [doubaoMessage, setDoubaoMessage] = useState<Message>(null);
+  const [doubaoIssue, setDoubaoIssue] = useState<ServiceIssue | null>(null);
   const [microphoneMessage, setMicrophoneMessage] = useState<Message>(null);
   const [onboardingMessage, setOnboardingMessage] = useState<Message>(null);
   const [showApiKey, setShowApiKey] = useState(false);
@@ -625,6 +728,27 @@ export function Settings({
     }
   }, [reportPersistentError]);
 
+  const refreshHotwords = useCallback(async () => {
+    if (!isTauri()) return;
+    setCheckingHotwords(true);
+    setHotwordStatus((current) => ({ ...current, state: "unknown" }));
+    try {
+      const snapshot = await invoke<HotwordSnapshotResult>("refresh_hotwords");
+      setHotwordStatus(snapshot.hotwordStatus);
+      setCloudHotwords(snapshot.cloudHotwords);
+      setHotwordSyncFailed(false);
+      setHotwordMessage(null);
+    } catch (error) {
+      setHotwordSyncFailed(true);
+      setHotwordMessage({
+        kind: "error",
+        text: `无法校验云端词表：${safeError(error, settingsRef.current.apiKey)}`,
+      });
+    } finally {
+      setCheckingHotwords(false);
+    }
+  }, []);
+
   const checkForUpdate = useCallback(
     async (showResult: boolean) => {
       if (!isTauri()) {
@@ -743,6 +867,11 @@ export function Settings({
   }, [checkForUpdate]);
 
   useEffect(() => {
+    if (activeSection !== "recognition") return;
+    void refreshHotwords();
+  }, [activeSection, refreshHotwords]);
+
+  useEffect(() => {
     if (!isTauri()) return;
     let disposed = false;
     let unlisten: (() => void) | undefined;
@@ -811,24 +940,28 @@ export function Settings({
     nextSettings: AppSettings,
     source: HotwordConflict["source"],
     forceHotwordOverwrite = false
-  ) => {
+  ): Promise<SavedSettingsResult | null> => {
     const result = await persistSettings(nextSettings, forceHotwordOverwrite);
+    setCloudHotwords(result.cloudHotwords);
     if (result.kind === "conflict") {
       setHotwordConflict({
-        limit: result.hotwordLimit,
+        cloudHotwords: result.cloudHotwords,
         pendingSettings: nextSettings,
-        remoteHotwords: result.remoteHotwords,
         source,
       });
-      return false;
+      return null;
     }
     commitSettings(nextSettings, nextSettings.hotwords.join("\n"));
     setHotwordStatus(result.hotwordStatus);
     setHotwordSyncFailed(false);
-    return true;
+    setHotwordMessage(null);
+    return result;
   };
 
-  const finishSuccessfulSave = async (source: HotwordConflict["source"]) => {
+  const finishSuccessfulSave = async (
+    source: HotwordConflict["source"],
+    result: SavedSettingsResult
+  ) => {
     if (source === "onboarding") {
       selectSection("general");
       setShowApiKey(false);
@@ -836,17 +969,14 @@ export function Settings({
         kind: "success",
         text: "设置完成，可以开始使用 VoicePaste",
       });
-    } else {
-      const count = settingsRef.current.hotwords.length;
+    } else
       showMessage({
         kind: "success",
-        text: isTauri()
-          ? count
-            ? `已保存，${count} 个常用词已同步`
-            : "已保存"
-          : "预览校验通过",
+        text: hotwordActionMessage(
+          result.hotwordAction,
+          result.hotwordStatus.cloudCount
+        ),
       });
-    }
     await refreshDiagnostics();
   };
 
@@ -860,29 +990,33 @@ export function Settings({
         hotwordStatus.limit
       );
       const nextSettings = { ...settingsRef.current, hotwords };
-      if (await persistAndCommit(nextSettings, "settings"))
-        await finishSuccessfulSave("settings");
+      const saved = await persistAndCommit(nextSettings, "settings");
+      if (saved) await finishSuccessfulSave("settings", saved);
     } catch (error) {
       if (cloudHotwordsChanged()) setHotwordSyncFailed(true);
-      reportPersistentError(safeError(error, settingsRef.current.apiKey));
+      if (isServiceIssue(error)) {
+        setDoubaoMessage(null);
+        setDoubaoIssue(error);
+      } else
+        reportPersistentError(safeError(error, settingsRef.current.apiKey));
     } finally {
       stopSaving();
     }
   };
 
-  const resolveHotwordConflict = async (useRemote: boolean) => {
+  const resolveHotwordConflict = async (useCloud: boolean) => {
     const conflict = hotwordConflict;
     if (!conflict || !startSaving()) return;
     setHotwordConflict(null);
     const nextSettings = {
       ...conflict.pendingSettings,
-      hotwords: useRemote
-        ? conflict.remoteHotwords
+      hotwords: useCloud
+        ? conflict.cloudHotwords
         : conflict.pendingSettings.hotwords,
     };
     try {
-      if (await persistAndCommit(nextSettings, conflict.source, true))
-        await finishSuccessfulSave(conflict.source);
+      const saved = await persistAndCommit(nextSettings, conflict.source, true);
+      if (saved) await finishSuccessfulSave(conflict.source, saved);
     } catch (error) {
       setHotwordSyncFailed(true);
       reportPersistentError(safeError(error, conflict.pendingSettings.apiKey));
@@ -918,11 +1052,11 @@ export function Settings({
     };
     try {
       const result = await persistSettings(persistedReset);
+      setCloudHotwords(result.cloudHotwords);
       if (result.kind === "conflict") {
         setHotwordConflict({
-          limit: result.hotwordLimit,
+          cloudHotwords: result.cloudHotwords,
           pendingSettings: persistedReset,
-          remoteHotwords: result.remoteHotwords,
           source: "settings",
         });
         return;
@@ -1058,6 +1192,7 @@ export function Settings({
       if (!isTauri()) throw new Error("浏览器预览无法测试豆包连接");
       const result = await invoke<TestDoubaoResult>("test_doubao", { apiKey });
       setVerifiedApiKey(apiKey);
+      setDoubaoIssue(null);
       setHotwordStatus((current) => ({
         ...current,
         limit: result.hotwordLimit,
@@ -1070,6 +1205,12 @@ export function Settings({
       return true;
     } catch (error) {
       setVerifiedApiKey("");
+      if (isServiceIssue(error)) {
+        setFeedback(null);
+        setDoubaoIssue(error);
+        return false;
+      }
+      setDoubaoIssue(null);
       setFeedback({
         kind: "error",
         text: `豆包连接失败：${safeError(error, apiKey)}`,
@@ -1109,10 +1250,14 @@ export function Settings({
         hotwords,
         onboardingCompleted: true,
       };
-      if (await persistAndCommit(nextSettings, "onboarding"))
-        await finishSuccessfulSave("onboarding");
+      const saved = await persistAndCommit(nextSettings, "onboarding");
+      if (saved) await finishSuccessfulSave("onboarding", saved);
     } catch (error) {
-      setOnboardingMessage({ kind: "error", text: safeError(error, apiKey) });
+      if (isServiceIssue(error)) {
+        setOnboardingMessage(null);
+        setDoubaoIssue(error);
+      } else
+        setOnboardingMessage({ kind: "error", text: safeError(error, apiKey) });
       if (cloudHotwordsChanged()) setHotwordSyncFailed(true);
     } finally {
       stopSaving();
@@ -1180,40 +1325,15 @@ export function Settings({
   const isSettingChanged = (key: keyof AppSettings) =>
     settings[key] !== savedSettingsRef.current[key];
   const hotwordsChanged = hotwordsText !== savedHotwordsTextRef.current;
-  const hotwordCount = uniqueHotwords(hotwordsText).length;
+  const localHotwords = uniqueHotwords(hotwordsText);
   const cloudDirty = isSettingChanged("apiKey") || hotwordsChanged;
-  const visibleHotwordState =
-    saving && cloudDirty
-      ? "syncing"
-      : hotwordSyncFailed
-        ? "error"
-        : cloudDirty
-          ? "dirty"
-          : hotwordStatus.state;
-  const hotwordSyncLabel =
-    visibleHotwordState === "syncing"
-      ? "正在同步"
-      : visibleHotwordState === "error"
-        ? "同步失败"
-        : visibleHotwordState === "dirty"
-          ? "未同步"
-          : visibleHotwordState === "synced"
-            ? "已同步"
-            : visibleHotwordState === "pending"
-              ? "等待同步"
-              : settings.apiKey.trim()
-                ? "尚未创建"
-                : "填写 API Key 后同步";
-  const hotwordSyncClass =
-    visibleHotwordState === "synced"
-      ? "bg-[#eaf8f1] text-[#17633f]"
-      : visibleHotwordState === "error"
-        ? "bg-[#fff0ee] text-[#8d261f]"
-        : visibleHotwordState === "dirty"
-          ? "bg-[#fff2cc] text-[#7a5100]"
-          : visibleHotwordState === "syncing"
-            ? "bg-[#efedff] text-[#5748ca]"
-            : "bg-[#f0f1f3] text-[#666a73]";
+  const hotwordChipState = hotwordChip({
+    cloud: cloudHotwords,
+    failed: hotwordSyncFailed,
+    local: localHotwords,
+    state: hotwordStatus.state,
+    syncing: saving && cloudDirty,
+  });
   const hasUnsavedChanges =
     hotwordStatus.state === "pending" ||
     settingsChanged(
@@ -1250,11 +1370,11 @@ export function Settings({
       onCancel={() => {
         setHotwordConflict(null);
       }}
-      onLoadRemote={() => {
-        void resolveHotwordConflict(true);
-      }}
-      onOverwrite={() => {
+      onOverwriteCloud={() => {
         void resolveHotwordConflict(false);
+      }}
+      onUseCloud={() => {
+        void resolveHotwordConflict(true);
       }}
     />
   ) : null;
@@ -1509,6 +1629,7 @@ export function Settings({
                       updateSetting("apiKey", event.target.value);
                       setVerifiedApiKey("");
                       setDoubaoMessage(null);
+                      setDoubaoIssue(null);
                     }}
                     placeholder="粘贴 API Key"
                     autoComplete="off"
@@ -1553,6 +1674,16 @@ export function Settings({
                 <Feedback message={doubaoMessage} />
               </div>
             ) : null}
+            {doubaoIssue ? (
+              <div className="px-5 py-3">
+                <ServiceIssueCard
+                  issue={doubaoIssue}
+                  onOpenLink={(target) => {
+                    void openProductLink(target);
+                  }}
+                />
+              </div>
+            ) : null}
             <SettingRow
               title="启用常用词"
               description="关闭后保留云端词表，但听写时不使用。"
@@ -1574,17 +1705,28 @@ export function Settings({
             >
               <div className="mb-2.5 flex items-center gap-2">
                 <span
-                  className={`rounded-full px-2 py-0.5 text-[9px] font-medium ${hotwordSyncClass}`}
+                  className={`rounded-full px-2 py-0.5 text-[9px] font-medium ${HOTWORD_CHIP_CLASS[hotwordChipState.tone]}`}
                   role="status"
                   aria-live="polite"
                 >
-                  {hotwordSyncLabel}
+                  {hotwordChipState.label}
                 </span>
                 <span className="text-[9px] text-[#777b84]">
-                  {hotwordCount} / {hotwordStatus.limit}
+                  本机 {localHotwords.length} · 云端 {cloudHotwords.length}
+                </span>
+                <span className="text-[9px] text-[#777b84]">
+                  上限 {hotwordStatus.limit}
                 </span>
                 <button
-                  className="ml-auto cursor-pointer border-0 bg-transparent p-0 text-[10px] font-medium text-[#6558e8] hover:text-[#4f43bd] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8] disabled:cursor-default disabled:text-[#9a9da4]"
+                  className={`ml-auto ${TEXT_BUTTON_CLASS}`}
+                  type="button"
+                  onClick={() => void refreshHotwords()}
+                  disabled={checkingHotwords}
+                >
+                  {checkingHotwords ? "校验中…" : "重新校验"}
+                </button>
+                <button
+                  className={TEXT_BUTTON_CLASS}
                   type="button"
                   onClick={clearHotwords}
                   disabled={!settings.hotwordsEnabled || !hotwordsText.trim()}
@@ -1606,6 +1748,38 @@ export function Settings({
                 每行一个词，不支持词内空格；词表会保存在火山引擎。听写仍保持实时流式返回。
               </p>
             </SettingRow>
+            {hotwordMessage ? (
+              <div className="px-5 py-3">
+                <Feedback message={hotwordMessage} />
+              </div>
+            ) : null}
+            {hotwordStatus.foreignTables.length > 0 ? (
+              <SettingRow
+                title="火山引擎上的其它词表"
+                description={`账号里还有 ${hotwordStatus.foreignTables.length} 张 VoicePaste 未管理的词表，识别时不会使用。需要清理请前往火山引擎控制台。`}
+                vertical
+              >
+                <ul className="mb-2.5 flex flex-col gap-1">
+                  {hotwordStatus.foreignTables.map((table) => (
+                    <li
+                      className="text-[10px] leading-5 text-[#6f737b]"
+                      key={table.name}
+                    >
+                      {table.name}（{table.wordCount} 词）
+                    </li>
+                  ))}
+                </ul>
+                <div className="flex">
+                  <button
+                    className={SECONDARY_BUTTON_CLASS}
+                    type="button"
+                    onClick={() => void openConsole()}
+                  >
+                    <ExternalLink size={11} /> 打开控制台
+                  </button>
+                </div>
+              </SettingRow>
+            ) : null}
           </SettingsSection>
         );
       }
@@ -1956,6 +2130,7 @@ export function Settings({
                           updateSetting("apiKey", event.target.value);
                           setVerifiedApiKey("");
                           setOnboardingMessage(null);
+                          setDoubaoIssue(null);
                         }}
                         placeholder="粘贴 API Key"
                         autoComplete="off"
@@ -1998,6 +2173,15 @@ export function Settings({
                       </button>
                     </div>
                     <Feedback message={onboardingMessage} className="mt-4" />
+                    {doubaoIssue ? (
+                      <ServiceIssueCard
+                        className="mt-4"
+                        issue={doubaoIssue}
+                        onOpenLink={(target) => {
+                          void openProductLink(target);
+                        }}
+                      />
+                    ) : null}
                     <div className="mt-7 flex items-center justify-between">
                       <button
                         className={SECONDARY_BUTTON_CLASS}
@@ -2232,6 +2416,15 @@ export function Settings({
                       </div>
                     </dl>
                     <Feedback message={onboardingMessage} className="mt-4" />
+                    {doubaoIssue ? (
+                      <ServiceIssueCard
+                        className="mt-4"
+                        issue={doubaoIssue}
+                        onOpenLink={(target) => {
+                          void openProductLink(target);
+                        }}
+                      />
+                    ) : null}
                     <div className="mt-7 flex items-center justify-between">
                       <button
                         className={SECONDARY_BUTTON_CLASS}

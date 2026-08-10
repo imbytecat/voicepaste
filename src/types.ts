@@ -28,12 +28,37 @@ export interface ShortcutEvent {
   microphoneId: string;
 }
 
-export type HotwordSyncState = "empty" | "synced" | "pending";
+export type HotwordSyncState =
+  | "empty"
+  | "synced"
+  | "pending"
+  | "disabled"
+  | "unknown";
+
+export interface ForeignHotwordTable {
+  name: string;
+  wordCount: number;
+}
 
 export interface HotwordSyncStatus {
   state: HotwordSyncState;
   count: number;
+  cloudCount: number;
   limit: number;
+  tableId: string | null;
+  foreignTables: ForeignHotwordTable[];
+}
+
+export type HotwordAction =
+  | "created"
+  | "updated"
+  | "deleted"
+  | "unchanged"
+  | "none";
+
+export interface HotwordSnapshotResult {
+  hotwordStatus: HotwordSyncStatus;
+  cloudHotwords: string[];
 }
 
 export type SaveSettingsResult =
@@ -41,20 +66,43 @@ export type SaveSettingsResult =
       kind: "saved";
       credentialStorage: "keyring" | "removed";
       hotwordStatus: HotwordSyncStatus;
-      remoteHotwords: [];
+      hotwordAction: HotwordAction;
+      cloudHotwords: string[];
       hotwordLimit: number;
     }
   | {
       kind: "conflict";
       credentialStorage: null;
       hotwordStatus: null;
-      remoteHotwords: string[];
+      hotwordAction: null;
+      cloudHotwords: string[];
       hotwordLimit: number;
     };
 
 export interface TestDoubaoResult {
   hotwordCount: number;
   hotwordLimit: number;
+}
+
+export type ServiceIssueKind =
+  | "notActivated"
+  | "unauthorized"
+  | "rateLimited"
+  | "network"
+  | "server"
+  | "unknown";
+
+export interface ServiceIssueLink {
+  label: string;
+  target: "speechConsole" | "apiKeyConsole" | "serviceDocs";
+}
+
+export interface ServiceIssue {
+  kind: ServiceIssueKind;
+  title: string;
+  detail: string;
+  steps: string[];
+  links: ServiceIssueLink[];
 }
 
 export interface SystemDiagnostics {

@@ -19,6 +19,8 @@ use tokio_tungstenite::{
     },
 };
 use uuid::Uuid;
+// The `log` crate is re-exported by tauri-plugin-log, which owns the logger setup.
+use tauri_plugin_log::log;
 
 use crate::settings::AppSettings;
 
@@ -49,6 +51,174 @@ pub enum AudioCommand {
 pub enum AsrOutcome {
     Text(String),
     Cancelled,
+}
+
+/// A Doubao failure translated into something the user can act on.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServiceIssue {
+    pub kind: &'static str,
+    pub title: String,
+    pub detail: String,
+    pub steps: Vec<&'static str>,
+    pub links: Vec<IssueLink>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IssueLink {
+    pub label: &'static str,
+    pub target: &'static str,
+}
+
+impl ServiceIssue {
+    fn new(kind: &'static str, title: impl Into<String>, detail: impl Into<String>) -> Self {
+        Self {
+            kind,
+            title: title.into(),
+            detail: detail.into(),
+            steps: Vec::new(),
+            links: Vec::new(),
+        }
+    }
+
+    fn with_guidance(mut self, steps: Vec<&'static str>, links: Vec<IssueLink>) -> Self {
+        self.steps = steps;
+        self.links = links;
+        self
+    }
+
+    pub fn unknown(detail: impl Into<String>) -> Self {
+        Self::new("unknown", "豆包语音服务返回了未预期的结果", detail)
+    }
+
+    /// Recognition works but the managed hotword table could not be reached.
+    pub fn hotwords_unavailable(detail: impl Into<String>) -> Self {
+        Self::new("unknown", "语音识别连接正常，但常用词同步不可用", detail).with_guidance(
+            vec![
+                "确认这个 API Key 同时开通了自学习平台（热词）能力",
+                "常用词不可用时听写仍然可用，只是不会应用词表",
+            ],
+            vec![link("检查 API Key 权限", "apiKeyConsole")],
+        )
+    }
+
+    /// Short line for the overlay and other string-only error paths.
+    pub fn message(&self) -> String {
+        self.title.clone()
+    }
+}
+
+fn link(label: &'static str, target: &'static str) -> IssueLink {
+    IssueLink { label, target }
+}
+
+fn handshake_detail(
+    response: &tokio_tungstenite::tungstenite::http::Response<Option<Vec<u8>>>,
+) -> String {
+    let mut parts = vec![format!("HTTP {}", response.status().as_u16())];
+    for header in ["x-api-status-code", "x-api-message", "x-tt-logid"] {
+        if let Some(value) = response
+            .headers()
+            .get(header)
+            .and_then(|value| value.to_str().ok())
+            .filter(|value| !value.is_empty())
+        {
+            parts.push(format!("{header}: {value}"));
+        }
+    }
+    if let Some(body) = response.body().as_ref().filter(|body| !body.is_empty()) {
+        let text = String::from_utf8_lossy(body);
+        let text = text.trim();
+        if !text.is_empty() {
+            parts.push(text.chars().take(200).collect());
+        }
+    }
+    parts.join(" · ")
+}
+
+/// Turns a WebSocket handshake or transport failure into actionable guidance.
+pub fn connect_issue(error: &WebSocketError) -> ServiceIssue {
+    let WebSocketError::Http(response) = error else {
+        return ServiceIssue::new("network", "无法连接豆包语音服务", error.to_string())
+            .with_guidance(
+                vec![
+                    "确认这台电脑可以访问 openspeech.bytedance.com",
+                    "如果使用代理或公司网络，允许 VoicePaste 的 WebSocket 连接",
+                    "网络恢复后回到这里重新测试",
+                ],
+                Vec::new(),
+            );
+    };
+    let detail = handshake_detail(response);
+    match response.status().as_u16() {
+        403 => ServiceIssue::new(
+            "notActivated",
+            "账号还没有开通「语音识别大模型 · 流式」，或这个 API Key 没有该服务权限",
+            detail,
+        )
+        .with_guidance(
+            vec![
+                "在火山引擎语音控制台开通「语音识别大模型」的流式语音识别服务",
+                "在 API Key 详情里确认这个 Key 已勾选该服务",
+                "刚开通的服务可能需要一两分钟生效，之后回到这里重新测试",
+            ],
+            vec![
+                link("打开语音控制台", "speechConsole"),
+                link("检查 API Key 权限", "apiKeyConsole"),
+                link("查看接入文档", "serviceDocs"),
+            ],
+        ),
+        401 => ServiceIssue::new("unauthorized", "API Key 无效或已停用", detail).with_guidance(
+            vec![
+                "确认 API Key 完整复制，没有多余空格或换行",
+                "在控制台确认这个 Key 仍然是启用状态",
+                "必要时重新生成一个 API Key 再填回来",
+            ],
+            vec![link("打开 API Key 管理", "apiKeyConsole")],
+        ),
+        429 => ServiceIssue::new("rateLimited", "豆包语音的并发或配额已用满", detail)
+            .with_guidance(
+                vec![
+                    "等当前请求结束后重试",
+                    "在控制台查看并调整该服务的并发与配额",
+                ],
+                vec![link("打开语音控制台", "speechConsole")],
+            ),
+        status if status >= 500 => ServiceIssue::new("server", "豆包语音服务暂时不可用", detail)
+            .with_guidance(
+                vec![
+                    "这是服务端故障，稍后重试即可",
+                    "持续失败可带下面的技术详情联系火山引擎支持",
+                ],
+                Vec::new(),
+            ),
+        _ => ServiceIssue::new("unknown", "豆包语音拒绝了这次连接", detail).with_guidance(
+            vec!["带上下面的技术详情检查控制台配置或联系火山引擎支持"],
+            vec![link("打开语音控制台", "speechConsole")],
+        ),
+    }
+}
+
+/// Turns an in-band v3 error code into guidance. Codes come from the official
+/// 大模型流式语音识别 API error table.
+pub fn api_issue(code: u32, message: &str) -> ServiceIssue {
+    let detail = if message.is_empty() {
+        format!("错误码 {code}")
+    } else {
+        format!("错误码 {code} · {message}")
+    };
+    match code {
+        45_000_001 => ServiceIssue::new("unknown", "豆包语音认为请求参数无效", detail),
+        45_000_002 => ServiceIssue::new("unknown", "没有采集到语音，请靠近麦克风后重试", detail),
+        45_000_081 => ServiceIssue::new("network", "语音数据上传中断，请重试", detail),
+        45_000_151 => ServiceIssue::new("unknown", "音频格式不被支持", detail),
+        55_000_031 => ServiceIssue::new("server", "豆包语音服务器繁忙，请稍后重试", detail),
+        code if (55_000_000..=55_999_999).contains(&code) => {
+            ServiceIssue::new("server", "豆包语音服务内部错误，请稍后重试", detail)
+        }
+        _ => ServiceIssue::unknown(detail),
+    }
 }
 
 #[derive(Serialize)]
@@ -159,7 +329,11 @@ pub async fn run(
     let (socket, response) = tokio::select! {
         result = &mut connect => result
             .map_err(|_| "连接豆包语音超时".to_owned())?
-            .map_err(|error| format!("连接豆包语音失败：{error}"))?,
+            .map_err(|error| {
+                let issue = connect_issue(&error);
+                log::error!("豆包语音连接失败：{} · {}", issue.kind, issue.detail);
+                issue.message()
+            })?,
         changed = cancelled.changed() => {
             let _ = changed;
             return Ok(AsrOutcome::Cancelled);
@@ -251,56 +425,84 @@ pub async fn run(
     Ok(final_result)
 }
 
-pub async fn test_connection(api_key: String) -> Result<(), String> {
+pub async fn test_connection(api_key: String) -> Result<(), ServiceIssue> {
     let api_key = api_key.trim();
     if api_key.is_empty() {
-        return Err("请先填写豆包 API Key".to_owned());
+        return Err(ServiceIssue::new(
+            "unauthorized",
+            "请先填写豆包 API Key",
+            "本机未填写 API Key",
+        ));
     }
     let connection_id = Uuid::new_v4().to_string();
-    let request = build_connection_request(api_key, &connection_id)?;
+    let request =
+        build_connection_request(api_key, &connection_id).map_err(ServiceIssue::unknown)?;
     let (socket, _) = tokio::time::timeout(
         CONNECT_TIMEOUT,
         connect_async_with_config(request, Some(socket_config()), false),
     )
     .await
-    .map_err(|_| "连接豆包语音超时".to_owned())?
-    .map_err(|error| format!("连接豆包语音失败：{error}"))?;
+    .map_err(|_| {
+        ServiceIssue::new(
+            "network",
+            "连接豆包语音超时",
+            format!("{} 秒内没有完成 WebSocket 握手", CONNECT_TIMEOUT.as_secs()),
+        )
+    })?
+    .map_err(|error| connect_issue(&error))?;
     let (mut writer, mut reader) = socket.split();
-    send_message(
-        &mut writer,
-        Message::Binary(encode_full_request(&connection_id, None)?.into()),
-        "发送豆包初始化请求",
-    )
-    .await?;
-    send_message(
-        &mut writer,
-        Message::Binary(encode_audio_frame(&[], true)?.into()),
-        "发送豆包测试请求",
-    )
-    .await?;
+    for (frame, action) in [
+        (
+            encode_full_request(&connection_id, None).map_err(ServiceIssue::unknown)?,
+            "发送豆包初始化请求",
+        ),
+        (
+            encode_audio_frame(&[], true).map_err(ServiceIssue::unknown)?,
+            "发送豆包测试请求",
+        ),
+    ] {
+        send_message(&mut writer, Message::Binary(frame.into()), action)
+            .await
+            .map_err(ServiceIssue::unknown)?;
+    }
 
     tokio::time::timeout(CONNECT_TIMEOUT, async {
         while let Some(message) = reader.next().await {
-            match message.map_err(|error| format!("读取豆包测试结果失败：{error}"))? {
+            match message.map_err(|error| connect_issue(&error))? {
                 Message::Binary(data) => {
-                    let response = parse_response(&data)?;
+                    let response = parse_response(&data).map_err(ServiceIssue::unknown)?;
                     if response.code != 0 {
-                        return Err(if response.error.is_empty() {
-                            format!("豆包语音返回错误码 {}", response.code)
-                        } else {
-                            format!("豆包语音错误：{}", response.error)
-                        });
+                        return Err(api_issue(response.code, &response.error));
                     }
                     return Ok(());
                 }
-                Message::Close(_) => return Err("豆包语音连接提前关闭".to_owned()),
+                Message::Close(_) => {
+                    return Err(ServiceIssue::new(
+                        "server",
+                        "豆包语音提前关闭了连接",
+                        "服务端在返回测试结果前关闭了 WebSocket",
+                    ));
+                }
                 _ => {}
             }
         }
-        Err("豆包语音连接提前关闭".to_owned())
+        Err(ServiceIssue::new(
+            "server",
+            "豆包语音提前关闭了连接",
+            "服务端在返回测试结果前关闭了 WebSocket",
+        ))
     })
     .await
-    .map_err(|_| "豆包连接成功，但测试响应超时".to_owned())?
+    .map_err(|_| {
+        ServiceIssue::new(
+            "server",
+            "连接成功，但豆包没有返回测试结果",
+            format!("{} 秒内没有收到服务端响应", CONNECT_TIMEOUT.as_secs()),
+        )
+    })?
+    .inspect_err(|issue: &ServiceIssue| {
+        log::error!("豆包连接测试失败：{} · {}", issue.kind, issue.detail);
+    })
 }
 
 async fn send_message<S>(writer: &mut S, message: Message, action: &str) -> Result<(), String>
@@ -320,11 +522,9 @@ fn process_response(
 ) -> Result<ResponseProgress, String> {
     let response = parse_response(data)?;
     if response.code != 0 {
-        return Err(if response.error.is_empty() {
-            format!("豆包语音返回错误码 {}", response.code)
-        } else {
-            format!("豆包语音错误：{}", response.error)
-        });
+        let issue = api_issue(response.code, &response.error);
+        log::error!("豆包语音识别失败：{} · {}", issue.kind, issue.detail);
+        return Err(issue.message());
     }
 
     if response.is_last {

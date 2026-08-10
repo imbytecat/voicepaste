@@ -1,12 +1,14 @@
 use std::{collections::HashSet, fmt::Write as _, time::Duration};
 
 use reqwest::{
-    Client,
+    Client, RequestBuilder,
     multipart::{Form, Part},
     redirect::Policy,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+// The `log` crate is re-exported by tauri-plugin-log, which owns the logger setup.
+use tauri_plugin_log::log;
 
 const ENDPOINT: &str = "https://openspeech.bytedance.com/api/proxy/invoke/";
 const VERSION: &str = "2022-08-30";
@@ -17,24 +19,77 @@ const DEFAULT_WORD_CHARS_LIMIT: usize = 10;
 const SAVE_POLL_ATTEMPTS: usize = 30;
 const SAVE_POLL_INTERVAL: Duration = Duration::from_millis(500);
 
+/// The cloud table VoicePaste manages, as persisted in the local store.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Binding {
     pub table_id: String,
-    pub revision: String,
     pub limit: usize,
 }
 
+/// A boosting table in the account that VoicePaste does not manage.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForeignTable {
+    pub name: String,
+    pub word_count: usize,
+}
+
+/// The cloud truth for one account: our table plus everything else we found.
 #[derive(Clone, Debug)]
 pub struct Snapshot {
     pub binding: Option<Binding>,
     pub words: Vec<String>,
     pub limit: usize,
+    pub foreign_tables: Vec<ForeignTable>,
+}
+
+impl Default for Snapshot {
+    fn default() -> Self {
+        Self {
+            binding: None,
+            words: Vec::new(),
+            limit: DEFAULT_TABLE_LIMIT,
+            foreign_tables: Vec::new(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SyncAction {
+    Created,
+    Updated,
+    Deleted,
+    Unchanged,
+}
+
+impl SyncAction {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Created => "created",
+            Self::Updated => "updated",
+            Self::Deleted => "deleted",
+            Self::Unchanged => "unchanged",
+        }
+    }
 }
 
 pub enum SyncOutcome {
-    Saved(Snapshot),
+    Saved {
+        snapshot: Snapshot,
+        action: SyncAction,
+    },
     Conflict(Snapshot),
+}
+
+/// What `sync` has to do to make the cloud match the desired words.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Plan {
+    Conflict,
+    Create,
+    Update,
+    Delete,
+    Unchanged,
 }
 
 #[derive(Clone, Debug)]
@@ -56,14 +111,13 @@ impl Default for Limits {
 
 struct RemoteTable {
     id: String,
-    revision: String,
     words: Vec<String>,
 }
 
 struct CloudState {
-    app_id: Option<Value>,
     limits: Limits,
     table: Option<RemoteTable>,
+    foreign_tables: Vec<ForeignTable>,
 }
 
 pub fn normalize(words: Vec<String>) -> Result<Vec<String>, String> {
@@ -88,71 +142,121 @@ pub fn normalize(words: Vec<String>) -> Result<Vec<String>, String> {
 }
 
 pub async fn inspect(api_key: &str) -> Result<Snapshot, String> {
-    snapshot(load(api_key).await?)
+    let client = client()?;
+    let state = load_with_client(&client, api_key, None).await?;
+    log::info!(
+        "hotwords: inspect table={} cloud_words={} foreign_tables={}",
+        state.table.as_ref().map_or("-", |table| table.id.as_str()),
+        state.table.as_ref().map_or(0, |table| table.words.len()),
+        state.foreign_tables.len(),
+    );
+    Ok(snapshot(state))
 }
 
 pub async fn sync(
     api_key: &str,
     saved_words: &[String],
     desired_words: &[String],
-    expected_binding: Option<&Binding>,
+    binding: Option<&Binding>,
     force: bool,
 ) -> Result<SyncOutcome, String> {
     let client = client()?;
-    let state = load_with_client(&client, api_key).await?;
+    let state = load_with_client(
+        &client,
+        api_key,
+        binding.map(|binding| binding.table_id.as_str()),
+    )
+    .await?;
     validate(desired_words, &state.limits)?;
 
-    if !force
-        && conflicts(
-            state.table.as_ref().map(|table| table.words.as_slice()),
-            saved_words,
-            desired_words,
-            expected_binding.is_some(),
-        )
-    {
-        return Ok(SyncOutcome::Conflict(snapshot(state)?));
+    let remote_words = state.table.as_ref().map(|table| table.words.as_slice());
+    let decision = plan(
+        remote_words,
+        saved_words,
+        desired_words,
+        binding.is_some(),
+        force,
+    );
+    log::info!(
+        "hotwords: sync plan={decision:?} table={} saved={} desired={} remote={} force={force}",
+        state.table.as_ref().map_or("-", |table| table.id.as_str()),
+        saved_words.len(),
+        desired_words.len(),
+        remote_words.map_or(0, <[String]>::len),
+    );
+
+    if decision == Plan::Conflict {
+        log::warn!(
+            "hotwords: sync conflict, cloud table {} holds {} words that match neither saved ({}) nor desired ({})",
+            state.table.as_ref().map_or("-", |table| table.id.as_str()),
+            remote_words.map_or(0, <[String]>::len),
+            saved_words.len(),
+            desired_words.len(),
+        );
+        return Ok(SyncOutcome::Conflict(snapshot(state)));
     }
 
-    if desired_words.is_empty() {
-        if let Some(table) = state.table {
-            delete_table(&client, api_key, state.app_id.as_ref(), &table.id).await?;
-            return Ok(SyncOutcome::Saved(snapshot(
-                wait_for_words(&client, api_key, desired_words).await?,
-            )?));
+    let table_id = state.table.as_ref().map(|table| table.id.clone());
+    let action = match (decision, table_id.as_deref()) {
+        (Plan::Delete, Some(id)) => {
+            delete_table(&client, api_key, id).await?;
+            SyncAction::Deleted
         }
-        return Ok(SyncOutcome::Saved(Snapshot {
-            binding: None,
-            words: Vec::new(),
-            limit: state.limits.table,
-        }));
-    }
-
-    if state
-        .table
-        .as_ref()
-        .is_some_and(|table| table.words == desired_words)
-    {
-        return Ok(SyncOutcome::Saved(snapshot(state)?));
-    }
-
-    match state.table {
-        Some(table) => {
-            update_table(
-                &client,
-                api_key,
-                state.app_id.as_ref(),
-                &table.id,
-                desired_words,
-            )
-            .await?;
+        (Plan::Update, Some(id)) => {
+            update_table(&client, api_key, id, desired_words).await?;
+            SyncAction::Updated
         }
-        None => {
-            create_table(&client, api_key, state.app_id.as_ref(), desired_words).await?;
+        (Plan::Create, _) => {
+            create_table(&client, api_key, desired_words).await?;
+            SyncAction::Created
         }
-    }
+        _ => {
+            log::info!("hotwords: sync action=unchanged");
+            return Ok(SyncOutcome::Saved {
+                snapshot: snapshot(state),
+                action: SyncAction::Unchanged,
+            });
+        }
+    };
 
-    let saved = wait_for_words(&client, api_key, desired_words).await?;
-    Ok(SyncOutcome::Saved(snapshot(saved)?))
+    let state = wait_for_words(&client, api_key, desired_words, table_id.as_deref()).await?;
+    log::info!(
+        "hotwords: sync action={} table={} cloud_words={}",
+        action.label(),
+        state.table.as_ref().map_or("-", |table| table.id.as_str()),
+        state.table.as_ref().map_or(0, |table| table.words.len()),
+    );
+    Ok(SyncOutcome::Saved {
+        snapshot: snapshot(state),
+        action,
+    })
+}
+
+/// Pure decision: what the cloud state, the last saved words and the desired
+/// words imply. Kept free of I/O so it can be exhaustively tested.
+fn plan(
+    remote_words: Option<&[String]>,
+    saved_words: &[String],
+    desired_words: &[String],
+    had_binding: bool,
+    force: bool,
+) -> Plan {
+    let conflict = match remote_words {
+        // Somebody else rewrote the table behind our back.
+        Some(remote) => remote != saved_words && remote != desired_words,
+        // We had a table, it is gone, and both sides still hold words.
+        None => had_binding && !saved_words.is_empty() && !desired_words.is_empty(),
+    };
+    if conflict && !force {
+        return Plan::Conflict;
+    }
+    match remote_words {
+        Some(_) if desired_words.is_empty() => Plan::Delete,
+        Some(remote) if remote == desired_words => Plan::Unchanged,
+        Some(_) => Plan::Update,
+        None if desired_words.is_empty() => Plan::Unchanged,
+        None => Plan::Create,
+    }
 }
 
 fn client() -> Result<Client, String> {
@@ -164,18 +268,15 @@ fn client() -> Result<Client, String> {
         .map_err(|error| format!("创建豆包常用词连接失败：{error}"))
 }
 
-async fn load(api_key: &str) -> Result<CloudState, String> {
-    let client = client()?;
-    load_with_client(&client, api_key).await
-}
 async fn wait_for_words(
     client: &Client,
     api_key: &str,
     expected_words: &[String],
+    table_id: Option<&str>,
 ) -> Result<CloudState, String> {
     let mut last_error = None;
     for attempt in 0..SAVE_POLL_ATTEMPTS {
-        match load_with_client(client, api_key).await {
+        match load_with_client(client, api_key, table_id).await {
             Ok(state)
                 if state.table.as_ref().map(|table| table.words.as_slice())
                     == (!expected_words.is_empty()).then_some(expected_words) =>
@@ -189,10 +290,15 @@ async fn wait_for_words(
             tokio::time::sleep(SAVE_POLL_INTERVAL).await;
         }
     }
+    log::warn!("hotwords: cloud table did not settle after {SAVE_POLL_ATTEMPTS} polls");
     Err(last_error.unwrap_or_else(|| "豆包已接受常用词更新，但云端词表尚未就绪，请重试".to_owned()))
 }
 
-async fn load_with_client(client: &Client, api_key: &str) -> Result<CloudState, String> {
+async fn load_with_client(
+    client: &Client,
+    api_key: &str,
+    table_id: Option<&str>,
+) -> Result<CloudState, String> {
     let list_body = json!({
         "Action": "ListBoostingTable",
         "Version": VERSION,
@@ -208,58 +314,77 @@ async fn load_with_client(client: &Client, api_key: &str) -> Result<CloudState, 
         request_json(client, api_key, "ListBoostingTable", list_body),
         request_json(client, api_key, "ListBoostingTableLimits", limits_body),
     )?;
-    let app_id = list.pointer("/Result/AppID").cloned();
     let limits = parse_limits(&limits);
-    let summary = list
+    let tables = list
         .pointer("/Result/BoostingTables")
         .and_then(Value::as_array)
-        .and_then(|tables| {
-            tables.iter().find(|table| {
+        .map_or(&[][..], Vec::as_slice);
+
+    // Prefer the table we are bound to; fall back to the name we create under.
+    let managed = table_id
+        .and_then(|table_id| {
+            tables.iter().position(|table| {
+                string_field(table, "BoostingTableID").as_deref() == Some(table_id)
+            })
+        })
+        .or_else(|| {
+            tables.iter().position(|table| {
                 string_field(table, "BoostingTableName").as_deref() == Some(TABLE_NAME)
             })
         });
-    let Some(summary) = summary else {
-        return Ok(CloudState {
-            app_id,
-            limits,
-            table: None,
-        });
-    };
+    let foreign_tables: Vec<ForeignTable> = tables
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| Some(*index) != managed)
+        .map(|(_, table)| ForeignTable {
+            name: string_field(table, "BoostingTableName").unwrap_or_default(),
+            word_count: usize_field(table, "WordCount").unwrap_or_default(),
+        })
+        .collect();
+    if !foreign_tables.is_empty() {
+        log::info!(
+            "hotwords: {} unmanaged table(s) in account: {}",
+            foreign_tables.len(),
+            foreign_tables
+                .iter()
+                .map(|table| table.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", "),
+        );
+    }
+
+    let table = managed
+        .map(|index| {
+            let summary = &tables[index];
+            Ok::<_, String>(RemoteTable {
+                id: required_string(summary, "BoostingTableID", "云端常用词表缺少 ID")?,
+                words: summary
+                    .get("Preview")
+                    .and_then(Value::as_array)
+                    .map(|words| {
+                        words
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .filter_map(parse_word)
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+            })
+        })
+        .transpose()?;
     Ok(CloudState {
-        app_id,
         limits,
-        table: Some(RemoteTable {
-            id: required_string(summary, "BoostingTableID", "云端常用词表缺少 ID")?,
-            revision: string_field(summary, "UpdateTime").unwrap_or_default(),
-            words: summary
-                .get("Preview")
-                .and_then(Value::as_array)
-                .map(|words| {
-                    words
-                        .iter()
-                        .filter_map(Value::as_str)
-                        .filter_map(parse_word)
-                        .collect()
-                })
-                .unwrap_or_default(),
-        }),
+        table,
+        foreign_tables,
     })
 }
 
-async fn create_table(
-    client: &Client,
-    api_key: &str,
-    app_id: Option<&Value>,
-    words: &[String],
-) -> Result<(), String> {
-    let mut form = Form::new()
+async fn create_table(client: &Client, api_key: &str, words: &[String]) -> Result<(), String> {
+    let form = Form::new()
         .text("Action", "CreateBoostingTable")
         .text("Version", VERSION)
         .text("BoostingTableName", TABLE_NAME)
         .part("File", word_file(words)?);
-    if let Some(app_id) = app_id {
-        form = form.text("AppID", scalar(app_id));
-    }
     request_multipart(client, api_key, "CreateBoostingTable", form).await?;
     Ok(())
 }
@@ -267,30 +392,24 @@ async fn create_table(
 async fn update_table(
     client: &Client,
     api_key: &str,
-    app_id: Option<&Value>,
     table_id: &str,
     words: &[String],
 ) -> Result<(), String> {
-    let mut form = Form::new()
+    let form = Form::new()
         .text("Action", "UpdateBoostingTable")
         .text("Version", VERSION)
         .text("BoostingTableID", table_id.to_owned())
         .part("File", word_file(words)?);
-    if let Some(app_id) = app_id {
-        form = form.text("AppID", scalar(app_id));
-    }
     request_multipart(client, api_key, "UpdateBoostingTable", form).await?;
     Ok(())
 }
 
-async fn delete_table(
-    client: &Client,
-    api_key: &str,
-    app_id: Option<&Value>,
-    table_id: &str,
-) -> Result<(), String> {
-    let mut body = base_body("DeleteBoostingTable", app_id);
-    body["BoostingTableID"] = table_id.into();
+async fn delete_table(client: &Client, api_key: &str, table_id: &str) -> Result<(), String> {
+    let body = json!({
+        "Action": "DeleteBoostingTable",
+        "Version": VERSION,
+        "BoostingTableID": table_id,
+    });
     request_json(client, api_key, "DeleteBoostingTable", body).await?;
     Ok(())
 }
@@ -313,28 +432,13 @@ fn encode_file(words: &[String]) -> String {
     file
 }
 
-fn base_body(action: &str, app_id: Option<&Value>) -> Value {
-    let mut body = json!({"Action": action, "Version": VERSION});
-    if let Some(app_id) = app_id {
-        body["AppID"] = app_id.clone();
-    }
-    body
-}
-
 async fn request_json(
     client: &Client,
     api_key: &str,
     action: &str,
     body: Value,
 ) -> Result<Value, String> {
-    let response = client
-        .post(format!("{ENDPOINT}?Action={action}"))
-        .header("X-Api-Key", api_key)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|error| format!("请求豆包常用词服务失败：{error}"))?;
-    parse_response(action, response).await
+    send(action, request(client, api_key, action).json(&body)).await
 }
 
 async fn request_multipart(
@@ -343,23 +447,31 @@ async fn request_multipart(
     action: &str,
     form: Form,
 ) -> Result<Value, String> {
-    let response = client
+    send(action, request(client, api_key, action).multipart(form)).await
+}
+
+fn request(client: &Client, api_key: &str, action: &str) -> RequestBuilder {
+    client
         .post(format!("{ENDPOINT}?Action={action}"))
         .header("X-Api-Key", api_key)
-        .multipart(form)
-        .send()
-        .await
-        .map_err(|error| format!("请求豆包常用词服务失败：{error}"))?;
+}
+
+async fn send(action: &str, request: RequestBuilder) -> Result<Value, String> {
+    let response = request.send().await.map_err(|error| {
+        log::error!("hotwords: {action} transport failure: {error}");
+        format!("请求豆包常用词服务失败：{error}")
+    })?;
     parse_response(action, response).await
 }
 
 async fn parse_response(action: &str, response: reqwest::Response) -> Result<Value, String> {
     let status = response.status();
-    let text = response
-        .text()
-        .await
-        .map_err(|error| format!("读取豆包常用词响应失败：{error}"))?;
+    let text = response.text().await.map_err(|error| {
+        log::error!("hotwords: {action} response unreadable: {error}");
+        format!("读取豆包常用词响应失败：{error}")
+    })?;
     let value: Value = serde_json::from_str(&text).map_err(|error| {
+        log::error!("hotwords: {action} returned invalid JSON (HTTP {status}): {error}");
         format!("豆包常用词服务返回了无效响应（{action}，HTTP {status}）：{error}")
     })?;
     if !status.is_success() || value.pointer("/ResponseMetadata/Error").is_some() {
@@ -371,22 +483,30 @@ async fn parse_response(action: &str, response: reqwest::Response) -> Result<Val
             .pointer("/ResponseMetadata/Error/Message")
             .and_then(Value::as_str)
             .unwrap_or("未知错误");
-        return Err(format!("豆包常用词服务失败：{message}（{code}）"));
+        log::error!("hotwords: {action} failed (HTTP {status}, {code})");
+        return Err(match status.as_u16() {
+            401 | 403 => format!(
+                "这个 API Key 没有热词管理权限（HTTP {}，{code}）。请在火山引擎语音控制台开通自学习平台（热词）能力，或改用不含常用词的配置：{message}",
+                status.as_u16()
+            ),
+            429 => format!("热词管理接口调用过于频繁，请稍后重试（{code}）：{message}"),
+            _ => format!("豆包常用词服务失败：{message}（{code}）"),
+        });
     }
     Ok(value)
 }
 
-fn snapshot(state: CloudState) -> Result<Snapshot, String> {
+fn snapshot(state: CloudState) -> Snapshot {
     let binding = state.table.as_ref().map(|table| Binding {
         table_id: table.id.clone(),
-        revision: table.revision.clone(),
         limit: state.limits.table,
     });
-    Ok(Snapshot {
+    Snapshot {
         words: state.table.map(|table| table.words).unwrap_or_default(),
         binding,
         limit: state.limits.table,
-    })
+        foreign_tables: state.foreign_tables,
+    }
 }
 
 fn validate(words: &[String], limits: &Limits) -> Result<(), String> {
@@ -408,18 +528,6 @@ fn validate(words: &[String], limits: &Limits) -> Result<(), String> {
         }
     }
     Ok(())
-}
-
-fn conflicts(
-    remote_words: Option<&[String]>,
-    saved_words: &[String],
-    desired_words: &[String],
-    expected_table: bool,
-) -> bool {
-    match remote_words {
-        Some(remote) => remote != saved_words && remote != desired_words,
-        None => expected_table && !saved_words.is_empty() && !desired_words.is_empty(),
-    }
 }
 
 fn parse_limits(value: &Value) -> Limits {
@@ -463,16 +571,13 @@ fn usize_field(value: &Value, field: &str) -> Option<usize> {
         .and_then(|value| usize::try_from(value).ok())
 }
 
-fn scalar(value: &Value) -> String {
-    match value {
-        Value::String(text) => text.clone(),
-        _ => value.to_string(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn words(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| (*value).to_owned()).collect()
+    }
 
     #[test]
     fn normalizes_cloud_words_without_inline_total_limit() {
@@ -512,14 +617,115 @@ mod tests {
     }
 
     #[test]
-    fn detects_only_real_remote_conflicts() {
-        let saved = vec!["VoicePaste".to_owned()];
-        let desired = vec!["VoicePaste".to_owned(), "Tauri".to_owned()];
-        let remote = vec!["TanStack".to_owned()];
-        assert!(conflicts(Some(&remote), &saved, &desired, true));
-        assert!(!conflicts(Some(&desired), &saved, &desired, true));
-        assert!(!conflicts(None, &saved, &desired, false));
-        assert!(conflicts(None, &saved, &desired, true));
+    fn plans_every_sync_decision() {
+        let saved = words(&["VoicePaste"]);
+        let desired = words(&["VoicePaste", "Tauri"]);
+        let stranger = words(&["TanStack"]);
+        let empty: Vec<String> = Vec::new();
+        let (saved, desired) = (saved.as_slice(), desired.as_slice());
+        let (stranger, empty) = (stranger.as_slice(), empty.as_slice());
+
+        // (case, remote, saved, desired, had_binding, force, expected)
+        let cases = [
+            (
+                "remote drifted from both sides",
+                Some(stranger),
+                saved,
+                desired,
+                true,
+                false,
+                Plan::Conflict,
+            ),
+            (
+                "bound table vanished while both sides hold words",
+                None,
+                saved,
+                desired,
+                true,
+                false,
+                Plan::Conflict,
+            ),
+            (
+                "force overrides a drifted table",
+                Some(stranger),
+                saved,
+                desired,
+                true,
+                true,
+                Plan::Update,
+            ),
+            (
+                "force overrides a vanished table",
+                None,
+                saved,
+                desired,
+                true,
+                true,
+                Plan::Create,
+            ),
+            (
+                "first upload without a table",
+                None,
+                empty,
+                desired,
+                false,
+                false,
+                Plan::Create,
+            ),
+            (
+                "remote still matches what we saved",
+                Some(saved),
+                saved,
+                desired,
+                true,
+                false,
+                Plan::Update,
+            ),
+            (
+                "clearing words drops the table",
+                Some(saved),
+                saved,
+                empty,
+                true,
+                false,
+                Plan::Delete,
+            ),
+            (
+                "remote already holds the desired words",
+                Some(desired),
+                saved,
+                desired,
+                true,
+                false,
+                Plan::Unchanged,
+            ),
+            (
+                "nothing local, nothing remote",
+                None,
+                empty,
+                empty,
+                false,
+                false,
+                Plan::Unchanged,
+            ),
+        ];
+
+        for (name, remote, saved, desired, had_binding, force, expected) in cases {
+            assert_eq!(
+                plan(remote, saved, desired, had_binding, force),
+                expected,
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn reads_bindings_persisted_before_revision_was_dropped() {
+        let binding: Binding =
+            serde_json::from_value(json!({"tableId": "table-id", "revision": "2024", "limit": 42}))
+                .unwrap();
+        assert_eq!(binding.table_id, "table-id");
+        assert_eq!(binding.limit, 42);
     }
 
     #[test]

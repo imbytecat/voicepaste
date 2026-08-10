@@ -215,7 +215,6 @@ mod tests {
             hotwords: vec!["VoicePaste".to_owned()],
             hotword_binding: Some(Binding {
                 table_id: "table-id".to_owned(),
-                revision: "revision".to_owned(),
                 limit: 5000,
             }),
             ..PersistedSettings::default()
