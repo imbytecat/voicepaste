@@ -1,5 +1,6 @@
 mod asr;
 mod audio;
+mod hotwords;
 mod paste;
 mod settings;
 mod shortcut;
@@ -13,6 +14,7 @@ use std::{
 };
 
 use asr::{AsrOutcome, AudioCommand};
+use hotwords::{Binding as HotwordBinding, SyncOutcome};
 use paste::{InputStatus, PasteOutcome};
 use serde::Serialize;
 use serde_json::json;
@@ -83,6 +85,7 @@ struct ShortcutEventPayload {
 
 struct AppState {
     settings: RwLock<AppSettings>,
+    hotword_binding: RwLock<Option<HotwordBinding>>,
     session: Arc<Mutex<Option<RecognitionSession>>>,
     shortcut_manager: Arc<ShortcutManager>,
     shortcut_status: RwLock<String>,
@@ -100,6 +103,7 @@ impl Default for AppState {
     fn default() -> Self {
         Self {
             settings: RwLock::new(AppSettings::default()),
+            hotword_binding: RwLock::new(None),
             session: Arc::new(Mutex::new(None)),
             shortcut_manager: Arc::new(ShortcutManager::default()),
             shortcut_status: RwLock::new("正在注册快捷键…".to_owned()),
@@ -120,12 +124,75 @@ impl Default for AppState {
 struct LoadSettingsResult {
     settings: AppSettings,
     notice: Option<String>,
+    hotword_status: HotwordSyncStatus,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HotwordSyncStatus {
+    state: &'static str,
+    count: usize,
+    limit: usize,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SaveSettingsResult {
-    credential_storage: CredentialStorage,
+    kind: &'static str,
+    credential_storage: Option<CredentialStorage>,
+    hotword_status: Option<HotwordSyncStatus>,
+    remote_hotwords: Vec<String>,
+    hotword_limit: usize,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TestDoubaoResult {
+    hotword_count: usize,
+    hotword_limit: usize,
+}
+fn hotword_status(settings: &AppSettings, binding: Option<&HotwordBinding>) -> HotwordSyncStatus {
+    HotwordSyncStatus {
+        state: if settings.hotwords.is_empty() {
+            "empty"
+        } else if binding.is_some() {
+            "synced"
+        } else {
+            "pending"
+        },
+        count: settings.hotwords.len(),
+        limit: binding
+            .map(|binding| binding.limit)
+            .unwrap_or(hotwords::DEFAULT_TABLE_LIMIT),
+    }
+}
+
+impl SaveSettingsResult {
+    fn saved(
+        credential_storage: CredentialStorage,
+        settings: &AppSettings,
+        binding: Option<&HotwordBinding>,
+    ) -> Self {
+        Self {
+            kind: "saved",
+            credential_storage: Some(credential_storage),
+            hotword_status: Some(hotword_status(settings, binding)),
+            remote_hotwords: Vec::new(),
+            hotword_limit: binding
+                .map(|binding| binding.limit)
+                .unwrap_or(hotwords::DEFAULT_TABLE_LIMIT),
+        }
+    }
+
+    fn conflict(snapshot: hotwords::Snapshot) -> Self {
+        Self {
+            kind: "conflict",
+            credential_storage: None,
+            hotword_status: None,
+            hotword_limit: snapshot.limit,
+            remote_hotwords: snapshot.words,
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -229,12 +296,21 @@ fn load_settings(
         .read()
         .map_err(|_| "设置状态已损坏，请重启应用".to_owned())?
         .clone();
+    let binding = state
+        .hotword_binding
+        .read()
+        .map_err(|_| "常用词状态已损坏，请重启应用".to_owned())?
+        .clone();
     let notice = state
         .startup_notice
         .lock()
         .map_err(|_| "设置提示状态已损坏，请重启应用".to_owned())?
         .take();
-    Ok(LoadSettingsResult { settings, notice })
+    Ok(LoadSettingsResult {
+        hotword_status: hotword_status(&settings, binding.as_ref()),
+        settings,
+        notice,
+    })
 }
 
 #[tauri::command]
@@ -243,14 +319,18 @@ async fn save_settings(
     app: AppHandle,
     state: State<'_, AppState>,
     mut settings: AppSettings,
+    force_hotword_overwrite: bool,
 ) -> Result<SaveSettingsResult, String> {
     require_window(&window, "settings")?;
     settings.api_key = settings.api_key.trim().to_owned();
     settings.shortcut = settings.shortcut.trim().to_owned();
     settings.microphone_id = settings.microphone_id.trim().to_owned();
-    settings.hotwords = settings::sanitize_hotwords(settings.hotwords)?;
+    settings.hotwords = hotwords::normalize(settings.hotwords)?;
     if settings.shortcut.is_empty() {
         return Err("全局快捷键不能为空".to_owned());
+    }
+    if settings.api_key.is_empty() && !settings.hotwords.is_empty() {
+        return Err("请先填写豆包 API Key，或清空常用词后再保存".to_owned());
     }
 
     let old_settings = state
@@ -258,6 +338,68 @@ async fn save_settings(
         .read()
         .map_err(|_| "设置状态已损坏，请重启应用".to_owned())?
         .clone();
+    let old_binding = state
+        .hotword_binding
+        .read()
+        .map_err(|_| "常用词状态已损坏，请重启应用".to_owned())?
+        .clone();
+    let key_changed = settings.api_key != old_settings.api_key;
+    let binding_mismatch = settings.hotwords.is_empty() == old_binding.is_some();
+    let needs_cloud_sync =
+        key_changed || settings.hotwords != old_settings.hotwords || binding_mismatch;
+
+    let cloud = if settings.api_key.is_empty() {
+        if key_changed && !old_settings.api_key.is_empty() && old_binding.is_some() {
+            match hotwords::sync(
+                &old_settings.api_key,
+                &old_settings.hotwords,
+                &[],
+                old_binding.as_ref(),
+                true,
+            )
+            .await?
+            {
+                SyncOutcome::Saved(snapshot) => snapshot,
+                SyncOutcome::Conflict(_) => unreachable!("forced cloud deletion cannot conflict"),
+            }
+        } else {
+            hotwords::Snapshot {
+                binding: None,
+                words: Vec::new(),
+                limit: hotwords::DEFAULT_TABLE_LIMIT,
+            }
+        }
+    } else if needs_cloud_sync {
+        let expected_binding = if key_changed {
+            None
+        } else {
+            old_binding.as_ref()
+        };
+        match hotwords::sync(
+            &settings.api_key,
+            &old_settings.hotwords,
+            &settings.hotwords,
+            expected_binding,
+            force_hotword_overwrite,
+        )
+        .await?
+        {
+            SyncOutcome::Saved(snapshot) => snapshot,
+            SyncOutcome::Conflict(snapshot) => {
+                return Ok(SaveSettingsResult::conflict(snapshot));
+            }
+        }
+    } else {
+        hotwords::Snapshot {
+            binding: old_binding.clone(),
+            words: settings.hotwords.clone(),
+            limit: old_binding
+                .as_ref()
+                .map(|binding| binding.limit)
+                .unwrap_or(hotwords::DEFAULT_TABLE_LIMIT),
+        }
+    };
+
     state
         .shortcut_manager
         .replace(&app, &settings.shortcut, Some(&old_settings.shortcut))
@@ -269,33 +411,51 @@ async fn save_settings(
             .await;
         return Err(error);
     }
+
+    let new_binding = cloud.binding;
     let save_app = app.clone();
     let settings_to_save = settings.clone();
+    let binding_to_save = new_binding.clone();
     // Linux keyring uses its own async runtime, so it must not run on a Tokio worker.
-    let credential_storage =
-        match offload_blocking_result(move || settings::save(&save_app, &settings_to_save)).await {
-            Ok(storage) => storage,
-            Err(error) => {
-                let _ = state
-                    .shortcut_manager
-                    .replace(&app, &old_settings.shortcut, Some(&settings.shortcut))
-                    .await;
-                let _ = apply_autostart(&app, old_settings.launch_at_startup);
-                return Err(error);
-            }
-        };
+    let credential_storage = match offload_blocking_result(move || {
+        settings::save(&save_app, &settings_to_save, binding_to_save.as_ref())
+    })
+    .await
+    {
+        Ok(storage) => storage,
+        Err(error) => {
+            let _ = state
+                .shortcut_manager
+                .replace(&app, &old_settings.shortcut, Some(&settings.shortcut))
+                .await;
+            let _ = apply_autostart(&app, old_settings.launch_at_startup);
+            return Err(error);
+        }
+    };
     let should_initialize_input = !settings.api_key.is_empty();
-    *state
-        .settings
-        .write()
-        .map_err(|_| "设置状态已损坏，请重启应用".to_owned())? = settings.clone();
+    {
+        let mut saved_settings = state
+            .settings
+            .write()
+            .map_err(|_| "设置状态已损坏，请重启应用".to_owned())?;
+        let mut saved_binding = state
+            .hotword_binding
+            .write()
+            .map_err(|_| "常用词状态已损坏，请重启应用".to_owned())?;
+        *saved_settings = settings.clone();
+        *saved_binding = new_binding.clone();
+    }
     state.settings_dirty.store(false, Ordering::Release);
     if should_initialize_input {
         initialize_input_session(Arc::clone(&state.input_session));
     }
     set_shortcut_status(&app, "全局快捷键已启用");
     set_tray_status(&state, tray_ready_text(&settings));
-    Ok(SaveSettingsResult { credential_storage })
+    Ok(SaveSettingsResult::saved(
+        credential_storage,
+        &settings,
+        new_binding.as_ref(),
+    ))
 }
 
 #[tauri::command]
@@ -317,6 +477,19 @@ async fn start_recognition(
     if settings.api_key.is_empty() {
         return Err("请先在设置中填写豆包 API Key".to_owned());
     }
+    let hotword_table_id = if settings.hotwords_enabled && !settings.hotwords.is_empty() {
+        Some(
+            state
+                .hotword_binding
+                .read()
+                .map_err(|_| "常用词状态已损坏，请重启应用".to_owned())?
+                .as_ref()
+                .map(|binding| binding.table_id.clone())
+                .ok_or_else(|| "常用词尚未同步，请先在设置中保存".to_owned())?,
+        )
+    } else {
+        None
+    };
 
     let (audio, receiver) = mpsc::channel(32);
     let (cancel, cancelled) = watch::channel(false);
@@ -341,6 +514,7 @@ async fn start_recognition(
     tauri::async_runtime::spawn(async move {
         let result = asr::run(
             settings,
+            hotword_table_id,
             receiver,
             cancelled,
             app.clone(),
@@ -556,9 +730,17 @@ fn overlay_ready(
 }
 
 #[tauri::command]
-async fn test_doubao(window: WebviewWindow, api_key: String) -> Result<(), String> {
+async fn test_doubao(window: WebviewWindow, api_key: String) -> Result<TestDoubaoResult, String> {
     require_window(&window, "settings")?;
-    asr::test_connection(api_key).await
+    let api_key = api_key.trim().to_owned();
+    asr::test_connection(api_key.clone()).await?;
+    let snapshot = hotwords::inspect(&api_key)
+        .await
+        .map_err(|error| format!("语音识别连接正常，但常用词同步不可用：{error}"))?;
+    Ok(TestDoubaoResult {
+        hotword_count: snapshot.words.len(),
+        hotword_limit: snapshot.limit,
+    })
 }
 
 #[tauri::command]
@@ -923,6 +1105,10 @@ fn setup_app(app: &mut tauri::App) -> Result<(), String> {
         .write()
         .map_err(|_| "设置状态已损坏，请重启应用".to_owned())? = loaded.settings.clone();
     *app_state
+        .hotword_binding
+        .write()
+        .map_err(|_| "常用词状态已损坏，请重启应用".to_owned())? = loaded.hotword_binding.clone();
+    *app_state
         .startup_notice
         .lock()
         .map_err(|_| "设置提示状态已损坏，请重启应用".to_owned())? = loaded.notice;
@@ -949,11 +1135,8 @@ fn setup_app(app: &mut tauri::App) -> Result<(), String> {
         PredefinedMenuItem::separator(app).map_err(|error| format!("创建托盘菜单失败：{error}"))?;
     let quit = MenuItem::with_id(app, TRAY_QUIT_ID, "退出 VoicePaste", true, None::<&str>)
         .map_err(|error| format!("创建托盘菜单失败：{error}"))?;
-    let menu = Menu::with_items(
-        app,
-        &[&status, &open_settings, &update, &separator, &quit],
-    )
-    .map_err(|error| format!("创建托盘菜单失败：{error}"))?;
+    let menu = Menu::with_items(app, &[&status, &open_settings, &update, &separator, &quit])
+        .map_err(|error| format!("创建托盘菜单失败：{error}"))?;
     *app_state
         .tray_status
         .lock()
@@ -1019,6 +1202,7 @@ fn setup_app(app: &mut tauri::App) -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             show_settings_on_launch(app);

@@ -28,8 +28,33 @@ export interface ShortcutEvent {
   microphoneId: string;
 }
 
-export interface SaveSettingsResult {
-  credentialStorage: "keyring" | "removed";
+export type HotwordSyncState = "empty" | "synced" | "pending";
+
+export interface HotwordSyncStatus {
+  state: HotwordSyncState;
+  count: number;
+  limit: number;
+}
+
+export type SaveSettingsResult =
+  | {
+      kind: "saved";
+      credentialStorage: "keyring" | "removed";
+      hotwordStatus: HotwordSyncStatus;
+      remoteHotwords: [];
+      hotwordLimit: number;
+    }
+  | {
+      kind: "conflict";
+      credentialStorage: null;
+      hotwordStatus: null;
+      remoteHotwords: string[];
+      hotwordLimit: number;
+    };
+
+export interface TestDoubaoResult {
+  hotwordCount: number;
+  hotwordLimit: number;
 }
 
 export interface SystemDiagnostics {

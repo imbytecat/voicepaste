@@ -21,7 +21,7 @@ VoicePaste 是完全开源的早期项目，目前不购买 Apple Developer 或 
 1. 启动 VoicePaste，按系统提示授予麦克风权限；macOS、Windows 或 Linux 桌面环境还可能要求辅助功能、输入控制或全局快捷键权限。
 2. 在设置中填写从火山引擎控制台获取的豆包 API Key，点击“测试连接”。
 3. 选择麦克风，使用麦克风测试确认有输入音量。
-4. 设置全局快捷键、按键模式和可选热词；默认快捷键为 `CommandOrControl+Shift+Space`。
+4. 设置全局快捷键、按键模式和可选常用词；保存时常用词会同步到火山引擎，默认快捷键为 `CommandOrControl+Shift+Space`。
 5. 保存设置，在任意可输入文本的应用中试用。
 
 ## 使用
@@ -33,7 +33,7 @@ VoicePaste 是完全开源的早期项目，目前不购买 Apple Developer 或 
 
 ## 数据与隐私
 
-VoicePaste 没有自建遥测。麦克风音频只在用户主动听写期间发送给豆包语音识别服务；API Key 优先保存在系统凭据库，普通设置和热词保存在本机。日志不会记录 API Key、音频数据或识别正文。详见 [PRIVACY.md](PRIVACY.md)。
+VoicePaste 没有自建遥测。麦克风音频只在用户主动听写期间发送给豆包语音识别服务；常用词会保存在本机，并同步到用户自己的火山引擎账户。API Key 优先保存在系统凭据库。日志不会记录 API Key、音频数据或识别正文。详见 [PRIVACY.md](PRIVACY.md)。
 
 ## 开发
 

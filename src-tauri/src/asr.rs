@@ -88,7 +88,7 @@ struct RequestMeta {
 
 #[derive(Serialize)]
 struct Corpus {
-    context: String,
+    boosting_table_id: String,
 }
 
 #[derive(Deserialize)]
@@ -113,10 +113,6 @@ struct ServerResponse {
 enum ResponseProgress {
     Continue,
     Final(String),
-}
-
-fn install_crypto_provider() {
-    let _ = rustls::crypto::ring::default_provider().install_default();
 }
 
 fn socket_config() -> WebSocketConfig {
@@ -147,12 +143,12 @@ fn build_connection_request(api_key: &str, connection_id: &str) -> Result<HttpRe
 
 pub async fn run(
     settings: AppSettings,
+    hotword_table_id: Option<String>,
     mut commands: mpsc::Receiver<AudioCommand>,
     mut cancelled: watch::Receiver<bool>,
     app: AppHandle,
     session_id: String,
 ) -> Result<AsrOutcome, String> {
-    install_crypto_provider();
     let connection_id = Uuid::new_v4().to_string();
     let request = build_connection_request(&settings.api_key, &connection_id)?;
     let connect = tokio::time::timeout(
@@ -179,7 +175,7 @@ pub async fn run(
     let (mut writer, mut reader) = socket.split();
     send_message(
         &mut writer,
-        Message::Binary(encode_full_request(&settings, &connection_id)?.into()),
+        Message::Binary(encode_full_request(&connection_id, hotword_table_id.as_deref())?.into()),
         "发送豆包初始化请求",
     )
     .await?;
@@ -260,7 +256,6 @@ pub async fn test_connection(api_key: String) -> Result<(), String> {
     if api_key.is_empty() {
         return Err("请先填写豆包 API Key".to_owned());
     }
-    install_crypto_provider();
     let connection_id = Uuid::new_v4().to_string();
     let request = build_connection_request(api_key, &connection_id)?;
     let (socket, _) = tokio::time::timeout(
@@ -271,13 +266,9 @@ pub async fn test_connection(api_key: String) -> Result<(), String> {
     .map_err(|_| "连接豆包语音超时".to_owned())?
     .map_err(|error| format!("连接豆包语音失败：{error}"))?;
     let (mut writer, mut reader) = socket.split();
-    let settings = AppSettings {
-        api_key: api_key.to_owned(),
-        ..AppSettings::default()
-    };
     send_message(
         &mut writer,
-        Message::Binary(encode_full_request(&settings, &connection_id)?.into()),
+        Message::Binary(encode_full_request(&connection_id, None)?.into()),
         "发送豆包初始化请求",
     )
     .await?;
@@ -358,18 +349,10 @@ fn process_response(
     Ok(ResponseProgress::Continue)
 }
 
-fn encode_full_request(settings: &AppSettings, connection_id: &str) -> Result<Vec<u8>, String> {
-    let use_hotwords = settings.hotwords_enabled && !settings.hotwords.is_empty();
-    let corpus = if use_hotwords {
-        Some(Corpus {
-            context: serde_json::to_string(&json!({
-                "hotwords": settings.hotwords.iter().map(|word| json!({ "word": word })).collect::<Vec<_>>()
-            }))
-            .map_err(|error| format!("编码热词失败：{error}"))?,
-        })
-    } else {
-        None
-    };
+fn encode_full_request(
+    connection_id: &str,
+    hotword_table_id: Option<&str>,
+) -> Result<Vec<u8>, String> {
     let request = FullClientRequest {
         user: UserMeta {
             uid: connection_id.to_owned(),
@@ -385,12 +368,14 @@ fn encode_full_request(settings: &AppSettings, connection_id: &str) -> Result<Ve
             model_name: "bigmodel",
             enable_itn: true,
             enable_punc: true,
-            enable_ddc: !use_hotwords,
+            enable_ddc: true,
             show_utterances: false,
             result_type: "full",
-            enable_nonstream: !use_hotwords,
+            enable_nonstream: true,
             end_window_size: 800,
-            corpus,
+            corpus: hotword_table_id.map(|table_id| Corpus {
+                boosting_table_id: table_id.to_owned(),
+            }),
         },
     };
     let json =
@@ -574,8 +559,7 @@ mod tests {
 
     #[test]
     fn full_request_uses_documented_model_name() {
-        let frame =
-            encode_full_request(&AppSettings::default(), "request-id").expect("encode request");
+        let frame = encode_full_request("request-id", None).expect("encode request");
         let payload: serde_json::Value =
             serde_json::from_slice(&gunzip(&frame[8..]).expect("decompress request"))
                 .expect("parse request");
@@ -586,33 +570,18 @@ mod tests {
     }
 
     #[test]
-    fn hotword_request_avoids_second_pass_overwrite() {
-        let settings = AppSettings {
-            hotwords: vec!["VoicePaste".to_owned()],
-            ..AppSettings::default()
-        };
-        let frame = encode_full_request(&settings, "request-id").expect("encode request");
+    fn cloud_hotword_request_keeps_streaming_second_pass() {
+        let frame = encode_full_request("request-id", Some("table-id")).expect("encode request");
         let payload: serde_json::Value =
             serde_json::from_slice(&gunzip(&frame[8..]).expect("decompress request"))
                 .expect("parse request");
-        assert_eq!(payload["request"]["enable_nonstream"], false);
-        assert_eq!(payload["request"]["enable_ddc"], false);
-    }
-
-    #[test]
-    fn disabled_hotwords_are_preserved_but_not_sent() {
-        let settings = AppSettings {
-            hotwords: vec!["VoicePaste".to_owned()],
-            hotwords_enabled: false,
-            ..AppSettings::default()
-        };
-        let frame = encode_full_request(&settings, "request-id").expect("encode request");
-        let payload: serde_json::Value =
-            serde_json::from_slice(&gunzip(&frame[8..]).expect("decompress request"))
-                .expect("parse request");
-        assert!(payload["request"].get("corpus").is_none());
+        assert_eq!(
+            payload["request"]["corpus"]["boosting_table_id"],
+            "table-id"
+        );
         assert_eq!(payload["request"]["enable_nonstream"], true);
         assert_eq!(payload["request"]["enable_ddc"], true);
+        assert!(payload["request"]["corpus"].get("context").is_none());
     }
     #[test]
     fn parses_empty_final_response_as_final() {

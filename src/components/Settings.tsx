@@ -44,7 +44,14 @@ import {
   useShortcutRecorder,
 } from "@/shortcut";
 import { DEFAULT_SETTINGS } from "@/types";
-import type { AppSettings, SystemDiagnostics, UpdateInfo } from "@/types";
+import type {
+  AppSettings,
+  HotwordSyncStatus,
+  SaveSettingsResult,
+  SystemDiagnostics,
+  TestDoubaoResult,
+  UpdateInfo,
+} from "@/types";
 
 const INPUT_CLASS =
   "h-9 w-full rounded-lg border border-[#d7d9de] bg-white px-3 text-[12px] text-[#202124] outline-none transition focus:border-[#7564e8] focus:ring-3 focus:ring-[#7564e8]/10 disabled:cursor-not-allowed disabled:bg-[#f5f5f6] disabled:text-[#8b8f97]";
@@ -75,11 +82,27 @@ const ONBOARDING_STEPS = [
   "麦克风",
   "完成",
 ] as const;
+const DEFAULT_HOTWORD_STATUS: HotwordSyncStatus = {
+  count: 0,
+  limit: 5000,
+  state: "empty",
+};
+const UTF8_ENCODER = new TextEncoder();
+const CHARACTER_SEGMENTER = new Intl.Segmenter("zh", {
+  granularity: "grapheme",
+});
 
 type Message = { kind: "success" | "error" | "info"; text: string } | null;
 interface LoadSettingsResult {
   settings: AppSettings;
+  hotwordStatus: HotwordSyncStatus;
   notice?: string;
+}
+interface HotwordConflict {
+  limit: number;
+  pendingSettings: AppSettings;
+  remoteHotwords: string[];
+  source: "onboarding" | "settings";
 }
 type ProductLinkTarget = "homepage" | "help" | "privacy";
 
@@ -134,21 +157,32 @@ function ShortcutHint({ shortcut }: { shortcut: string }) {
   );
 }
 
-function normalizeHotwords(value: string): string[] {
+function uniqueHotwords(value: string): string[] {
   const seen = new Set<string>();
   const hotwords: string[] = [];
-  let totalChars = 0;
   for (const line of value.split("\n")) {
     const word = line.trim();
     const identity = word.toLocaleLowerCase();
     if (!word || seen.has(identity)) continue;
     seen.add(identity);
-    totalChars += word.length;
-    if (totalChars > 100)
-      throw new Error(
-        "热词总长度不能超过 100 个字符（按接口 token 上限保守限制）"
-      );
     hotwords.push(word);
+  }
+  return hotwords;
+}
+
+function normalizeHotwords(value: string, limit: number): string[] {
+  const hotwords = uniqueHotwords(value);
+  if (hotwords.length > limit)
+    throw new Error(
+      `常用词数量不能超过 ${limit} 条，当前为 ${hotwords.length} 条`
+    );
+  for (const word of hotwords) {
+    if (/\s/u.test(word)) throw new Error(`常用词“${word}”不能包含空格`);
+    if (
+      [...CHARACTER_SEGMENTER.segment(word)].length > 10 ||
+      UTF8_ENCODER.encode(word).length > 30
+    )
+      throw new Error(`常用词“${word}”过长：最多 10 个字符且不超过 30 字节`);
   }
   return hotwords;
 }
@@ -179,8 +213,26 @@ function safeError(error: unknown, apiKey = ""): string {
   return secret.length >= 4 ? detail.split(secret).join("••••••••") : detail;
 }
 
-async function persistSettings(nextSettings: AppSettings) {
-  if (isTauri()) await invoke("save_settings", { settings: nextSettings });
+async function persistSettings(
+  nextSettings: AppSettings,
+  forceHotwordOverwrite = false
+): Promise<SaveSettingsResult> {
+  if (isTauri())
+    return await invoke<SaveSettingsResult>("save_settings", {
+      forceHotwordOverwrite,
+      settings: nextSettings,
+    });
+  return {
+    credentialStorage: nextSettings.apiKey ? "keyring" : "removed",
+    hotwordLimit: DEFAULT_HOTWORD_STATUS.limit,
+    hotwordStatus: {
+      count: nextSettings.hotwords.length,
+      limit: DEFAULT_HOTWORD_STATUS.limit,
+      state: nextSettings.hotwords.length ? "synced" : "empty",
+    },
+    kind: "saved",
+    remoteHotwords: [],
+  };
 }
 
 function SettingsSection({
@@ -303,6 +355,93 @@ function Toggle({
     </button>
   );
 }
+function HotwordConflictDialog({
+  conflict,
+  onCancel,
+  onLoadRemote,
+  onOverwrite,
+}: {
+  conflict: HotwordConflict;
+  onCancel: () => void;
+  onLoadRemote: () => void;
+  onOverwrite: () => void;
+}) {
+  const primaryButtonRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    primaryButtonRef.current?.focus();
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onCancel();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [onCancel]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-[#202124]/35 p-5"
+      role="presentation"
+    >
+      <section
+        className="w-full max-w-105 rounded-2xl border border-[#dedfe4] bg-white p-5 shadow-[0_24px_72px_rgba(22,25,34,0.24)]"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="hotword-conflict-title"
+        aria-describedby="hotword-conflict-description"
+      >
+        <div className="flex items-start gap-3">
+          <div
+            className="grid size-9 shrink-0 place-items-center rounded-[10px] bg-[#fff2cc] text-[#7a5100]"
+            aria-hidden="true"
+          >
+            <Info size={17} />
+          </div>
+          <div>
+            <h2
+              className="text-[14px] font-semibold text-[#202124]"
+              id="hotword-conflict-title"
+            >
+              云端常用词已被修改
+            </h2>
+            <p
+              className="mt-1.5 text-[11px] leading-5 text-[#62666f]"
+              id="hotword-conflict-description"
+            >
+              云端有 {conflict.remoteHotwords.length} 条，本机准备保存{" "}
+              {conflict.pendingSettings.hotwords.length}{" "}
+              条。请选择保留哪个版本。
+            </p>
+          </div>
+        </div>
+        <div className="mt-5 flex flex-wrap justify-end gap-2">
+          <button
+            className={SECONDARY_BUTTON_CLASS}
+            type="button"
+            onClick={onCancel}
+          >
+            取消
+          </button>
+          <button
+            className={SECONDARY_BUTTON_CLASS}
+            type="button"
+            onClick={onOverwrite}
+          >
+            用本机内容覆盖
+          </button>
+          <button
+            ref={primaryButtonRef}
+            className={PRIMARY_BUTTON_CLASS}
+            type="button"
+            onClick={onLoadRemote}
+          >
+            加载云端版本
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
 
 function microphoneTestError(error: unknown): string {
   const detail = String(error);
@@ -330,6 +469,12 @@ export function Settings({
   const [hotwordsText, setHotwordsText] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [hotwordStatus, setHotwordStatus] = useState<HotwordSyncStatus>(
+    DEFAULT_HOTWORD_STATUS
+  );
+  const [hotwordConflict, setHotwordConflict] =
+    useState<HotwordConflict | null>(null);
+  const [hotwordSyncFailed, setHotwordSyncFailed] = useState(false);
   const [message, setMessage] = useState<Message>(null);
   const [doubaoMessage, setDoubaoMessage] = useState<Message>(null);
   const [microphoneMessage, setMicrophoneMessage] = useState<Message>(null);
@@ -405,6 +550,8 @@ export function Settings({
     const next = { ...settingsRef.current, [key]: value };
     settingsRef.current = next;
     setSettings(next);
+    if (key === "apiKey" || key === "hotwordsEnabled")
+      setHotwordSyncFailed(false);
     syncDirty(
       settingsChanged(
         next,
@@ -418,6 +565,7 @@ export function Settings({
   const updateHotwordsText = (value: string) => {
     hotwordsTextRef.current = value;
     setHotwordsText(value);
+    setHotwordSyncFailed(false);
     syncDirty(
       settingsChanged(
         settingsRef.current,
@@ -551,24 +699,32 @@ export function Settings({
       savedHotwordsTextRef.current = previewHotwords;
       setSettings(previewSettings);
       setHotwordsText(previewHotwords);
+      setHotwordStatus(DEFAULT_HOTWORD_STATUS);
       syncDirty(false);
       setLoading(false);
       return;
     }
 
     invoke<LoadSettingsResult>("load_settings")
-      .then(({ settings: loadedSettings, notice }) => {
-        const loadedHotwords = loadedSettings.hotwords.join("\n");
-        settingsRef.current = loadedSettings;
-        savedSettingsRef.current = loadedSettings;
-        hotwordsTextRef.current = loadedHotwords;
-        savedHotwordsTextRef.current = loadedHotwords;
-        setSettings(loadedSettings);
-        setHotwordsText(loadedHotwords);
-        syncDirty(false);
-        if (notice) showMessage({ kind: "info", text: notice });
-        void refreshDiagnostics();
-      })
+      .then(
+        ({
+          hotwordStatus: loadedHotwordStatus,
+          settings: loadedSettings,
+          notice,
+        }) => {
+          const loadedHotwords = loadedSettings.hotwords.join("\n");
+          settingsRef.current = loadedSettings;
+          savedSettingsRef.current = loadedSettings;
+          hotwordsTextRef.current = loadedHotwords;
+          savedHotwordsTextRef.current = loadedHotwords;
+          setSettings(loadedSettings);
+          setHotwordsText(loadedHotwords);
+          setHotwordStatus(loadedHotwordStatus);
+          syncDirty(false);
+          if (notice) showMessage({ kind: "info", text: notice });
+          void refreshDiagnostics();
+        }
+      )
       .catch((error: unknown) => {
         setOnboardingMessage({ kind: "error", text: safeError(error) });
       })
@@ -648,23 +804,89 @@ export function Settings({
     setSaving(false);
   };
 
+  const cloudHotwordsChanged = () =>
+    settingsRef.current.apiKey !== savedSettingsRef.current.apiKey ||
+    hotwordsTextRef.current !== savedHotwordsTextRef.current;
+
+  const persistAndCommit = async (
+    nextSettings: AppSettings,
+    source: HotwordConflict["source"],
+    forceHotwordOverwrite = false
+  ) => {
+    const result = await persistSettings(nextSettings, forceHotwordOverwrite);
+    if (result.kind === "conflict") {
+      setHotwordConflict({
+        limit: result.hotwordLimit,
+        pendingSettings: nextSettings,
+        remoteHotwords: result.remoteHotwords,
+        source,
+      });
+      return false;
+    }
+    commitSettings(nextSettings, nextSettings.hotwords.join("\n"));
+    setHotwordStatus(result.hotwordStatus);
+    setHotwordSyncFailed(false);
+    return true;
+  };
+
+  const finishSuccessfulSave = async (source: HotwordConflict["source"]) => {
+    if (source === "onboarding") {
+      selectSection("general");
+      setShowApiKey(false);
+      showMessage({
+        kind: "success",
+        text: "设置完成，可以开始使用 VoicePaste",
+      });
+    } else {
+      const count = settingsRef.current.hotwords.length;
+      showMessage({
+        kind: "success",
+        text: isTauri()
+          ? count
+            ? `已保存，${count} 个常用词已同步`
+            : "已保存"
+          : "预览校验通过",
+      });
+    }
+    await refreshDiagnostics();
+  };
+
   const save = async () => {
     if (!startSaving()) return;
     setMessage(null);
     setOnboardingMessage(null);
     try {
-      const hotwords = normalizeHotwords(hotwordsTextRef.current);
+      const hotwords = normalizeHotwords(
+        hotwordsTextRef.current,
+        hotwordStatus.limit
+      );
       const nextSettings = { ...settingsRef.current, hotwords };
-      await persistSettings(nextSettings);
-      const normalizedHotwords = hotwords.join("\n");
-      commitSettings(nextSettings, normalizedHotwords);
-      showMessage({
-        kind: "success",
-        text: isTauri() ? "已保存" : "预览校验通过",
-      });
-      await refreshDiagnostics();
+      if (await persistAndCommit(nextSettings, "settings"))
+        await finishSuccessfulSave("settings");
     } catch (error) {
+      if (cloudHotwordsChanged()) setHotwordSyncFailed(true);
       reportPersistentError(safeError(error, settingsRef.current.apiKey));
+    } finally {
+      stopSaving();
+    }
+  };
+
+  const resolveHotwordConflict = async (useRemote: boolean) => {
+    const conflict = hotwordConflict;
+    if (!conflict || !startSaving()) return;
+    setHotwordConflict(null);
+    const nextSettings = {
+      ...conflict.pendingSettings,
+      hotwords: useRemote
+        ? conflict.remoteHotwords
+        : conflict.pendingSettings.hotwords,
+    };
+    try {
+      if (await persistAndCommit(nextSettings, conflict.source, true))
+        await finishSuccessfulSave(conflict.source);
+    } catch (error) {
+      setHotwordSyncFailed(true);
+      reportPersistentError(safeError(error, conflict.pendingSettings.apiKey));
     } finally {
       stopSaving();
     }
@@ -696,7 +918,17 @@ export function Settings({
       shortcut: DEFAULT_SETTINGS.shortcut,
     };
     try {
-      await persistSettings(persistedReset);
+      const result = await persistSettings(persistedReset);
+      if (result.kind === "conflict") {
+        setHotwordConflict({
+          limit: result.hotwordLimit,
+          pendingSettings: persistedReset,
+          remoteHotwords: result.remoteHotwords,
+          source: "settings",
+        });
+        return;
+      }
+      setHotwordStatus(result.hotwordStatus);
       const nextCurrent = {
         ...settingsRef.current,
         activationMode: DEFAULT_SETTINGS.activationMode,
@@ -731,7 +963,10 @@ export function Settings({
   const clearHotwords = () => {
     updateSetting("hotwords", []);
     updateHotwordsText("");
-    showMessage({ kind: "info", text: "已清空常用词，保存后生效。" });
+    showMessage({
+      kind: "info",
+      text: "已清空常用词，保存后将删除云端词表。",
+    });
   };
 
   const startMicrophoneTest = async () => {
@@ -822,11 +1057,16 @@ export function Settings({
     try {
       if (!apiKey) throw new Error("请先填写豆包 API Key");
       if (!isTauri()) throw new Error("浏览器预览无法测试豆包连接");
-      await invoke("test_doubao", { apiKey });
+      const result = await invoke<TestDoubaoResult>("test_doubao", { apiKey });
       setVerifiedApiKey(apiKey);
+      setHotwordStatus((current) => ({
+        ...current,
+        limit: result.hotwordLimit,
+      }));
+      setHotwordSyncFailed(false);
       setFeedback({
         kind: "success",
-        text: "豆包 API Key 与流式识别服务连接正常",
+        text: `语音识别与常用词同步可用（云端 ${result.hotwordCount}/${result.hotwordLimit}）`,
       });
       return true;
     } catch (error) {
@@ -860,24 +1100,21 @@ export function Settings({
     if (!startSaving()) return;
     setOnboardingMessage(null);
     try {
-      const hotwords = normalizeHotwords(hotwordsTextRef.current);
+      const hotwords = normalizeHotwords(
+        hotwordsTextRef.current,
+        hotwordStatus.limit
+      );
       const nextSettings = {
         ...settingsRef.current,
         apiKey,
         hotwords,
         onboardingCompleted: true,
       };
-      await persistSettings(nextSettings);
-      commitSettings(nextSettings, hotwords.join("\n"));
-      selectSection("general");
-      setShowApiKey(false);
-      showMessage({
-        kind: "success",
-        text: "设置完成，可以开始使用 VoicePaste",
-      });
-      await refreshDiagnostics();
+      if (await persistAndCommit(nextSettings, "onboarding"))
+        await finishSuccessfulSave("onboarding");
     } catch (error) {
       setOnboardingMessage({ kind: "error", text: safeError(error, apiKey) });
+      if (cloudHotwordsChanged()) setHotwordSyncFailed(true);
     } finally {
       stopSaving();
     }
@@ -942,6 +1179,40 @@ export function Settings({
   const isSettingChanged = (key: keyof AppSettings) =>
     settings[key] !== savedSettingsRef.current[key];
   const hotwordsChanged = hotwordsText !== savedHotwordsTextRef.current;
+  const hotwordCount = uniqueHotwords(hotwordsText).length;
+  const cloudDirty = isSettingChanged("apiKey") || hotwordsChanged;
+  const visibleHotwordState =
+    saving && cloudDirty
+      ? "syncing"
+      : hotwordSyncFailed
+        ? "error"
+        : cloudDirty
+          ? "dirty"
+          : hotwordStatus.state;
+  const hotwordSyncLabel =
+    visibleHotwordState === "syncing"
+      ? "正在同步"
+      : visibleHotwordState === "error"
+        ? "同步失败"
+        : visibleHotwordState === "dirty"
+          ? "未同步"
+          : visibleHotwordState === "synced"
+            ? "已同步"
+            : visibleHotwordState === "pending"
+              ? "等待同步"
+              : settings.apiKey.trim()
+                ? "尚未创建"
+                : "填写 API Key 后同步";
+  const hotwordSyncClass =
+    visibleHotwordState === "synced"
+      ? "bg-[#eaf8f1] text-[#17633f]"
+      : visibleHotwordState === "error"
+        ? "bg-[#fff0ee] text-[#8d261f]"
+        : visibleHotwordState === "dirty"
+          ? "bg-[#fff2cc] text-[#7a5100]"
+          : visibleHotwordState === "syncing"
+            ? "bg-[#efedff] text-[#5748ca]"
+            : "bg-[#f0f1f3] text-[#666a73]";
   const hasUnsavedChanges = settingsChanged(
     settings,
     hotwordsText,
@@ -969,6 +1240,20 @@ export function Settings({
       );
     return false;
   };
+  const hotwordConflictDialog = hotwordConflict ? (
+    <HotwordConflictDialog
+      conflict={hotwordConflict}
+      onCancel={() => {
+        setHotwordConflict(null);
+      }}
+      onLoadRemote={() => {
+        void resolveHotwordConflict(true);
+      }}
+      onOverwrite={() => {
+        void resolveHotwordConflict(false);
+      }}
+    />
+  ) : null;
 
   function renderSection(section: SettingsSectionId): ReactNode {
     switch (section) {
@@ -1207,7 +1492,7 @@ export function Settings({
           >
             <SettingRow
               title="豆包 API Key"
-              description="从火山引擎控制台获取，用于连接语音识别服务。"
+              description="从火山引擎控制台获取，用于语音识别和云端常用词同步。"
               changed={isSettingChanged("apiKey")}
             >
               <div className="w-102.5 max-[800px]:w-90">
@@ -1265,8 +1550,8 @@ export function Settings({
               </div>
             ) : null}
             <SettingRow
-              title="启用热词"
-              description="关闭后保留词表，但听写时不发送给豆包。"
+              title="启用常用词"
+              description="关闭后保留云端词表，但听写时不使用。"
               changed={isSettingChanged("hotwordsEnabled")}
             >
               <Toggle
@@ -1274,18 +1559,28 @@ export function Settings({
                 onChange={(checked) => {
                   updateSetting("hotwordsEnabled", checked);
                 }}
-                label="启用热词"
+                label="启用常用词"
               />
             </SettingRow>
             <SettingRow
-              title="热词列表"
-              description="每行一个词，最多 100 个字符。"
+              title="常用词"
+              description="保存时同步到火山引擎，用于提高人名、产品名和专业术语的识别准确率。"
               vertical
               changed={hotwordsChanged}
             >
-              <div className="mb-2 flex justify-end">
+              <div className="mb-2.5 flex items-center gap-2">
+                <span
+                  className={`rounded-full px-2 py-0.5 text-[9px] font-medium ${hotwordSyncClass}`}
+                  role="status"
+                  aria-live="polite"
+                >
+                  {hotwordSyncLabel}
+                </span>
+                <span className="text-[9px] text-[#777b84]">
+                  {hotwordCount} / {hotwordStatus.limit}
+                </span>
                 <button
-                  className="cursor-pointer border-0 bg-transparent p-0 text-[10px] font-medium text-[#6558e8] hover:text-[#4f43bd] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8] disabled:cursor-default disabled:text-[#9a9da4]"
+                  className="ml-auto cursor-pointer border-0 bg-transparent p-0 text-[10px] font-medium text-[#6558e8] hover:text-[#4f43bd] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8] disabled:cursor-default disabled:text-[#9a9da4]"
                   type="button"
                   onClick={clearHotwords}
                   disabled={!settings.hotwordsEnabled || !hotwordsText.trim()}
@@ -1294,15 +1589,18 @@ export function Settings({
                 </button>
               </div>
               <textarea
-                className="min-h-28 w-full resize-y rounded-lg border border-[#d7d9de] bg-white px-3 py-2.5 text-[12px] leading-6 text-[#202124] transition outline-none focus:border-[#7564e8] focus:ring-3 focus:ring-[#7564e8]/10 disabled:cursor-not-allowed disabled:bg-[#f5f5f6]"
+                className="min-h-32 w-full resize-y rounded-lg border border-[#d7d9de] bg-white px-3 py-2.5 text-[12px] leading-6 text-[#202124] transition outline-none focus:border-[#7564e8] focus:ring-3 focus:ring-[#7564e8]/10 disabled:cursor-not-allowed disabled:bg-[#f5f5f6]"
                 value={hotwordsText}
                 onChange={(event) => {
                   updateHotwordsText(event.target.value);
                 }}
                 disabled={!settings.hotwordsEnabled}
-                placeholder={"VoicePaste\n你的名字\n常用产品名"}
-                rows={5}
+                placeholder={"VoicePaste\nTauri\nTanStack"}
+                rows={6}
               />
+              <p className="mt-2 text-[9px] leading-4 text-[#777b84]">
+                每行一个词，不支持词内空格；词表会保存在火山引擎。听写仍保持实时流式返回。
+              </p>
             </SettingRow>
           </SettingsSection>
         );
@@ -1501,6 +1799,7 @@ export function Settings({
     return (
       <>
         {settingsToaster}
+        {hotwordConflictDialog}
         <main className="grid h-screen w-screen grid-cols-[220px_minmax(0,1fr)] overflow-hidden bg-[#f6f7f9] text-[#202124] max-[720px]:grid-cols-1">
           <aside className="flex flex-col border-r border-[#e4e5e8] bg-[#fbfbfc] px-6 py-7 max-[720px]:hidden">
             <div className="flex items-center gap-3">
@@ -1633,7 +1932,8 @@ export function Settings({
                       连接豆包语音识别
                     </h1>
                     <p className="mt-2 text-[11px] leading-5 text-[#6f737b]">
-                      API Key 会由系统凭据存储保管，不会写入应用日志。
+                      API Key
+                      由系统凭据存储保管，并用于验证语音识别和云端常用词同步。
                     </p>
 
                     <label
@@ -1911,7 +2211,7 @@ export function Settings({
                       <div className="flex items-center justify-between gap-5 px-4 py-3">
                         <dt className="text-[#777b84]">豆包服务</dt>
                         <dd className="font-medium text-[#17633f]">
-                          连接已验证
+                          识别和词库已验证
                         </dd>
                       </div>
                       <div className="flex items-center justify-between gap-5 px-4 py-3">
@@ -1945,7 +2245,7 @@ export function Settings({
                         onClick={() => void finishOnboarding()}
                         disabled={saving}
                       >
-                        {saving ? "保存中…" : "完成设置"}{" "}
+                        {saving ? "正在同步设置…" : "完成设置"}{" "}
                         <CheckCircle2 size={13} />
                       </button>
                     </div>
@@ -1963,6 +2263,7 @@ export function Settings({
     // oxlint-disable-next-line react/jsx-no-constructed-context-values -- renderer must capture current settings state
     <SettingsOutletContext.Provider value={renderSection}>
       {settingsToaster}
+      {hotwordConflictDialog}
       <div className="grid h-screen w-screen grid-cols-[188px_minmax(0,1fr)] overflow-hidden bg-[#f6f7f9] text-[#202124]">
         <aside className="flex flex-col border-r border-[#e4e5e8] bg-[#fbfbfc] px-3.5 py-4">
           <div className="flex items-center gap-2.5 px-2.5 py-2">
@@ -2055,7 +2356,13 @@ export function Settings({
                 disabled={saving || !hasUnsavedChanges}
               >
                 <Save size={11} />{" "}
-                {saving ? "保存中…" : hasUnsavedChanges ? "保存更改" : "已保存"}
+                {saving
+                  ? activeSection === "recognition" && cloudDirty
+                    ? "同步中…"
+                    : "保存中…"
+                  : hasUnsavedChanges
+                    ? "保存更改"
+                    : "已保存"}
               </button>
             </div>
           </header>

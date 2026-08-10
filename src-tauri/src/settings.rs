@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use crate::hotwords::Binding;
 
 use keyring::v1::{Entry, Error as KeyringError};
 use serde::{Deserialize, Serialize};
@@ -10,7 +10,6 @@ const STORE_PATH: &str = "settings.json";
 const STORE_KEY: &str = "voicepaste";
 const KEYRING_SERVICE: &str = "com.imbytecat.voicepaste";
 const KEYRING_ACCOUNT: &str = "doubao-api-key";
-const MAX_HOTWORD_CHARS: usize = 100;
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -61,28 +60,39 @@ impl Default for AppSettings {
     }
 }
 
-fn default_open_settings_on_startup() -> bool {
-    true
-}
-
-#[derive(Default, Deserialize, Serialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(default, rename_all = "camelCase")]
 struct PersistedSettings {
     shortcut: String,
     activation_mode: ActivationMode,
     microphone_id: String,
     hotwords: Vec<String>,
-    hotwords_enabled: Option<bool>,
+    hotwords_enabled: bool,
+    hotword_binding: Option<Binding>,
     onboarding_completed: bool,
-    #[serde(default = "default_open_settings_on_startup")]
     open_settings_on_startup: bool,
     overlay_position: OverlayPosition,
-    #[serde(skip_serializing)]
-    api_key_fallback: Option<String>,
+}
+
+impl Default for PersistedSettings {
+    fn default() -> Self {
+        Self {
+            shortcut: DEFAULT_SHORTCUT.to_owned(),
+            activation_mode: ActivationMode::default(),
+            microphone_id: String::new(),
+            hotwords: Vec::new(),
+            hotwords_enabled: true,
+            hotword_binding: None,
+            onboarding_completed: false,
+            open_settings_on_startup: true,
+            overlay_position: OverlayPosition::default(),
+        }
+    }
 }
 
 pub struct LoadedSettings {
     pub settings: AppSettings,
+    pub hotword_binding: Option<Binding>,
     pub notice: Option<String>,
 }
 
@@ -97,7 +107,7 @@ pub fn load(app: &AppHandle) -> Result<LoadedSettings, String> {
     let store = app
         .store(STORE_PATH)
         .map_err(|error| format!("打开设置存储失败：{error}"))?;
-    let mut persisted: PersistedSettings = store
+    let persisted: PersistedSettings = store
         .get(STORE_KEY)
         .map(serde_json::from_value)
         .transpose()
@@ -106,7 +116,7 @@ pub fn load(app: &AppHandle) -> Result<LoadedSettings, String> {
 
     let mut notice = None;
     let entry = Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT).ok();
-    let mut api_key = match entry.as_ref().map(Entry::get_password) {
+    let api_key = match entry.as_ref().map(Entry::get_password) {
         Some(Ok(key)) => key,
         Some(Err(KeyringError::NoEntry)) | None => String::new(),
         Some(Err(error)) => {
@@ -114,29 +124,6 @@ pub fn load(app: &AppHandle) -> Result<LoadedSettings, String> {
             String::new()
         }
     };
-
-    if let Some(legacy_key) = persisted
-        .api_key_fallback
-        .take()
-        .filter(|key| !key.is_empty())
-    {
-        if let Some(entry) = entry {
-            match entry.set_password(&legacy_key) {
-                Ok(()) => {
-                    api_key = legacy_key;
-                    notice = Some("旧版明文 API Key 已迁移到系统钥匙串".to_owned());
-                }
-                Err(error) => {
-                    notice = Some(format!(
-                        "旧版明文 API Key 已从本地清除，请重新填写：{error}"
-                    ));
-                }
-            }
-        } else {
-            notice = Some("旧版明文 API Key 已从本地清除，请重新填写".to_owned());
-        }
-        persist(app, &persisted)?;
-    }
 
     Ok(LoadedSettings {
         settings: AppSettings {
@@ -149,17 +136,22 @@ pub fn load(app: &AppHandle) -> Result<LoadedSettings, String> {
             activation_mode: persisted.activation_mode,
             microphone_id: persisted.microphone_id,
             hotwords: persisted.hotwords,
-            hotwords_enabled: persisted.hotwords_enabled.unwrap_or(true),
+            hotwords_enabled: persisted.hotwords_enabled,
             onboarding_completed: persisted.onboarding_completed,
             launch_at_startup: false,
             open_settings_on_startup: persisted.open_settings_on_startup,
             overlay_position: persisted.overlay_position,
         },
+        hotword_binding: persisted.hotword_binding,
         notice,
     })
 }
 
-pub fn save(app: &AppHandle, settings: &AppSettings) -> Result<CredentialStorage, String> {
+pub fn save(
+    app: &AppHandle,
+    settings: &AppSettings,
+    hotword_binding: Option<&Binding>,
+) -> Result<CredentialStorage, String> {
     let entry = Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT)
         .map_err(|error| format!("系统钥匙串不可用，API Key 未保存：{error}"))?;
     let credential_storage = if settings.api_key.is_empty() {
@@ -181,11 +173,11 @@ pub fn save(app: &AppHandle, settings: &AppSettings) -> Result<CredentialStorage
             activation_mode: settings.activation_mode,
             microphone_id: settings.microphone_id.clone(),
             hotwords: settings.hotwords.clone(),
-            hotwords_enabled: Some(settings.hotwords_enabled),
+            hotwords_enabled: settings.hotwords_enabled,
             onboarding_completed: settings.onboarding_completed,
             open_settings_on_startup: settings.open_settings_on_startup,
             overlay_position: settings.overlay_position,
-            api_key_fallback: None,
+            hotword_binding: hotword_binding.cloned(),
         },
     )?;
     Ok(credential_storage)
@@ -204,62 +196,33 @@ fn persist(app: &AppHandle, settings: &PersistedSettings) -> Result<(), String> 
         .map_err(|error| format!("保存设置失败：{error}"))
 }
 
-pub fn sanitize_hotwords(hotwords: Vec<String>) -> Result<Vec<String>, String> {
-    let mut seen = HashSet::new();
-    let mut total_chars = 0;
-    let mut normalized = Vec::new();
-    for word in hotwords {
-        let word = word.trim();
-        if word.is_empty() || !seen.insert(word.to_lowercase()) {
-            continue;
-        }
-        total_chars += word.chars().count();
-        if total_chars > MAX_HOTWORD_CHARS {
-            return Err("热词总长度不能超过 100 个字符（按接口 token 上限保守限制）".to_owned());
-        }
-        normalized.push(word.to_owned());
-    }
-    Ok(normalized)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn hotwords_are_trimmed_deduplicated_and_bounded() {
-        assert_eq!(
-            sanitize_hotwords(vec![
-                " VoicePaste ".into(),
-                "voicepaste".into(),
-                "豆包".into()
-            ])
-            .unwrap(),
-            ["VoicePaste", "豆包"]
-        );
-        assert!(sanitize_hotwords(vec!["字".repeat(101)]).is_err());
+    fn persisted_defaults_match_product_defaults() {
+        let persisted = PersistedSettings::default();
+        assert_eq!(persisted.shortcut, DEFAULT_SHORTCUT);
+        assert!(persisted.hotwords_enabled);
+        assert!(persisted.open_settings_on_startup);
+        assert!(persisted.hotword_binding.is_none());
     }
 
     #[test]
-    fn older_settings_receive_safe_product_defaults() {
-        let persisted: PersistedSettings = serde_json::from_value(serde_json::json!({
-            "shortcut": "Control+Space",
-            "hotwords": ["VoicePaste"]
-        }))
-        .unwrap();
-
-        assert!(!persisted.onboarding_completed);
-        assert!(persisted.open_settings_on_startup);
-        assert!(matches!(
-            persisted.overlay_position,
-            OverlayPosition::Bottom
-        ));
-
-        let settings: AppSettings = serde_json::from_value(serde_json::json!({
-            "shortcut": "Control+Space",
-            "hotwords": ["VoicePaste"]
-        }))
-        .unwrap();
-        assert!(settings.hotwords_enabled);
+    fn cloud_binding_round_trips_with_settings() {
+        let persisted = PersistedSettings {
+            hotwords: vec!["VoicePaste".to_owned()],
+            hotword_binding: Some(Binding {
+                table_id: "table-id".to_owned(),
+                revision: "revision".to_owned(),
+                limit: 5000,
+            }),
+            ..PersistedSettings::default()
+        };
+        let encoded = serde_json::to_value(&persisted).unwrap();
+        let decoded: PersistedSettings = serde_json::from_value(encoded).unwrap();
+        assert_eq!(decoded.hotwords, ["VoicePaste"]);
+        assert_eq!(decoded.hotword_binding, persisted.hotword_binding);
     }
 }
