@@ -60,7 +60,7 @@ const PRIMARY_BUTTON_CLASS =
 const SECONDARY_BUTTON_CLASS =
   "flex h-9 shrink-0 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-[#d7d9de] bg-white px-3 text-[10px] font-medium text-[#555962] transition hover:bg-[#f5f5f6] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8] disabled:cursor-not-allowed disabled:opacity-55";
 const CONSOLE_URL = "https://console.volcengine.com/speech/new/setting/apikeys";
-const FALLBACK_APP_VERSION = "1.0.0";
+const FALLBACK_APP_VERSION = "1.1.0";
 const SECTIONS = [
   ["general", "通用", Settings2],
   ["shortcut", "语音输入", Command],
