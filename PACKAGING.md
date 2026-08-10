@@ -51,7 +51,19 @@ programs.appimage.enable = true;   # 提供 appimage-run
 programs.appimage.binfmt = true;   # 可选：直接执行 .AppImage
 ```
 
-或临时执行 `nix run nixpkgs#appimage-run -- ./VoicePaste_*.AppImage`（已在 NixOS 上实测可正常启动并完成 libei 输入初始化）。
+或临时执行 `nix run nixpkgs#appimage-run -- ./VoicePaste_*.AppImage`。注意这一层只解决“基础库找不到”，1.2.0 及更早的 AppImage 在 FHS 包装层里仍会因为下面这个捆绑问题导致渲染进程崩溃。
+
+### 捆绑 Wayland 库导致 WebKit 崩溃
+
+`linuxdeploy-plugin-gtk` 会顺着 gdk-3 依赖把 `libwayland-client.so.0`、`libwayland-cursor.so.0`、`libwayland-egl.so.1`、`libwayland-server.so.0` 拖进 AppDir，而这几个同样在 excludelist 里。AppRun 把 `$APPDIR/usr/lib` 放在 `LD_LIBRARY_PATH` 最前，构建机（Ubuntu 24.04，wayland 1.22）的副本就会盖掉宿主副本；glvnd 的 `libEGL` 随后无法加载宿主 `libEGL_mesa.so.0`，`eglGetDisplay()` 返回 `EGL_BAD_PARAMETER`，WebKitWebProcess 直接 abort：
+
+```
+Could not create default EGL display: EGL_BAD_PARAMETER. Aborting...
+```
+
+主进程仍然存活，所以日志看起来像“启动成功”，实际窗口已经没有渲染进程。任何 Wayland/Mesa 版本与构建机不一致的发行版都会中招，NixOS 只是最早暴露的一个。
+
+Tauri 在 linuxdeploy 与 AppImage 打包之间没有 hook，因此 `tools/repack-appimage.sh` 在打包完成后删掉这四个库、用 Tauri 已缓存的 `linuxdeploy-plugin-appimage` 重新打包并重新签名。发布流程会用重打包后的产物覆盖 Release 资产，并在所有平台 job 结束后由 `sync-updater-signature` job 把 `latest.json` 的 Linux 签名同步成新文件的签名。
 
 ## 工具链
 

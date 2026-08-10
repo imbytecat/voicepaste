@@ -67,6 +67,15 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
 
+      - name: Repack AppImage without host Wayland libraries
+        if: github.event_name == 'workflow_dispatch' && runner.os == 'Linux'
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          # `tauri signer sign` prompts for a password unless one is provided
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        run: ./tools/repack-appimage.sh
+
       - name: Upload manual test artifacts
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v7
@@ -99,6 +108,24 @@ jobs:
           releaseDraft: true
           prerelease: false
 
+      - name: Repack and republish AppImage without host Wayland libraries
+        if: github.event_name == 'push' && runner.os == 'Linux'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        run: |
+          set -euo pipefail
+          ./tools/repack-appimage.sh
+          version="${GITHUB_REF_NAME#v}"
+          built="src-tauri/target/release/bundle/appimage/VoicePaste_${version}_amd64.AppImage"
+          asset="VoicePaste_${version}_Linux_amd64.AppImage"
+          staging="$(mktemp -d)"
+          cp "$built" "$staging/$asset"
+          cp "$built.sig" "$staging/$asset.sig"
+          gh release upload "$GITHUB_REF_NAME" "$staging/$asset" "$staging/$asset.sig" --clobber
+
       - name: Build and publish macOS release
         if: github.event_name == 'push' && runner.os == 'macOS'
         uses: tauri-apps/tauri-action@v1
@@ -128,3 +155,30 @@ jobs:
           generateReleaseNotes: true
           releaseDraft: true
           prerelease: false
+
+  # Every publish job rewrites latest.json, so the repacked AppImage signature is
+  # synced once all of them are done. The updater rejects an update whose signature
+  # does not match the published file.
+  sync-updater-signature:
+    if: github.event_name == 'push'
+    needs: publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Point latest.json at the repacked AppImage
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          staging="$(mktemp -d)"
+          gh release download "$GITHUB_REF_NAME" --dir "$staging" \
+            --pattern latest.json --pattern '*_Linux_amd64.AppImage.sig'
+          signature="$(cat "$staging"/*_Linux_amd64.AppImage.sig)"
+          jq --arg sig "$signature" \
+            '(.platforms["linux-x86_64"], .platforms["linux-x86_64-appimage"]) |= (.signature = $sig)' \
+            "$staging/latest.json" > "$staging/latest.patched.json"
+          mv "$staging/latest.patched.json" "$staging/latest.json"
+          gh release upload "$GITHUB_REF_NAME" "$staging/latest.json" --clobber
+          jq -r '.platforms | keys[]' "$staging/latest.json"
