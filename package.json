@@ -6,8 +6,8 @@
   "type": "module",
   "scripts": {
     "build": "vite build && tsc",
-    "test:shortcut": "node --experimental-strip-types --test tests/shortcut.test.mjs",
-    "check": "ultracite check && pnpm build",
+    "test:shortcut": "node --test tests/shortcut.test.ts",
+    "check": "ultracite check && pnpm build && pnpm test:shortcut",
     "dev": "vite",
     "fix": "ultracite fix",
     "tauri": "tauri"

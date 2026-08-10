@@ -58,7 +58,6 @@
 
 所以，仅删除 VoicePaste 的 modifiers 检查，能支持普通单键，**不能**支持右 Ctrl、右 Option、右 Command 或 Fn。
 
-
 ## 闪电说
 
 ### 官方确认
@@ -77,7 +76,6 @@
 - 单物理键：有第一方截图和页面展示；但左/右 Command、左/右 Option、任意普通单键是否可选，未找到第一方证据。
 - 触发语义：同一快捷键区分短按与长按；短按是切换式，长按在松开时触发“帮我说”。这与 VoicePaste 当前“切换/按住”是相近但不完全相同的产品语义。
 
-
 ## 豆包输入法
 
 ### 官方确认
@@ -92,7 +90,6 @@
 - macOS 快捷键：`fn` 单键按住。
 - 可配置范围、左右 Fn、松开后的结束/提交行为：未找到第一方证据。
 - `Fn` 是平台特殊键；不能从豆包的输入法实现推断普通桌面应用可直接使用同一系统接口复刻。
-
 
 ## 微信输入法
 
@@ -204,7 +201,7 @@
 - [Windows KBDLLHOOKSTRUCT](https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-kbdllhookstruct)
 - [XDG Global Shortcuts Portal](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.GlobalShortcuts.html)
 - [XDG Shortcuts Specification](https://specifications.freedesktop.org/shortcuts-spec/latest/)
-- [macOS CGEventTapCreate](https://developer.apple.com/documentation/coregraphics/cgevent/tapcreate(tap:place:options:eventsofinterest:callback:userinfo:))
+- [macOS CGEventTapCreate](<https://developer.apple.com/documentation/coregraphics/cgevent/tapcreate(tap:place:options:eventsofinterest:callback:userinfo:)>)
 - [macOS keyboardEventKeycode](https://developer.apple.com/documentation/coregraphics/cgeventfield/keyboardeventkeycode)
 
 未解决证据：闪电说没有公开左/右 Command/Option 和完整可配置范围；豆包输入法没有公开 Fn 左右侧、松开行为和自定义范围；微信输入法没有公开 macOS 可选快捷键清单、左右 Fn 和 Windows 语音快捷键；Linux Wayland 各 portal/compositor 对单修饰键的实际接受范围仍需逐桌面实测。

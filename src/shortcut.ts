@@ -7,7 +7,7 @@ import type { Hotkey } from "@tanstack/react-hotkeys";
 
 const PORTABLE_PRIMARY_MODIFIER = "Mod";
 const TAURI_PRIMARY_MODIFIER = "CommandOrControl";
-const PORTABLE_SINGLE_KEY_PATTERN = /^F(?:1[3-9]|20)$/;
+const PORTABLE_SINGLE_KEY_PATTERN = /^F(?:1[3-9]|20)$/u;
 const PORTABLE_SINGLE_KEY_ERROR =
   "无修饰单键仅支持 F13–F20；其他按键请搭配修饰键";
 
