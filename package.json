@@ -1,6 +1,5 @@
 {
   "name": "voicepaste",
-  "version": "1.1.0",
   "private": true,
   "license": "MIT",
   "type": "module",

@@ -35,12 +35,12 @@ jobs:
         with:
           install_args: node pnpm rust
 
-      - name: Validate release version
+      - name: Validate release tag
         if: github.event_name == 'push'
         shell: bash
         run: |
           set -euo pipefail
-          node -e "const fs=require('fs');const p=require('./package.json').version;const t=require('./src-tauri/tauri.conf.json').version;const c=fs.readFileSync('./src-tauri/Cargo.toml','utf8').match(/^version = \"([^\"]+)\"/m)?.[1];if(p!==t||p!==c||process.env.GITHUB_REF_NAME!==('v'+p)){console.error('版本或 tag 不一致：package='+p+', tauri='+t+', cargo='+c+', tag='+process.env.GITHUB_REF_NAME);process.exit(1)}"
+          node -e "const v=require('fs').readFileSync('./src-tauri/Cargo.toml','utf8').match(/^version = \"([^\"]+)\"/m)?.[1];if(process.env.GITHUB_REF_NAME!==('v'+v)){console.error('tag 与 Cargo.toml 版本不一致：cargo='+v+', tag='+process.env.GITHUB_REF_NAME);process.exit(1)}"
 
       - name: Install Linux system dependencies
         if: runner.os == 'Linux'

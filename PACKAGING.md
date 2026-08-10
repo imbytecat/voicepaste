@@ -71,17 +71,13 @@ NixOS 本地环境不能可靠生成 AppImage；本地只运行检查与原生�
    mise install
    ```
 
-2. 确认三个清单中的版本一致：
-
-   ```bash
-   node -e "const fs=require('fs');const p=require('./package.json').version;const t=require('./src-tauri/tauri.conf.json').version;const c=fs.readFileSync('./src-tauri/Cargo.toml','utf8').match(/^version = \"([^\"]+)\"/m)?.[1];console.log({package:p,tauri:t,cargo:c});if(p!==t||p!==c)process.exit(1)"
-   ```
+2. 升级版本：只改 `src-tauri/Cargo.toml` 的 `version`。应用、安装包、updater 与 tag 校验都以它为准；`tauri.conf.json` 省略 `version` 时 Tauri 回退到 Cargo 版本，`package.json` 不记录版本。
 
 3. 确认 CI 通过。手动运行 **Release** workflow，下载三平台测试 artifact，验证安装包与 updater `.sig` 已生成。
 4. 创建并推送 tag：
 
    ```bash
-   VERSION="$(node -p "require('./package.json').version")"
+   VERSION="$(node -p "require('fs').readFileSync('src-tauri/Cargo.toml','utf8').match(/^version = \"([^\"]+)\"/m)[1]")"
    git tag -a "v$VERSION" -m "VoicePaste $VERSION"
    git push origin "v$VERSION"
    ```
