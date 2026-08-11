@@ -1,53 +1,103 @@
-# VoicePaste
+<p align="center">
+  <img src="src-tauri/icons/128x128.png" width="96" height="96" alt="VoicePaste 图标">
+</p>
 
-VoicePaste 是跨平台桌面语音输入工具。按全局快捷键开始听写，豆包流式识别完成后，文本会粘贴到当前输入位置。
+<h1 align="center">VoicePaste</h1>
 
-## 安装
+<p align="center">
+  按下快捷键开始说话，让语音直接出现在当前输入位置。
+</p>
 
-从 [GitHub Releases](https://github.com/imbytecat/voicepaste/releases/latest) 下载当前系统对应的正式产物：
+<p align="center">
+  <a href="https://github.com/imbytecat/voicepaste/releases/latest"><img src="https://img.shields.io/github/v/release/imbytecat/voicepaste?display_name=tag&sort=semver" alt="最新版本"></a>
+  <a href="https://github.com/imbytecat/voicepaste/actions/workflows/ci.yml"><img src="https://github.com/imbytecat/voicepaste/actions/workflows/ci.yml/badge.svg" alt="CI 状态"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/imbytecat/voicepaste" alt="MIT 许可证"></a>
+</p>
 
-- **Windows**：优先使用 NSIS 安装程序（`.exe`），也可使用 MSI（`.msi`）。按安装向导完成安装。
-- **Apple Silicon Mac（macOS 11 及以上）**：打开 `.dmg`，将 VoicePaste 拖入“应用程序”。
-- **Debian / Ubuntu**：下载 `.deb` 后运行 `sudo apt install ./VoicePaste_*.deb`。
-- **Fedora / RHEL**：下载 `.rpm` 后运行 `sudo dnf install ./VoicePaste-*.rpm`。
-- **其他常见 Linux 发行版**：下载 AppImage，运行 `chmod +x VoicePaste_*.AppImage`，再双击或执行 `./VoicePaste_*.AppImage`。
-- **NixOS 等非 FHS 发行版**：AppImage 需要 FHS 运行环境，直接执行会报 `libasound.so.2: cannot open shared object file`。开启 `programs.appimage.enable = true;`（可再加 `programs.appimage.binfmt = true;` 直接双击运行），或临时用 `nix run nixpkgs#appimage-run -- ./VoicePaste_*.AppImage`。详见 [PACKAGING.md](PACKAGING.md#appimage-与宿主库)。
+VoicePaste 是面向 Windows、macOS 和 Linux 的桌面语音输入工具。它通过全局快捷键启动听写，实时显示识别状态，并将最终文本粘贴到当前应用的光标位置。聊天窗口、文档、IDE、搜索框和表单都可以直接使用，不依赖特定编辑器或浏览器扩展。
 
-VoicePaste 是完全开源的早期项目，目前不购买 Apple Developer 或 Windows 代码签名证书。macOS Gatekeeper 与 Windows SmartScreen 可能因此显示“未知开发者”提示；请核对下载来源确为本仓库 Release。
+VoicePaste 使用用户自己的火山引擎豆包语音识别服务，不运营中转服务器，也不提供或转售 API 配额。
 
-若系统拦截：macOS 可右键 VoicePaste 选择“打开”，或到“隐私与安全性”允许打开；Windows 可在 SmartScreen 中选择“更多信息”后继续。只有确认文件来自本仓库 Release 时才应绕过提示。
+## 主要功能
 
-## 首次设置
+- **全局语音输入**：在任意可输入文本的桌面应用中开始听写。
+- **两种触发方式**：支持按一次开始、再按一次结束，也支持按住说话、松开结束。
+- **实时状态浮层**：显示录音、识别、文本处理和错误状态，不打断当前工作。
+- **云端常用词**：将专业名词、人名和产品名同步到用户自己的火山引擎词表，提高识别准确率。
+- **可选 LLM 后处理**：使用 OpenAI 兼容接口整理标点、修正表达或按自定义风格改写文本。
+- **系统级凭据存储**：API Key 优先保存在 macOS 钥匙串、Windows 凭据管理器或 Linux Secret Service。
+- **应用内更新**：从 GitHub Releases 获取经过 VoicePaste updater 密钥验证的更新包。
+- **无自建遥测**：不包含行为分析、广告 SDK 或开发者自建的崩溃上报服务。
 
-1. 启动 VoicePaste，按系统提示授予麦克风权限；macOS、Windows 或 Linux 桌面环境还可能要求辅助功能、输入控制或全局快捷键权限。
-2. 在设置中填写从火山引擎控制台获取的豆包 API Key，点击“测试连接”。
-3. 选择麦克风，使用麦克风测试确认有输入音量。
-4. 设置全局快捷键、按键模式和可选常用词；也可配置 OpenAI 兼容 API，在识别后使用 LLM 整理文本。LLM 后处理会增加最终输入的等待时间。
-5. 保存设置，在任意可输入文本的应用中试用。
+## 下载与安装
 
-## 使用
+从 [GitHub Releases](https://github.com/imbytecat/voicepaste/releases/latest) 下载对应系统的安装包。
 
-- **切换模式**：按一次全局快捷键开始，再按一次完成。
-- **按住模式**：按住全局快捷键说话，松开完成。
-- **托盘**：关闭设置窗口后 VoicePaste 继续在系统托盘运行。托盘菜单可打开设置、检查更新或完全退出。
-- **版本更新**：应用启动后会检查 GitHub Releases；发现新版本时，可在“关于”页确认安装。更新包使用 VoicePaste updater 密钥验证。
+| 系统 | 支持范围 | 推荐安装包 |
+| --- | --- | --- |
+| Windows | Windows 10/11 x64 | `VoicePaste_<版本>_Windows_x64-setup.exe` |
+| macOS | Apple Silicon，macOS 11 及以上 | `VoicePaste_<版本>_macOS_aarch64.dmg` |
+| Debian / Ubuntu | x86_64 | `VoicePaste_<版本>_Linux_amd64.deb` |
+| Fedora / RHEL | x86_64 | `VoicePaste_<版本>_Linux_x86_64.rpm` |
+| 其他 Linux 发行版 | x86_64，FHS 环境 | `VoicePaste_<版本>_Linux_amd64.AppImage` |
 
-### LLM 后处理
+Windows 也提供 MSI 安装包。Release 中的 `latest.json`、`.sig` 和 `.app.tar.gz` 用于应用内更新，普通用户无需手动下载。
 
-- 可选“流式显示”会在模型生成最终正文时实时更新悬浮窗；思考内容不会显示或粘贴。不支持流式响应的服务可关闭此选项。
-- “请求参数”提供 DeepSeek、Qwen、OpenAI / Gemini / Ollama、OpenRouter 的常用关闭思考预设，无需手写 JSON；其它参数可切换到高级 JSON 编辑，并获得即时格式校验。
-- 高级参数会合并到 `/chat/completions` 请求顶层；`model`、`messages`、`stream`、`stream_options` 由 VoicePaste 管理，不能覆盖。不要在此填写密钥。
-- 参数支持取决于服务和模型。Qwen 思考专用模型、Gemini 2.5 Pro / Gemini 3 等模型不能关闭思考；部分 Qwen 模型只支持流式调用。
+> [!IMPORTANT] VoicePaste 是免费开源项目，目前未购买 Apple Developer 或 Windows 商业代码签名证书。macOS Gatekeeper 或 Windows SmartScreen 可能显示“未知开发者”提示。只有确认文件来自本仓库的 GitHub Release 时，才应选择继续运行。
 
-参数依据：[DeepSeek](https://api-docs.deepseek.com/api/create-chat-completion)、[Qwen](https://www.alibabacloud.com/help/en/model-studio/deep-thinking)、[Gemini OpenAI 兼容接口](https://ai.google.dev/gemini-api/docs/openai)、[OpenRouter](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens)、[Ollama OpenAI 兼容接口](https://docs.ollama.com/api/openai-compatibility)。
+macOS 可右键 VoicePaste 选择“打开”，或在“系统设置 → 隐私与安全性”中允许打开。Windows 可在 SmartScreen 页面选择“更多信息 → 仍要运行”。
+
+NixOS 等非 FHS 发行版不能直接运行普通 AppImage。可启用 NixOS 的 AppImage 支持，或使用：
+
+```bash
+nix run nixpkgs#appimage-run -- ./VoicePaste_*.AppImage
+```
+
+详细原因和其他打包信息见 [PACKAGING.md](PACKAGING.md#appimage-与宿主库)。
+
+## 开始使用
+
+1. 准备火山引擎豆包语音识别 API Key。第三方服务的开通条件、配额和费用由用户自己的火山引擎账户决定。
+2. 启动 VoicePaste，并按系统提示授予麦克风、全局快捷键和输入控制等必要权限。
+3. 在设置中填写豆包 API Key，点击“测试连接”，再选择并测试麦克风。
+4. 设置全局快捷键和触发方式；需要时添加常用词或配置 LLM 后处理。
+5. 保存设置，在任意输入框中触发快捷键并开始说话。
+
+关闭设置窗口不会退出 VoicePaste。应用会继续在系统托盘运行，可从托盘菜单重新打开设置、检查更新或完全退出。
+
+## LLM 后处理
+
+LLM 后处理默认关闭。启用后，VoicePaste 会在语音识别完成后，将识别文本发送到用户配置的 OpenAI 兼容 `/chat/completions` 接口，再粘贴模型返回的最终文本。请求失败、响应无效或返回空文本时，应用会使用原始识别结果。
+
+设置页提供 DeepSeek、Qwen、OpenAI / Gemini / Ollama 和 OpenRouter 等常见服务的请求参数预设，也支持高级 JSON 参数。模型、消息和流式响应等核心字段由 VoicePaste 管理，API Key 不应写入自定义 JSON。
+
+启用“流式显示”后，模型生成的正文会实时显示在悬浮窗中；推理或思考内容不会显示或粘贴。服务是否支持流式响应和关闭思考取决于具体模型。
 
 ## 数据与隐私
 
-VoicePaste 没有自建遥测。麦克风音频只在用户主动听写期间发送给豆包语音识别服务；常用词会保存在本机，并同步到用户自己的火山引擎账户。可选 LLM 后处理会将识别文本发送到用户配置的第三方服务。API Key 优先保存在系统凭据库。日志不会记录 API Key、音频数据或识别正文。详见 [PRIVACY.md](PRIVACY.md)。
+VoicePaste 不运营后端服务。正常听写的数据流如下：
 
-## 开发
+```text
+麦克风 → 豆包语音识别 → 可选的用户自定义 LLM 服务 → 当前输入位置
+```
 
-开发工具链由 `mise.toml` 统一管理：
+- 麦克风只在用户主动听写期间采集；VoicePaste 不在本机保存录音。
+- 音频直接发送到豆包语音识别服务，不经过 VoicePaste 自建服务器。
+- 常用词保存在本机，并同步到用户自己的火山引擎账户。
+- 识别文本默认只在本机处理；只有启用 LLM 后处理时才会发送到用户指定的第三方服务。
+- 日志不记录 API Key、原始音频、识别正文或常用词内容。
+
+完整说明见 [PRIVACY.md](PRIVACY.md)。提交公开 Issue 或日志前，请移除 API Key、录音、完整识别文本和其他敏感信息。
+
+## 项目状态
+
+VoicePaste 仍处于早期开发阶段。核心输入流程可用，但不同桌面环境的权限模型、全局快捷键和自动粘贴行为可能存在差异。遇到问题时，请在 [GitHub Issues](https://github.com/imbytecat/voicepaste/issues) 中提供系统版本、桌面环境、VoicePaste 版本和可复现步骤。
+
+本项目的代码、测试、文档和发布流程主要由 AI coding agents 维护，项目所有者负责产品方向、权限管理和最终发布。Issue 与 Pull Request 均欢迎提交；涉及行为变更时，请说明实际使用场景和期望结果。
+
+## 本地开发
+
+项目使用 Tauri、Rust、React 和 TypeScript，工具链由 [`mise.toml`](mise.toml) 统一管理：
 
 ```bash
 mise install
@@ -55,15 +105,14 @@ pnpm install
 mise run dev
 ```
 
-Ubuntu 构建依赖：
+运行完整检查：
 
 ```bash
-sudo apt-get update
-sudo apt-get install -y libasound2-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev libxkbcommon-dev patchelf xdg-utils
+mise run check
 ```
 
-发布与签名流程见 [PACKAGING.md](PACKAGING.md)。
+构建依赖、安装包格式、签名和发布流程见 [PACKAGING.md](PACKAGING.md)。
 
 ## 许可证
 
-[MIT](LICENSE)
+VoicePaste 以 [MIT License](LICENSE) 开源。
