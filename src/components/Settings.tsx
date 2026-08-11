@@ -31,11 +31,49 @@ import {
   useRef,
   useState,
 } from "react";
-import type { ReactNode } from "react";
+import type { ReactNode, RefObject } from "react";
 import { Toaster, toast } from "sonner";
 
 import { AudioCapture } from "@/audio";
 import type { MicrophoneDevice } from "@/audio";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogMedia,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+} from "@/components/ui/combobox";
+import { Input } from "@/components/ui/input";
+import { Progress } from "@/components/ui/progress";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   hotwordActionMessage,
   hotwordChip,
@@ -63,14 +101,7 @@ import type {
   UpdateInfo,
 } from "@/types";
 
-const INPUT_CLASS =
-  "h-9 w-full rounded-lg border border-[#d7d9de] bg-white px-3 text-[12px] text-[#202124] outline-none transition focus:border-[#7564e8] focus:ring-3 focus:ring-[#7564e8]/10 disabled:cursor-not-allowed disabled:bg-[#f5f5f6] disabled:text-[#8b8f97]";
-const PRIMARY_BUTTON_CLASS =
-  "flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-lg border-0 bg-[#6558e8] px-4 text-[11px] font-medium text-white transition hover:bg-[#584bcf] focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8] disabled:cursor-not-allowed disabled:opacity-55";
-const SECONDARY_BUTTON_CLASS =
-  "flex h-9 shrink-0 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-[#d7d9de] bg-white px-3 text-[10px] font-medium text-[#555962] transition hover:bg-[#f5f5f6] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8] disabled:cursor-not-allowed disabled:opacity-55";
-const TEXT_BUTTON_CLASS =
-  "cursor-pointer border-0 bg-transparent p-0 text-[10px] font-medium text-[#6558e8] hover:text-[#4f43bd] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8] disabled:cursor-default disabled:text-[#9a9da4]";
+const DEFAULT_MICROPHONE_VALUE = "__voicepaste_system_default__";
 const CONSOLE_URL = "https://console.volcengine.com/speech/new/setting/apikeys";
 const SECTIONS = [
   ["general", "通用", Settings2],
@@ -382,16 +413,19 @@ function SettingRow({
       className={
         vertical
           ? "px-5 py-4.5"
-          : "flex min-h-16.5 items-center justify-between gap-8 px-5 py-3.5 max-[800px]:items-start"
+          : "grid min-h-16.5 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-8 px-5 py-3.5 max-[800px]:grid-cols-1 max-[800px]:gap-y-3"
       }
     >
-      <div className={vertical ? "" : "min-w-0 flex-1"}>
+      <div className={vertical ? "" : "min-w-0"}>
         <div className="flex items-center gap-2">
           <h3 className="text-[12px] font-medium text-[#2c2e33]">{title}</h3>
           {changed ? (
-            <span className="rounded-full bg-[#fff2cc] px-1.5 py-0.5 text-[8px] font-medium text-[#7a5100]">
+            <Badge
+              variant="outline"
+              className="h-4 border-[#e8d18a] bg-[#fff2cc] px-1.5 text-[8px] text-[#7a5100]"
+            >
               已修改
-            </span>
+            </Badge>
           ) : null}
         </div>
         {description ? (
@@ -400,7 +434,11 @@ function SettingRow({
           </p>
         ) : null}
       </div>
-      <div className={vertical ? "mt-3" : "min-w-0 shrink-0"}>{children}</div>
+      <div
+        className={vertical ? "mt-3" : "min-w-0 shrink-0 max-[800px]:w-full"}
+      >
+        {children}
+      </div>
     </div>
   );
 }
@@ -420,14 +458,16 @@ function Feedback({
         ? "border-[#e8b7b0] bg-[#fff0ee] text-[#8d261f]"
         : "border-[#c9c2f5] bg-[#f3f0ff] text-[#5142a8]";
   return (
-    <div
-      className={`rounded-[10px] border px-3.5 py-2.5 text-[11px] leading-5 ${colors} ${className ?? ""}`}
+    <Alert
+      className={`px-3.5 py-2.5 text-[11px] leading-5 ${colors} ${className ?? ""}`}
       role={message.kind === "error" ? "alert" : "status"}
       aria-live={message.kind === "error" ? "assertive" : "polite"}
       aria-atomic="true"
     >
-      {message.text}
-    </div>
+      <AlertDescription className="text-inherit">
+        {message.text}
+      </AlertDescription>
+    </Alert>
   );
 }
 
@@ -452,87 +492,61 @@ function ServiceIssueCard({
 }) {
   const warning = issue.kind === "notActivated";
   return (
-    <section
-      className={`rounded-[10px] border px-3.5 py-2.5 text-[11px] leading-5 ${warning ? "border-[#e8b7b0] bg-[#fff0ee] text-[#8d261f]" : "border-[#c9c2f5] bg-[#f3f0ff] text-[#5142a8]"} ${className ?? ""}`}
-      role="alert"
+    <Alert
+      variant={warning ? "destructive" : "default"}
+      className={`px-3.5 py-3 text-[11px] leading-5 ${
+        warning
+          ? "border-[#e8b7b0] bg-[#fff0ee]"
+          : "border-[#c9c2f5] bg-[#f3f0ff] text-[#5142a8]"
+      } ${className ?? ""}`}
       aria-live="assertive"
       aria-atomic="true"
     >
-      <div className="flex items-start gap-3">
-        <div
-          className={`grid size-9 shrink-0 place-items-center rounded-[10px] ${warning ? "bg-[#fff2cc] text-[#7a5100]" : "bg-white text-[#5142a8]"}`}
-          aria-hidden="true"
-        >
-          <Info size={17} />
-        </div>
-        <div className="min-w-0 flex-1">
-          <h3 className="text-[12px] font-semibold">{issue.title}</h3>
-          {issue.steps.length > 0 ? (
-            <ol className="mt-1.5 list-decimal pl-4">
-              {issue.steps.map((step) => (
-                <li key={step}>{step}</li>
-              ))}
-            </ol>
-          ) : (
-            <p className="mt-1.5">{issue.detail}</p>
-          )}
-          {issue.links.length > 0 ? (
-            <div className="mt-2.5 flex flex-wrap gap-2">
-              {issue.links.map((link) => (
-                <button
-                  className={SECONDARY_BUTTON_CLASS}
-                  key={link.target}
-                  type="button"
-                  onClick={() => {
-                    onOpenLink(link.target);
-                  }}
-                >
-                  <ExternalLink size={11} /> {link.label}
-                </button>
-              ))}
-            </div>
-          ) : null}
-          {issue.steps.length > 0 ? (
-            <details className="mt-2.5">
-              <summary className="cursor-pointer text-[10px]">技术详情</summary>
-              <p className="mt-1 text-[10px] leading-4 wrap-break-word">
-                {issue.detail}
-              </p>
-            </details>
-          ) : null}
-        </div>
-      </div>
-    </section>
+      <Info size={16} />
+      <AlertTitle className="text-[12px] font-semibold">
+        {issue.title}
+      </AlertTitle>
+      <AlertDescription className="text-inherit">
+        {issue.steps.length > 0 ? (
+          <ol className="mt-1 list-decimal pl-4">
+            {issue.steps.map((step) => (
+              <li key={step}>{step}</li>
+            ))}
+          </ol>
+        ) : (
+          <p className="mt-1">{issue.detail}</p>
+        )}
+        {issue.links.length > 0 ? (
+          <div className="mt-2.5 flex flex-wrap gap-2">
+            {issue.links.map((link) => (
+              <Button
+                key={link.target}
+                variant="outline"
+                size="sm"
+                className="h-7 text-[10px]"
+                type="button"
+                onClick={() => {
+                  onOpenLink(link.target);
+                }}
+              >
+                <ExternalLink size={11} /> {link.label}
+              </Button>
+            ))}
+          </div>
+        ) : null}
+        {issue.steps.length > 0 ? (
+          <details className="mt-2.5">
+            <summary className="cursor-pointer text-[10px]">技术详情</summary>
+            <p className="mt-1 text-[10px] leading-4 wrap-break-word">
+              {issue.detail}
+            </p>
+          </details>
+        ) : null}
+      </AlertDescription>
+    </Alert>
   );
 }
 
-function Toggle({
-  checked,
-  onChange,
-  label,
-}: {
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-  label: string;
-}) {
-  return (
-    <button
-      className={`relative h-6 w-11 cursor-pointer rounded-full border-0 transition focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8] ${checked ? "bg-[#6558e8]" : "bg-[#cfd2d8]"}`}
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      onClick={() => {
-        onChange(!checked);
-      }}
-    >
-      <span
-        className={`absolute top-0.5 size-5 rounded-full bg-white shadow-[0_1px_3px_rgba(24,28,36,0.24)] transition-[left] ${checked ? "left-[22px]" : "left-0.5"}`}
-        aria-hidden="true"
-      />
-    </button>
-  );
-}
 function describeHotwords(words: string[]): string {
   const preview = words.slice(0, HOTWORD_DIFF_PREVIEW).join("、");
   return words.length > HOTWORD_DIFF_PREVIEW
@@ -542,104 +556,72 @@ function describeHotwords(words: string[]): string {
 
 function HotwordConflictDialog({
   conflict,
+  finalFocus,
   onCancel,
   onUseCloud,
   onOverwriteCloud,
 }: {
   conflict: HotwordConflict;
+  finalFocus: RefObject<HTMLElement | null>;
   onCancel: () => void;
   onUseCloud: () => void;
   onOverwriteCloud: () => void;
 }) {
-  const primaryButtonRef = useRef<HTMLButtonElement | null>(null);
-  useEffect(() => {
-    primaryButtonRef.current?.focus();
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onCancel();
-    };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => {
-      window.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [onCancel]);
   const { onlyCloud, onlyLocal } = hotwordDiff(
     conflict.pendingSettings.hotwords,
     conflict.cloudHotwords
   );
 
   return (
-    <div
-      className="fixed inset-0 z-50 grid place-items-center bg-[#202124]/35 p-5"
-      role="presentation"
+    <AlertDialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onCancel();
+      }}
     >
-      <section
-        className="w-full max-w-105 rounded-2xl border border-[#dedfe4] bg-white p-5 shadow-[0_24px_72px_rgba(22,25,34,0.24)]"
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby="hotword-conflict-title"
-        aria-describedby="hotword-conflict-description"
+      <AlertDialogContent
+        finalFocus={finalFocus}
+        className="w-[calc(100%-2.5rem)] max-w-105 gap-0 overflow-hidden p-0 shadow-[0_24px_72px_rgba(22,25,34,0.24)]"
       >
-        <div className="flex items-start gap-3">
-          <div
-            className="grid size-9 shrink-0 place-items-center rounded-[10px] bg-[#fff2cc] text-[#7a5100]"
-            aria-hidden="true"
-          >
+        <div className="flex items-start gap-3 p-5">
+          <AlertDialogMedia className="mb-0 size-9 shrink-0 rounded-[10px] bg-[#fff2cc] text-[#7a5100]">
             <Info size={17} />
-          </div>
-          <div>
-            <h2
-              className="text-[14px] font-semibold text-[#202124]"
-              id="hotword-conflict-title"
-            >
+          </AlertDialogMedia>
+          <div className="min-w-0">
+            <AlertDialogTitle className="text-[14px] font-semibold text-foreground">
               云端常用词已被修改
-            </h2>
-            <div
-              className="mt-1.5 text-[11px] leading-5 text-[#62666f]"
-              id="hotword-conflict-description"
-            >
-              <p>
-                云端多出 {onlyCloud.length} 个词，本机多出 {onlyLocal.length}{" "}
-                个词。请选择保留哪个版本。
+            </AlertDialogTitle>
+            <AlertDialogDescription className="mt-1.5 text-left text-[11px] leading-5 text-muted-foreground">
+              云端多出 {onlyCloud.length} 个词，本机多出 {onlyLocal.length}{" "}
+              个词。请选择保留哪个版本。
+            </AlertDialogDescription>
+            {onlyCloud.length > 0 ? (
+              <p className="mt-1.5 text-[10px] text-muted-foreground">
+                云端多出：{describeHotwords(onlyCloud)}
               </p>
-              {onlyCloud.length > 0 ? (
-                <p className="mt-1.5 text-[10px] text-[#6f737b]">
-                  云端多出：{describeHotwords(onlyCloud)}
-                </p>
-              ) : null}
-              {onlyLocal.length > 0 ? (
-                <p className="mt-1 text-[10px] text-[#6f737b]">
-                  本机多出：{describeHotwords(onlyLocal)}
-                </p>
-              ) : null}
-            </div>
+            ) : null}
+            {onlyLocal.length > 0 ? (
+              <p className="mt-1 text-[10px] text-muted-foreground">
+                本机多出：{describeHotwords(onlyLocal)}
+              </p>
+            ) : null}
           </div>
         </div>
-        <div className="mt-5 flex flex-wrap justify-end gap-2">
-          <button
-            className={SECONDARY_BUTTON_CLASS}
-            type="button"
-            onClick={onCancel}
-          >
-            取消
-          </button>
-          <button
-            className={SECONDARY_BUTTON_CLASS}
-            type="button"
+        <div className="flex flex-wrap justify-end gap-2 border-t border-border bg-muted/50 p-4">
+          <AlertDialogCancel size="lg">取消</AlertDialogCancel>
+          <AlertDialogAction
+            variant="outline"
+            size="lg"
             onClick={onOverwriteCloud}
           >
             用本机覆盖云端
-          </button>
-          <button
-            ref={primaryButtonRef}
-            className={PRIMARY_BUTTON_CLASS}
-            type="button"
-            onClick={onUseCloud}
-          >
+          </AlertDialogAction>
+          <AlertDialogAction size="lg" onClick={onUseCloud}>
             用云端替换本机
-          </button>
+          </AlertDialogAction>
         </div>
-      </section>
-    </div>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 
@@ -712,6 +694,7 @@ export function Settings({
   const microphoneTestRef = useRef<AudioCapture | null>(null);
   const shortcutButtonRef = useRef<HTMLButtonElement | null>(null);
   const onboardingHeadingRef = useRef<HTMLHeadingElement | null>(null);
+  const hotwordConflictReturnFocusRef = useRef<HTMLElement | null>(null);
 
   const showMessage = useCallback((nextMessage: NonNullable<Message>) => {
     if (nextMessage.kind === "error") {
@@ -1065,6 +1048,16 @@ export function Settings({
     savingRef.current = false;
     setSaving(false);
   };
+  const openHotwordConflict = (conflict: HotwordConflict) => {
+    const { activeElement } = document;
+    if (activeElement instanceof HTMLElement && activeElement !== document.body)
+      hotwordConflictReturnFocusRef.current = activeElement;
+    setHotwordConflict(conflict);
+  };
+
+  const closeHotwordConflict = () => {
+    setHotwordConflict(null);
+  };
 
   const cloudHotwordsChanged = () =>
     settingsRef.current.apiKey !== savedSettingsRef.current.apiKey ||
@@ -1078,7 +1071,7 @@ export function Settings({
     const result = await persistSettings(nextSettings, forceHotwordOverwrite);
     setCloudHotwords(result.cloudHotwords);
     if (result.kind === "conflict") {
-      setHotwordConflict({
+      openHotwordConflict({
         cloudHotwords: result.cloudHotwords,
         pendingSettings: nextSettings,
         source,
@@ -1200,7 +1193,7 @@ export function Settings({
       const result = await persistSettings(persistedReset);
       setCloudHotwords(result.cloudHotwords);
       if (result.kind === "conflict") {
-        setHotwordConflict({
+        openHotwordConflict({
           cloudHotwords: result.cloudHotwords,
           pendingSettings: persistedReset,
           source: "settings",
@@ -1515,6 +1508,13 @@ export function Settings({
     microphones.length > 0
       ? `原生采集可用（${microphones.length} 个设备）`
       : "未检测到麦克风";
+  const microphoneOptions = [
+    { label: "系统默认麦克风", value: DEFAULT_MICROPHONE_VALUE },
+    ...microphones.map((device) => ({
+      label: device.label,
+      value: device.id,
+    })),
+  ];
   const versionTitle = diagnostics
     ? `VoicePaste ${diagnostics.appVersion}`
     : "VoicePaste";
@@ -1532,6 +1532,20 @@ export function Settings({
   const selectedLlmParameterPreset = detectedLlmParameterPreset;
   const selectedLlmParameterPresetDetails = LLM_PARAMETER_PRESETS.find(
     (preset) => preset.id === selectedLlmParameterPreset
+  );
+  const llmParameterPresetOptions = [
+    ...(selectedLlmParameterPreset === CUSTOM_LLM_PARAMETER_PRESET
+      ? [{ label: "自定义 JSON", value: CUSTOM_LLM_PARAMETER_PRESET }]
+      : []),
+    ...LLM_PARAMETER_PRESETS.map((preset) => ({
+      label: preset.label,
+      value: preset.id,
+    })),
+  ];
+  const llmModelQuery = settings.llm.model.trim().toLocaleLowerCase();
+  const filteredLlmModels = availableLlmModels.filter(
+    (model) =>
+      !llmModelQuery || model.toLocaleLowerCase().includes(llmModelQuery)
   );
   const customLlmParameterError = llmParameterError(
     settings.llm.extraParameters
@@ -1580,9 +1594,8 @@ export function Settings({
   const hotwordConflictDialog = hotwordConflict ? (
     <HotwordConflictDialog
       conflict={hotwordConflict}
-      onCancel={() => {
-        setHotwordConflict(null);
-      }}
+      finalFocus={hotwordConflictReturnFocusRef}
+      onCancel={closeHotwordConflict}
       onOverwriteCloud={() => {
         void resolveHotwordConflict(false);
       }}
@@ -1606,12 +1619,12 @@ export function Settings({
               description="登录系统后自动启动 VoicePaste，并在托盘中等待。"
               changed={isSettingChanged("launchAtStartup")}
             >
-              <Toggle
+              <Switch
                 checked={settings.launchAtStartup}
-                onChange={(checked) => {
+                onCheckedChange={(checked) => {
                   updateSetting("launchAtStartup", checked);
                 }}
-                label="开机启动"
+                aria-label="开机启动"
               />
             </SettingRow>
             <SettingRow
@@ -1619,12 +1632,12 @@ export function Settings({
               description="启动 VoicePaste 时显示设置窗口；关闭后仅在托盘中运行。"
               changed={isSettingChanged("openSettingsOnStartup")}
             >
-              <Toggle
+              <Switch
                 checked={settings.openSettingsOnStartup}
-                onChange={(checked) => {
+                onCheckedChange={(checked) => {
                   updateSetting("openSettingsOnStartup", checked);
                 }}
-                label="启动时打开窗口"
+                aria-label="启动时打开窗口"
               />
             </SettingRow>
             <SettingRow
@@ -1632,9 +1645,15 @@ export function Settings({
               description="选择听写状态悬浮窗出现的屏幕边缘。"
               changed={isSettingChanged("overlayPosition")}
             >
-              <div
-                className="grid w-102.5 grid-cols-3 gap-1 rounded-lg bg-[#f0f1f3] p-1 max-[800px]:w-90"
-                role="radiogroup"
+              <ToggleGroup
+                className="grid w-102.5 grid-cols-3 gap-1 rounded-lg bg-secondary p-1 max-[800px]:w-full"
+                value={[settings.overlayPosition]}
+                onValueChange={(values) => {
+                  const value = values[0] as
+                    | AppSettings["overlayPosition"]
+                    | undefined;
+                  if (value) updateSetting("overlayPosition", value);
+                }}
                 aria-label="悬浮窗位置"
               >
                 {(
@@ -1643,28 +1662,16 @@ export function Settings({
                     ["left", "左侧"],
                     ["right", "右侧"],
                   ] as const
-                ).map(([value, label]) => {
-                  const selected = settings.overlayPosition === value;
-                  return (
-                    <button
-                      key={value}
-                      className={`h-7 cursor-pointer rounded-md border-0 text-[10px] font-medium transition focus-visible:outline-2 focus-visible:outline-[#7564e8] ${
-                        selected
-                          ? "bg-white text-[#4f43bd] shadow-[0_1px_3px_rgba(25,28,36,0.12)]"
-                          : "bg-transparent text-[#62666f]"
-                      }`}
-                      type="button"
-                      role="radio"
-                      aria-checked={selected}
-                      onClick={() => {
-                        updateSetting("overlayPosition", value);
-                      }}
-                    >
-                      {label}
-                    </button>
-                  );
-                })}
-              </div>
+                ).map(([value, label]) => (
+                  <ToggleGroupItem
+                    key={value}
+                    className="h-7 w-full text-[11px] text-muted-foreground hover:bg-white/60 aria-pressed:bg-white aria-pressed:text-accent-foreground aria-pressed:shadow-[0_1px_3px_rgba(25,28,36,0.12)]"
+                    value={value}
+                  >
+                    {label}
+                  </ToggleGroupItem>
+                ))}
+              </ToggleGroup>
             </SettingRow>
           </SettingsSection>
         );
@@ -1673,21 +1680,25 @@ export function Settings({
         return (
           <>
             {settings.apiKey ? null : (
-              <div
-                className="mb-5 flex items-center justify-between gap-4 rounded-lg border border-[#ead9b7] bg-[#fff8ea] px-3.5 py-2.5 text-[10px] text-[#6d511e]"
+              <Alert
+                className="mb-5 border-[#ead9b7] bg-[#fff8ea] px-3.5 py-2.5 text-[#6d511e]"
                 role="status"
               >
-                <span>开始听写前，需要先配置语音识别服务。</span>
-                <button
-                  className="shrink-0 cursor-pointer border-0 bg-transparent p-0 font-medium text-[#5748ca] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8]"
-                  type="button"
-                  onClick={() => {
-                    selectSection("recognition");
-                  }}
-                >
-                  前往配置
-                </button>
-              </div>
+                <AlertDescription className="flex items-center justify-between gap-4 text-[10px] text-inherit">
+                  <span>开始听写前，需要先配置语音识别服务。</span>
+                  <Button
+                    variant="link"
+                    size="sm"
+                    className="h-auto shrink-0 px-0 text-[10px]"
+                    type="button"
+                    onClick={() => {
+                      selectSection("recognition");
+                    }}
+                  >
+                    前往配置
+                  </Button>
+                </AlertDescription>
+              </Alert>
             )}
             <SettingsSection
               id="shortcut"
@@ -1699,9 +1710,15 @@ export function Settings({
                 description="选择快捷键按下后的行为。"
                 changed={isSettingChanged("activationMode")}
               >
-                <div
-                  className="grid w-71.5 grid-cols-2 rounded-lg bg-[#f0f1f3] p-1"
-                  role="radiogroup"
+                <ToggleGroup
+                  className="grid w-71.5 grid-cols-2 gap-1 rounded-lg bg-secondary p-1 max-[800px]:w-full"
+                  value={[settings.activationMode]}
+                  onValueChange={(values) => {
+                    const value = values[0] as
+                      | AppSettings["activationMode"]
+                      | undefined;
+                    if (value) updateSetting("activationMode", value);
+                  }}
                   aria-label="听写触发方式"
                 >
                   {(
@@ -1709,28 +1726,16 @@ export function Settings({
                       ["toggle", "按一下切换"],
                       ["hold", "按住说话"],
                     ] as const
-                  ).map(([value, label]) => {
-                    const selected = settings.activationMode === value;
-                    return (
-                      <button
-                        key={value}
-                        className={`h-7 cursor-pointer rounded-md border-0 text-[10px] font-medium transition focus-visible:outline-2 focus-visible:outline-[#7564e8] ${
-                          selected
-                            ? "bg-white text-[#4f43bd] shadow-[0_1px_3px_rgba(25,28,36,0.12)]"
-                            : "bg-transparent text-[#62666f]"
-                        }`}
-                        type="button"
-                        role="radio"
-                        aria-checked={selected}
-                        onClick={() => {
-                          updateSetting("activationMode", value);
-                        }}
-                      >
-                        {label}
-                      </button>
-                    );
-                  })}
-                </div>
+                  ).map(([value, label]) => (
+                    <ToggleGroupItem
+                      key={value}
+                      className="h-7 w-full text-[11px] text-muted-foreground hover:bg-white/60 aria-pressed:bg-white aria-pressed:text-accent-foreground aria-pressed:shadow-[0_1px_3px_rgba(25,28,36,0.12)]"
+                      value={value}
+                    >
+                      {label}
+                    </ToggleGroupItem>
+                  ))}
+                </ToggleGroup>
               </SettingRow>
 
               <SettingRow
@@ -1738,12 +1743,14 @@ export function Settings({
                 description="点击右侧快捷键，然后按下新的按键或组合键；也支持 F13–F20 单键。"
                 changed={isSettingChanged("shortcut")}
               >
-                <button
+                <Button
                   ref={shortcutButtonRef}
-                  className={`h-9 min-w-46 cursor-pointer rounded-lg border px-3 font-mono text-[10px] outline-none ${
+                  variant="outline"
+                  size="lg"
+                  className={`min-w-46 font-mono text-[10px] ${
                     shortcutRecorder.isRecording
                       ? "border-[#8f83e8] bg-[#f1efff] text-[#5748ca] ring-3 ring-[#7564e8]/10"
-                      : "border-[#d7d9de] bg-white text-[#3f434b] hover:bg-[#f8f8f9] focus-visible:ring-3 focus-visible:ring-[#7564e8]/10"
+                      : ""
                   }`}
                   type="button"
                   onClick={() => {
@@ -1757,7 +1764,7 @@ export function Settings({
                   ) : (
                     <ShortcutHint shortcut={settings.shortcut} />
                   )}
-                </button>
+                </Button>
               </SettingRow>
 
               <SettingRow
@@ -1765,50 +1772,55 @@ export function Settings({
                 description="默认使用系统当前选择的输入设备。"
                 changed={isSettingChanged("microphoneId")}
               >
-                <div className="w-102.5 max-[800px]:w-90">
+                <div className="w-102.5 max-[800px]:w-full">
                   <div className="flex gap-2">
-                    <select
-                      className={INPUT_CLASS}
-                      aria-label="麦克风"
-                      value={settings.microphoneId}
-                      onChange={(event) => {
-                        updateSetting("microphoneId", event.target.value);
+                    <Select
+                      items={microphoneOptions}
+                      value={settings.microphoneId || DEFAULT_MICROPHONE_VALUE}
+                      onValueChange={(value) => {
+                        if (value === null) return;
+                        updateSetting(
+                          "microphoneId",
+                          value === DEFAULT_MICROPHONE_VALUE ? "" : value
+                        );
                         setMicrophoneMessage(null);
                       }}
                       disabled={testingMicrophone}
                     >
-                      <option value="">系统默认麦克风</option>
-                      {microphones.map((device) => (
-                        <option key={device.id} value={device.id}>
-                          {device.label}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      className={SECONDARY_BUTTON_CLASS}
+                      <SelectTrigger
+                        className="h-9 min-w-0 flex-1 text-[12px]"
+                        aria-label="麦克风"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {microphoneOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      variant="outline"
+                      size="lg"
                       type="button"
                       aria-pressed={testingMicrophone}
                       onClick={toggleMicrophoneTest}
+                      className="text-[11px]"
                     >
-                      <Mic size={11} />{" "}
+                      <Mic size={12} />{" "}
                       {testingMicrophone ? "停止测试" : "开始测试"}
-                    </button>
+                    </Button>
                   </div>
-                  <div
-                    className="mt-2 h-1 overflow-hidden rounded-full bg-[#ececef]"
-                    role="meter"
+                  <Progress
+                    className="mt-2 gap-0"
                     aria-label="麦克风音量"
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-valuenow={Math.round(microphoneLevel * 100)}
-                  >
-                    <div
-                      className="h-full rounded-full bg-[#6558e8] transition-[width] duration-75"
-                      style={{
-                        width: `${Math.max(testingMicrophone ? 3 : 0, microphoneLevel * 100)}%`,
-                      }}
-                    />
-                  </div>
+                    value={Math.max(
+                      testingMicrophone ? 3 : 0,
+                      microphoneLevel * 100
+                    )}
+                  />
                 </div>
               </SettingRow>
               {microphoneMessage ? (
@@ -1834,9 +1846,9 @@ export function Settings({
                 changed={isSettingChanged("apiKey")}
               >
                 <div className="w-102.5 max-[800px]:w-90">
-                  <div className="flex h-9 items-center overflow-hidden rounded-lg border border-[#d7d9de] bg-white transition focus-within:border-[#7564e8] focus-within:ring-3 focus-within:ring-[#7564e8]/10">
-                    <input
-                      className="min-w-0 flex-1 border-0 bg-transparent px-3 text-[12px] text-[#202124] outline-none disabled:cursor-not-allowed disabled:bg-[#f5f5f6]"
+                  <div className="flex h-9 items-center overflow-hidden rounded-lg border border-input bg-white transition focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/30">
+                    <Input
+                      className="h-9 min-w-0 flex-1 border-0 bg-transparent px-3 text-[12px] shadow-none focus-visible:ring-0"
                       type={showApiKey ? "text" : "password"}
                       value={settings.apiKey}
                       onChange={(event) => {
@@ -1849,37 +1861,51 @@ export function Settings({
                       autoComplete="off"
                       spellCheck={false}
                     />
-                    <button
-                      className="mr-1 grid size-7 cursor-pointer place-items-center rounded-md border-0 bg-transparent text-[#777b84] hover:bg-[#f1f1f3] focus-visible:outline-2 focus-visible:outline-[#7564e8]"
-                      type="button"
-                      onClick={() => {
-                        setShowApiKey(!showApiKey);
-                      }}
-                      aria-label={showApiKey ? "隐藏 API Key" : "显示 API Key"}
-                      title={showApiKey ? "隐藏 API Key" : "显示 API Key"}
-                    >
-                      {showApiKey ? <EyeOff size={13} /> : <Eye size={13} />}
-                    </button>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            type="button"
+                            className="mr-1 text-muted-foreground"
+                          />
+                        }
+                        onClick={() => {
+                          setShowApiKey(!showApiKey);
+                        }}
+                        aria-label={
+                          showApiKey ? "隐藏 API Key" : "显示 API Key"
+                        }
+                      >
+                        {showApiKey ? <EyeOff size={13} /> : <Eye size={13} />}
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {showApiKey ? "隐藏 API Key" : "显示 API Key"}
+                      </TooltipContent>
+                    </Tooltip>
                   </div>
                   <div className="mt-2 flex items-center justify-end gap-3">
-                    <button
-                      className="cursor-pointer border-0 bg-transparent p-0 text-[10px] text-[#6558e8] hover:text-[#4f43bd] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8]"
+                    <Button
+                      variant="link"
+                      size="sm"
+                      className="h-auto px-0 text-[10px]"
                       type="button"
                       onClick={() => void openConsole()}
                     >
-                      <span className="flex items-center gap-1">
-                        获取 API Key <ExternalLink size={10} />
-                      </span>
-                    </button>
-                    <button
-                      className="flex h-7 cursor-pointer items-center gap-1.5 rounded-md border border-[#d7d9de] bg-white px-2.5 text-[10px] font-medium text-[#555962] hover:bg-[#f5f5f6] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8] disabled:cursor-wait disabled:opacity-55"
+                      获取 API Key <ExternalLink size={10} />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-[10px]"
                       type="button"
                       onClick={() => void testDoubao()}
                       disabled={testingDoubao || !settings.apiKey.trim()}
                     >
                       <Activity size={11} />{" "}
                       {testingDoubao ? "连接中…" : "测试连接"}
-                    </button>
+                    </Button>
                   </div>
                 </div>
               </SettingRow>
@@ -1903,12 +1929,12 @@ export function Settings({
                 description="关闭后保留云端词表，但听写时不使用。"
                 changed={isSettingChanged("hotwordsEnabled")}
               >
-                <Toggle
+                <Switch
                   checked={settings.hotwordsEnabled}
-                  onChange={(checked) => {
+                  onCheckedChange={(checked) => {
                     updateSetting("hotwordsEnabled", checked);
                   }}
-                  label="启用常用词"
+                  aria-label="启用常用词"
                 />
               </SettingRow>
               <SettingRow
@@ -1918,38 +1944,42 @@ export function Settings({
                 changed={hotwordsChanged}
               >
                 <div className="mb-2.5 flex items-center gap-2">
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-[9px] font-medium ${HOTWORD_CHIP_CLASS[hotwordChipState.tone]}`}
+                  <Badge
+                    className={`h-5 px-2 text-[9px] ${HOTWORD_CHIP_CLASS[hotwordChipState.tone]}`}
                     role="status"
                     aria-live="polite"
                   >
                     {hotwordChipState.label}
-                  </span>
+                  </Badge>
                   <span className="text-[9px] text-[#666a73]">
                     本机 {localHotwords.length} · 云端 {cloudHotwords.length}
                   </span>
                   <span className="text-[9px] text-[#666a73]">
                     上限 {hotwordStatus.limit}
                   </span>
-                  <button
-                    className={`ml-auto ${TEXT_BUTTON_CLASS}`}
+                  <Button
+                    variant="link"
+                    size="sm"
+                    className="ml-auto h-auto px-0 text-[10px]"
                     type="button"
                     onClick={() => void refreshHotwords()}
                     disabled={checkingHotwords}
                   >
                     {checkingHotwords ? "检查中…" : "重新检查"}
-                  </button>
-                  <button
-                    className={TEXT_BUTTON_CLASS}
+                  </Button>
+                  <Button
+                    variant="link"
+                    size="sm"
+                    className="h-auto px-0 text-[10px]"
                     type="button"
                     onClick={clearHotwords}
                     disabled={!settings.hotwordsEnabled || !hotwordsText.trim()}
                   >
                     清空
-                  </button>
+                  </Button>
                 </div>
-                <textarea
-                  className="min-h-32 w-full resize-y rounded-lg border border-[#d7d9de] bg-white px-3 py-2.5 text-[12px] leading-6 text-[#202124] transition outline-none focus:border-[#7564e8] focus:ring-3 focus:ring-[#7564e8]/10 disabled:cursor-not-allowed disabled:bg-[#f5f5f6]"
+                <Textarea
+                  className="min-h-32 resize-y text-[12px] leading-6"
                   value={hotwordsText}
                   onChange={(event) => {
                     updateHotwordsText(event.target.value);
@@ -1984,13 +2014,15 @@ export function Settings({
                     ))}
                   </ul>
                   <div className="flex">
-                    <button
-                      className={SECONDARY_BUTTON_CLASS}
+                    <Button
+                      variant="outline"
+                      size="lg"
+                      className="text-[10px]"
                       type="button"
                       onClick={() => void openConsole()}
                     >
                       <ExternalLink size={11} /> 打开控制台
-                    </button>
+                    </Button>
                   </div>
                 </SettingRow>
               ) : null}
@@ -2006,12 +2038,12 @@ export function Settings({
                 description="识别完成后将文本发送到已配置的 LLM 服务；通常会增加数秒等待时间。"
                 changed={isLlmSettingChanged("enabled")}
               >
-                <Toggle
+                <Switch
                   checked={settings.llm.enabled}
-                  onChange={(checked) => {
+                  onCheckedChange={(checked) => {
                     updateLlmSetting("enabled", checked);
                   }}
-                  label="启用 LLM 后处理"
+                  aria-label="启用 LLM 后处理"
                 />
               </SettingRow>
               {settings.llm.enabled ? (
@@ -2022,9 +2054,9 @@ export function Settings({
                     changed={isLlmSettingChanged("baseUrl")}
                   >
                     <div className="w-102.5 max-[800px]:w-90">
-                      <input
+                      <Input
                         aria-label="LLM API 基础地址"
-                        className="h-9 w-full rounded-lg border border-[#d7d9de] bg-white px-3 text-[11px] text-[#202124] transition outline-none focus:border-[#7564e8] focus:ring-3 focus:ring-[#7564e8]/10"
+                        className="h-9 text-[11px]"
                         type="url"
                         value={settings.llm.baseUrl}
                         onChange={(event) => {
@@ -2051,10 +2083,10 @@ export function Settings({
                     description="保存在系统凭据库；本地服务不需要鉴权时可以留空。"
                     changed={isLlmSettingChanged("apiKey")}
                   >
-                    <div className="flex h-9 w-102.5 items-center overflow-hidden rounded-lg border border-[#d7d9de] bg-white transition focus-within:border-[#7564e8] focus-within:ring-3 focus-within:ring-[#7564e8]/10 max-[800px]:w-90">
-                      <input
+                    <div className="flex h-9 w-102.5 items-center overflow-hidden rounded-lg border border-input bg-white transition focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/30 max-[800px]:w-90">
+                      <Input
                         aria-label="LLM API Key"
-                        className="min-w-0 flex-1 border-0 bg-transparent px-3 text-[11px] text-[#202124] outline-none"
+                        className="h-9 min-w-0 flex-1 border-0 bg-transparent px-3 text-[11px] shadow-none focus-visible:ring-0"
                         type={showLlmApiKey ? "text" : "password"}
                         value={settings.llm.apiKey}
                         onChange={(event) => {
@@ -2066,29 +2098,37 @@ export function Settings({
                         autoComplete="off"
                         spellCheck={false}
                       />
-                      <button
-                        className="mr-1 grid size-7 cursor-pointer place-items-center rounded-md border-0 bg-transparent text-[#777b84] hover:bg-[#f1f1f3] focus-visible:outline-2 focus-visible:outline-[#7564e8]"
-                        type="button"
-                        onClick={() => {
-                          setShowLlmApiKey(!showLlmApiKey);
-                        }}
-                        aria-label={
-                          showLlmApiKey
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              type="button"
+                              className="mr-1 text-muted-foreground"
+                            />
+                          }
+                          onClick={() => {
+                            setShowLlmApiKey(!showLlmApiKey);
+                          }}
+                          aria-label={
+                            showLlmApiKey
+                              ? "隐藏 LLM API Key"
+                              : "显示 LLM API Key"
+                          }
+                        >
+                          {showLlmApiKey ? (
+                            <EyeOff size={13} />
+                          ) : (
+                            <Eye size={13} />
+                          )}
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {showLlmApiKey
                             ? "隐藏 LLM API Key"
-                            : "显示 LLM API Key"
-                        }
-                        title={
-                          showLlmApiKey
-                            ? "隐藏 LLM API Key"
-                            : "显示 LLM API Key"
-                        }
-                      >
-                        {showLlmApiKey ? (
-                          <EyeOff size={13} />
-                        ) : (
-                          <Eye size={13} />
-                        )}
-                      </button>
+                            : "显示 LLM API Key"}
+                        </TooltipContent>
+                      </Tooltip>
                     </div>
                   </SettingRow>
                   <SettingRow
@@ -2098,25 +2138,49 @@ export function Settings({
                   >
                     <div className="w-102.5 max-[800px]:w-90">
                       <div className="flex gap-2">
-                        <input
-                          aria-label="LLM 模型"
-                          className={INPUT_CLASS}
-                          type="text"
-                          value={settings.llm.model}
-                          onChange={(event) => {
-                            updateLlmSetting("model", event.target.value);
-                          }}
-                          placeholder="gpt-4.1-mini"
-                          autoComplete="off"
-                          spellCheck={false}
-                          list={
-                            availableLlmModels.length > 0
-                              ? "llm-model-options"
-                              : undefined
+                        <Combobox
+                          items={filteredLlmModels}
+                          filter={null}
+                          inputValue={settings.llm.model}
+                          value={
+                            availableLlmModels.includes(settings.llm.model)
+                              ? settings.llm.model
+                              : null
                           }
-                        />
-                        <button
-                          className={SECONDARY_BUTTON_CLASS}
+                          onInputValueChange={(value) => {
+                            updateLlmSetting("model", value);
+                          }}
+                          onValueChange={(value) => {
+                            if (value !== null)
+                              updateLlmSetting("model", value);
+                          }}
+                        >
+                          <ComboboxInput
+                            aria-label="LLM 模型"
+                            className="h-9 min-w-0 flex-1 text-[11px]"
+                            placeholder="gpt-4.1-mini"
+                            autoComplete="off"
+                            spellCheck={false}
+                            showTrigger={availableLlmModels.length > 0}
+                          />
+                          <ComboboxContent>
+                            {availableLlmModels.length > 0 &&
+                            filteredLlmModels.length === 0 ? (
+                              <ComboboxEmpty>没有匹配的模型</ComboboxEmpty>
+                            ) : null}
+                            <ComboboxList>
+                              {filteredLlmModels.map((model) => (
+                                <ComboboxItem key={model} value={model}>
+                                  {model}
+                                </ComboboxItem>
+                              ))}
+                            </ComboboxList>
+                          </ComboboxContent>
+                        </Combobox>
+                        <Button
+                          variant="outline"
+                          size="lg"
+                          className="text-[10px]"
                           type="button"
                           onClick={() => void fetchLlmModels()}
                           disabled={loadingLlmModels}
@@ -2128,17 +2192,8 @@ export function Settings({
                             size={11}
                           />{" "}
                           {loadingLlmModels ? "获取中…" : "获取模型"}
-                        </button>
+                        </Button>
                       </div>
-                      {availableLlmModels.length > 0 ? (
-                        <datalist id="llm-model-options">
-                          {availableLlmModels.map((model) => (
-                            <option key={model} value={model}>
-                              {model}
-                            </option>
-                          ))}
-                        </datalist>
-                      ) : null}
                       <Feedback message={llmModelsMessage} className="mt-2" />
                     </div>
                   </SettingRow>
@@ -2147,12 +2202,12 @@ export function Settings({
                     description="边生成边在悬浮窗显示最终文本；服务不支持流式响应时请关闭。"
                     changed={isLlmSettingChanged("streaming")}
                   >
-                    <Toggle
+                    <Switch
                       checked={settings.llm.streaming}
-                      onChange={(checked) => {
+                      onCheckedChange={(checked) => {
                         updateLlmSetting("streaming", checked);
                       }}
-                      label="启用 LLM 流式显示"
+                      aria-label="启用 LLM 流式显示"
                     />
                   </SettingRow>
                   <SettingRow
@@ -2162,13 +2217,13 @@ export function Settings({
                     vertical
                   >
                     <div className="flex items-center gap-2">
-                      <select
-                        aria-label="LLM 参数预设"
-                        className={INPUT_CLASS}
+                      <Select
+                        items={llmParameterPresetOptions}
                         value={selectedLlmParameterPreset}
-                        onChange={(event) => {
+                        onValueChange={(value) => {
+                          if (value === null) return;
                           const preset = LLM_PARAMETER_PRESETS.find(
-                            ({ id }) => id === event.target.value
+                            ({ id }) => id === value
                           );
                           if (!preset) return;
                           setEditingCustomLlmParameters(false);
@@ -2178,20 +2233,24 @@ export function Settings({
                           );
                         }}
                       >
-                        {selectedLlmParameterPreset ===
-                        CUSTOM_LLM_PARAMETER_PRESET ? (
-                          <option value={CUSTOM_LLM_PARAMETER_PRESET}>
-                            自定义 JSON
-                          </option>
-                        ) : null}
-                        {LLM_PARAMETER_PRESETS.map((preset) => (
-                          <option key={preset.id} value={preset.id}>
-                            {preset.label}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        className={SECONDARY_BUTTON_CLASS}
+                        <SelectTrigger
+                          aria-label="LLM 参数预设"
+                          className="h-9 min-w-0 flex-1 text-[12px]"
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {llmParameterPresetOptions.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        variant="outline"
+                        size="lg"
+                        className="text-[10px]"
                         type="button"
                         aria-expanded={editingCustomLlmParameters}
                         onClick={() => {
@@ -2204,7 +2263,7 @@ export function Settings({
                         {editingCustomLlmParameters
                           ? "收起高级 JSON"
                           : "高级 JSON"}
-                      </button>
+                      </Button>
                     </div>
                     {selectedLlmParameterPresetDetails ? (
                       <p className="mt-2 rounded-lg border border-[#e1e2e6] bg-[#f7f7f8] px-3 py-2 text-[9px] leading-4 text-[#62666f]">
@@ -2217,9 +2276,9 @@ export function Settings({
                     )}
                     {editingCustomLlmParameters ? (
                       <div className="mt-2 rounded-lg border border-[#e1e2e6] bg-[#fafafa] p-2.5">
-                        <textarea
+                        <Textarea
                           aria-label="LLM 高级自定义 JSON 参数"
-                          className="min-h-24 w-full resize-y rounded-lg border border-[#d7d9de] bg-white px-3 py-2.5 font-mono text-[11px] leading-5 text-[#202124] transition outline-none focus:border-[#7564e8] focus:ring-3 focus:ring-[#7564e8]/10"
+                          className="min-h-24 resize-y font-mono text-[11px] leading-5"
                           value={settings.llm.extraParameters}
                           onChange={(event) => {
                             updateLlmSetting(
@@ -2233,11 +2292,12 @@ export function Settings({
                           spellCheck={false}
                         />
                         <div className="mt-2 flex items-center justify-between gap-3">
-                          <span
-                            className={`min-w-0 text-[9px] leading-4 ${
+                          <Badge
+                            variant="outline"
+                            className={`h-5 min-w-0 text-[9px] ${
                               customLlmParameterError
-                                ? "text-[#a33a31]"
-                                : "text-[#55705f]"
+                                ? "border-[#e8b7b0] bg-[#fff0ee] text-[#a33a31]"
+                                : "border-[#a9d8c4] bg-[#eaf8f1] text-[#55705f]"
                             }`}
                             role={customLlmParameterError ? "alert" : "status"}
                           >
@@ -2245,10 +2305,12 @@ export function Settings({
                               (settings.llm.extraParameters.trim()
                                 ? "JSON 对象有效"
                                 : "空内容不会附加参数")}
-                          </span>
+                          </Badge>
                           <div className="flex shrink-0 gap-3">
-                            <button
-                              className={TEXT_BUTTON_CLASS}
+                            <Button
+                              variant="link"
+                              size="sm"
+                              className="h-auto px-0 text-[10px]"
                               type="button"
                               disabled={
                                 Boolean(customLlmParameterError) ||
@@ -2266,9 +2328,11 @@ export function Settings({
                               }}
                             >
                               格式化
-                            </button>
-                            <button
-                              className={TEXT_BUTTON_CLASS}
+                            </Button>
+                            <Button
+                              variant="link"
+                              size="sm"
+                              className="h-auto px-0 text-[10px]"
                               type="button"
                               onClick={() => {
                                 setEditingCustomLlmParameters(false);
@@ -2276,7 +2340,7 @@ export function Settings({
                               }}
                             >
                               恢复服务默认
-                            </button>
+                            </Button>
                           </div>
                         </div>
                       </div>
@@ -2292,9 +2356,9 @@ export function Settings({
                     changed={isLlmSettingChanged("prompt")}
                     vertical
                   >
-                    <textarea
+                    <Textarea
                       aria-label="LLM 表达偏好"
-                      className="min-h-32 w-full resize-y rounded-lg border border-[#d7d9de] bg-white px-3 py-2.5 text-[12px] leading-6 text-[#202124] transition outline-none focus:border-[#7564e8] focus:ring-3 focus:ring-[#7564e8]/10"
+                      className="min-h-32 resize-y text-[12px] leading-6"
                       value={settings.llm.prompt}
                       onChange={(event) => {
                         updateLlmSetting("prompt", event.target.value);
@@ -2303,9 +2367,14 @@ export function Settings({
                       maxLength={8000}
                       rows={6}
                     />
-                    <p className="mt-2 rounded-lg border border-[#ead9a4] bg-[#fff8df] px-3 py-2 text-[9px] leading-4 text-[#765b12]">
-                      启用后，识别文本和表达偏好会发送到你配置的第三方服务，最终输入通常会增加数秒等待。处理失败时会自动使用原始识别文本。
-                    </p>
+                    <Alert
+                      className="mt-2 border-[#ead9a4] bg-[#fff8df] px-3 py-2 text-[#765b12]"
+                      role="status"
+                    >
+                      <AlertDescription className="text-[9px] leading-4 text-inherit">
+                        启用后，识别文本和表达偏好会发送到你配置的第三方服务，最终输入通常会增加数秒等待。处理失败时会自动使用原始识别文本。
+                      </AlertDescription>
+                    </Alert>
                   </SettingRow>
                 </>
               ) : null}
@@ -2336,8 +2405,10 @@ export function Settings({
               </span>
             </SettingRow>
             <div className="flex justify-end gap-2 px-5 py-3">
-              <button
-                className={SECONDARY_BUTTON_CLASS}
+              <Button
+                variant="outline"
+                size="lg"
+                className="text-[10px]"
                 type="button"
                 onClick={() => {
                   setMessage(null);
@@ -2345,10 +2416,12 @@ export function Settings({
                 }}
               >
                 <RefreshCw size={11} /> 重新检查
-              </button>
+              </Button>
               {diagnostics && !diagnostics.inputReady ? (
-                <button
-                  className="flex h-9 cursor-pointer items-center gap-1.5 rounded-lg border border-[#cfc9f6] bg-[#f3f1ff] px-3 text-[10px] font-medium text-[#5748ca] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8]"
+                <Button
+                  variant="outline"
+                  size="lg"
+                  className="border-[#cfc9f6] bg-[#f3f1ff] text-[10px] text-[#5748ca]"
                   type="button"
                   onClick={() => {
                     void (async () => {
@@ -2370,7 +2443,7 @@ export function Settings({
                   }}
                 >
                   <CheckCircle2 size={11} /> 重试自动粘贴
-                </button>
+                </Button>
               ) : null}
             </div>
           </SettingsSection>
@@ -2393,8 +2466,8 @@ export function Settings({
                 }
               >
                 {updateInfo ? (
-                  <button
-                    className={PRIMARY_BUTTON_CLASS}
+                  <Button
+                    size="lg"
                     type="button"
                     onClick={() => void installUpdate()}
                     disabled={installingUpdate}
@@ -2403,10 +2476,12 @@ export function Settings({
                     {installingUpdate
                       ? "安装中…"
                       : `安装 ${updateInfo.version}`}
-                  </button>
+                  </Button>
                 ) : (
-                  <button
-                    className={SECONDARY_BUTTON_CLASS}
+                  <Button
+                    variant="outline"
+                    size="lg"
+                    className="text-[10px]"
                     type="button"
                     onClick={() => void checkForUpdate(true)}
                     disabled={checkingUpdate}
@@ -2416,7 +2491,7 @@ export function Settings({
                       size={11}
                     />{" "}
                     {checkingUpdate ? "检查中…" : "检查更新"}
-                  </button>
+                  </Button>
                 )}
               </SettingRow>
             </SettingsSection>
@@ -2430,27 +2505,31 @@ export function Settings({
                 title="日志目录"
                 description={diagnostics?.logDir ?? "日志保存位置"}
               >
-                <button
-                  className={SECONDARY_BUTTON_CLASS}
+                <Button
+                  variant="outline"
+                  size="lg"
+                  className="text-[10px]"
                   type="button"
                   onClick={() => void runAboutAction("open_log_dir")}
                 >
                   <FolderOpen size={11} /> 打开目录
-                </button>
+                </Button>
               </SettingRow>
               <SettingRow
                 title="诊断信息"
                 description="复制版本、快捷键、自动粘贴和系统信息，不包含 API Key。"
               >
-                <button
-                  className={SECONDARY_BUTTON_CLASS}
+                <Button
+                  variant="outline"
+                  size="lg"
+                  className="text-[10px]"
                   type="button"
                   onClick={() =>
                     void runAboutAction("copy_diagnostics", "诊断信息已复制")
                   }
                 >
                   <Copy size={11} /> 复制诊断信息
-                </button>
+                </Button>
               </SettingRow>
             </SettingsSection>
 
@@ -2486,13 +2565,15 @@ export function Settings({
                   title={label}
                   description={description}
                 >
-                  <button
-                    className="flex cursor-pointer items-center gap-1.5 border-0 bg-transparent p-1 text-[10px] font-medium text-[#6558e8] hover:text-[#4f43bd] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8]"
+                  <Button
+                    variant="link"
+                    size="sm"
+                    className="h-auto px-0 text-[10px]"
                     type="button"
                     onClick={() => void openProductLink(target)}
                   >
                     {action} <ExternalLink size={10} />
-                  </button>
+                  </Button>
                 </SettingRow>
               ))}
             </SettingsSection>
@@ -2524,7 +2605,7 @@ export function Settings({
       verifiedApiKey === settings.apiKey.trim();
 
     return (
-      <>
+      <TooltipProvider delay={400}>
         {settingsToaster}
         {hotwordConflictDialog}
         <main className="grid h-screen w-screen grid-cols-[220px_minmax(0,1fr)] overflow-hidden bg-[#f6f7f9] text-[#202124] max-[720px]:grid-cols-1">
@@ -2552,13 +2633,14 @@ export function Settings({
                 const complete = onboardingStep > index;
                 return (
                   <li key={label}>
-                    <button
-                      className={`flex h-10 w-full items-center gap-3 rounded-lg border-0 px-2.5 text-left text-[11px] font-medium transition focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#7564e8] ${
+                    <Button
+                      variant="ghost"
+                      className={`h-10 w-full justify-start gap-3 px-2.5 text-left text-[11px] ${
                         active
                           ? "bg-[#efedff] text-[#5748ca]"
                           : complete
-                            ? "cursor-pointer bg-transparent text-[#444851] hover:bg-[#f0f1f3]"
-                            : "cursor-default bg-transparent text-[#9699a0]"
+                            ? "text-[#444851]"
+                            : "text-[#9699a0]"
                       }`}
                       type="button"
                       aria-current={active ? "step" : undefined}
@@ -2580,7 +2662,7 @@ export function Settings({
                         {complete ? <CheckCircle2 size={12} /> : index + 1}
                       </span>
                       {label}
-                    </button>
+                    </Button>
                   </li>
                 );
               })}
@@ -2633,15 +2715,15 @@ export function Settings({
                     </p>
                     <Feedback message={onboardingMessage} className="mt-5" />
                     <div className="mt-7 flex justify-end">
-                      <button
-                        className={PRIMARY_BUTTON_CLASS}
+                      <Button
+                        size="lg"
                         type="button"
                         onClick={() => {
                           goToOnboardingStep(1);
                         }}
                       >
                         开始设置 <ChevronRight size={13} />
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 ) : null}
@@ -2669,10 +2751,10 @@ export function Settings({
                     >
                       豆包 API Key
                     </label>
-                    <div className="mt-2 flex h-10 items-center overflow-hidden rounded-lg border border-[#d7d9de] bg-white transition focus-within:border-[#7564e8] focus-within:ring-3 focus-within:ring-[#7564e8]/10">
-                      <input
+                    <div className="mt-2 flex h-10 items-center overflow-hidden rounded-lg border border-input bg-white transition focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/30">
+                      <Input
                         id="onboarding-api-key"
-                        className="min-w-0 flex-1 border-0 bg-transparent px-3 text-[12px] text-[#202124] outline-none"
+                        className="h-10 min-w-0 flex-1 border-0 bg-transparent px-3 text-[12px] shadow-none focus-visible:ring-0"
                         type={showApiKey ? "text" : "password"}
                         value={settings.apiKey}
                         onChange={(event) => {
@@ -2685,30 +2767,48 @@ export function Settings({
                         autoComplete="off"
                         spellCheck={false}
                       />
-                      <button
-                        className="mr-1 grid size-7 cursor-pointer place-items-center rounded-md border-0 bg-transparent text-[#777b84] hover:bg-[#f1f1f3] focus-visible:outline-2 focus-visible:outline-[#7564e8]"
-                        type="button"
-                        onClick={() => {
-                          setShowApiKey(!showApiKey);
-                        }}
-                        aria-label={
-                          showApiKey ? "隐藏 API Key" : "显示 API Key"
-                        }
-                        title={showApiKey ? "隐藏 API Key" : "显示 API Key"}
-                      >
-                        {showApiKey ? <EyeOff size={13} /> : <Eye size={13} />}
-                      </button>
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              type="button"
+                              className="mr-1 text-muted-foreground"
+                            />
+                          }
+                          onClick={() => {
+                            setShowApiKey(!showApiKey);
+                          }}
+                          aria-label={
+                            showApiKey ? "隐藏 API Key" : "显示 API Key"
+                          }
+                        >
+                          {showApiKey ? (
+                            <EyeOff size={13} />
+                          ) : (
+                            <Eye size={13} />
+                          )}
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {showApiKey ? "隐藏 API Key" : "显示 API Key"}
+                        </TooltipContent>
+                      </Tooltip>
                     </div>
                     <div className="mt-3 flex items-center justify-between gap-3">
-                      <button
-                        className="flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-[10px] text-[#6558e8] hover:text-[#4f43bd] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8]"
+                      <Button
+                        variant="link"
+                        size="sm"
+                        className="h-auto px-0 text-[10px]"
                         type="button"
                         onClick={() => void openConsole()}
                       >
                         获取 API Key <ExternalLink size={10} />
-                      </button>
-                      <button
-                        className={SECONDARY_BUTTON_CLASS}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="lg"
+                        className="text-[10px]"
                         type="button"
                         onClick={() => void testDoubao(setOnboardingMessage)}
                         disabled={testingDoubao || !settings.apiKey.trim()}
@@ -2719,7 +2819,7 @@ export function Settings({
                           : apiKeyVerified
                             ? "重新测试"
                             : "测试连接"}
-                      </button>
+                      </Button>
                     </div>
                     <Feedback message={onboardingMessage} className="mt-4" />
                     {doubaoIssue ? (
@@ -2732,17 +2832,19 @@ export function Settings({
                       />
                     ) : null}
                     <div className="mt-7 flex items-center justify-between">
-                      <button
-                        className={SECONDARY_BUTTON_CLASS}
+                      <Button
+                        variant="outline"
+                        size="lg"
+                        className="text-[10px]"
                         type="button"
                         onClick={() => {
                           goToOnboardingStep(0);
                         }}
                       >
                         <ChevronLeft size={12} /> 返回
-                      </button>
-                      <button
-                        className={PRIMARY_BUTTON_CLASS}
+                      </Button>
+                      <Button
+                        size="lg"
                         type="button"
                         onClick={() => {
                           goToOnboardingStep(2);
@@ -2750,7 +2852,7 @@ export function Settings({
                         disabled={!apiKeyVerified || testingDoubao}
                       >
                         继续 <ChevronRight size={13} />
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 ) : null}
@@ -2781,12 +2883,14 @@ export function Settings({
                             可在任何应用的输入框中使用
                           </p>
                         </div>
-                        <button
+                        <Button
                           ref={shortcutButtonRef}
-                          className={`h-10 min-w-47.5 cursor-pointer rounded-lg border px-3 font-mono text-[10px] outline-none ${
+                          variant="outline"
+                          size="lg"
+                          className={`min-w-47.5 font-mono text-[10px] ${
                             shortcutRecorder.isRecording
                               ? "border-[#8f83e8] bg-[#f1efff] text-[#5748ca] ring-3 ring-[#7564e8]/10"
-                              : "border-[#d7d9de] bg-white text-[#3f434b] hover:bg-[#f5f5f6] focus-visible:ring-3 focus-visible:ring-[#7564e8]/10"
+                              : ""
                           }`}
                           type="button"
                           onClick={() => {
@@ -2800,22 +2904,24 @@ export function Settings({
                           ) : (
                             <ShortcutHint shortcut={settings.shortcut} />
                           )}
-                        </button>
+                        </Button>
                       </div>
                     </div>
                     <Feedback message={onboardingMessage} className="mt-4" />
                     <div className="mt-7 flex items-center justify-between">
-                      <button
-                        className={SECONDARY_BUTTON_CLASS}
+                      <Button
+                        variant="outline"
+                        size="lg"
+                        className="text-[10px]"
                         type="button"
                         onClick={() => {
                           goToOnboardingStep(1);
                         }}
                       >
                         <ChevronLeft size={12} /> 返回
-                      </button>
-                      <button
-                        className={PRIMARY_BUTTON_CLASS}
+                      </Button>
+                      <Button
+                        size="lg"
                         type="button"
                         onClick={() => {
                           goToOnboardingStep(3);
@@ -2826,7 +2932,7 @@ export function Settings({
                         }
                       >
                         继续 <ChevronRight size={13} />
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 ) : null}
@@ -2854,52 +2960,61 @@ export function Settings({
                       输入设备
                     </label>
                     <div className="mt-2 flex gap-2">
-                      <select
-                        id="onboarding-microphone"
-                        className={INPUT_CLASS}
-                        value={settings.microphoneId}
-                        onChange={(event) => {
-                          updateSetting("microphoneId", event.target.value);
+                      <Select
+                        items={microphoneOptions}
+                        value={
+                          settings.microphoneId || DEFAULT_MICROPHONE_VALUE
+                        }
+                        onValueChange={(value) => {
+                          if (value === null) return;
+                          updateSetting(
+                            "microphoneId",
+                            value === DEFAULT_MICROPHONE_VALUE ? "" : value
+                          );
                           setMicrophoneMessage(null);
                         }}
                         disabled={testingMicrophone}
                       >
-                        <option value="">系统默认麦克风</option>
-                        {microphones.map((device) => (
-                          <option key={device.id} value={device.id}>
-                            {device.label}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        className={SECONDARY_BUTTON_CLASS}
+                        <SelectTrigger
+                          id="onboarding-microphone"
+                          className="h-9 min-w-0 flex-1 text-[12px]"
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {microphoneOptions.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        variant="outline"
+                        size="lg"
+                        className="text-[10px]"
                         type="button"
                         aria-pressed={testingMicrophone}
                         onClick={toggleMicrophoneTest}
                       >
                         <Mic size={11} />{" "}
                         {testingMicrophone ? "停止测试" : "开始测试"}
-                      </button>
+                      </Button>
                     </div>
-                    <div
-                      className="mt-3 h-1.5 overflow-hidden rounded-full bg-[#ececef]"
-                      role="meter"
+                    <Progress
+                      className="mt-3 gap-0"
                       aria-label="麦克风音量"
-                      aria-valuemin={0}
-                      aria-valuemax={100}
-                      aria-valuenow={Math.round(microphoneLevel * 100)}
-                    >
-                      <div
-                        className="h-full rounded-full bg-[#6558e8] transition-[width] duration-75"
-                        style={{
-                          width: `${Math.max(testingMicrophone ? 3 : 0, microphoneLevel * 100)}%`,
-                        }}
-                      />
-                    </div>
+                      value={Math.max(
+                        testingMicrophone ? 3 : 0,
+                        microphoneLevel * 100
+                      )}
+                    />
                     <Feedback message={microphoneMessage} className="mt-4" />
                     <div className="mt-7 flex items-center justify-between">
-                      <button
-                        className={SECONDARY_BUTTON_CLASS}
+                      <Button
+                        variant="outline"
+                        size="lg"
+                        className="text-[10px]"
                         type="button"
                         onClick={() => {
                           goToOnboardingStep(2);
@@ -2907,9 +3022,9 @@ export function Settings({
                         disabled={testingMicrophone}
                       >
                         <ChevronLeft size={12} /> 返回
-                      </button>
-                      <button
-                        className={PRIMARY_BUTTON_CLASS}
+                      </Button>
+                      <Button
+                        size="lg"
                         type="button"
                         onClick={() => {
                           goToOnboardingStep(4);
@@ -2917,7 +3032,7 @@ export function Settings({
                         disabled={testingMicrophone}
                       >
                         继续 <ChevronRight size={13} />
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 ) : null}
@@ -2947,8 +3062,10 @@ export function Settings({
                     <dl className="mt-6 divide-y divide-[#ececef] overflow-hidden rounded-xl border border-[#e1e2e6] bg-[#fbfbfc] text-[11px]">
                       <div className="flex items-center justify-between gap-5 px-4 py-3">
                         <dt className="text-[#777b84]">识别服务</dt>
-                        <dd className="font-medium text-[#17633f]">
-                          语音识别和常用词已验证
+                        <dd>
+                          <Badge className="bg-[#eaf8f1] text-[#17633f]">
+                            语音识别和常用词已验证
+                          </Badge>
                         </dd>
                       </div>
                       <div className="flex items-center justify-between gap-5 px-4 py-3">
@@ -2975,8 +3092,10 @@ export function Settings({
                       />
                     ) : null}
                     <div className="mt-7 flex items-center justify-between">
-                      <button
-                        className={SECONDARY_BUTTON_CLASS}
+                      <Button
+                        variant="outline"
+                        size="lg"
+                        className="text-[10px]"
                         type="button"
                         onClick={() => {
                           goToOnboardingStep(3);
@@ -2984,16 +3103,20 @@ export function Settings({
                         disabled={saving}
                       >
                         <ChevronLeft size={12} /> 返回修改
-                      </button>
-                      <button
-                        className={PRIMARY_BUTTON_CLASS}
+                      </Button>
+                      <Button
+                        size="lg"
                         type="button"
-                        onClick={() => void finishOnboarding()}
+                        onClick={(event) => {
+                          hotwordConflictReturnFocusRef.current =
+                            event.currentTarget;
+                          void finishOnboarding();
+                        }}
                         disabled={saving}
                       >
                         {saving ? "正在同步设置…" : "完成设置"}{" "}
                         <CheckCircle2 size={13} />
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 ) : null}
@@ -3001,139 +3124,156 @@ export function Settings({
             </div>
           </section>
         </main>
-      </>
+      </TooltipProvider>
     );
   }
 
   return (
     // oxlint-disable-next-line react/jsx-no-constructed-context-values -- renderer must capture current settings state
     <SettingsOutletContext.Provider value={renderSection}>
-      {settingsToaster}
-      {hotwordConflictDialog}
-      <div className="grid h-screen w-screen grid-cols-[188px_minmax(0,1fr)] overflow-hidden bg-[#f6f7f9] text-[#202124]">
-        <aside className="flex flex-col border-r border-[#e4e5e8] bg-[#fbfbfc] px-3.5 py-4">
-          <div className="flex items-center gap-2.5 px-2.5 py-2">
-            <div
-              className="grid size-8 place-items-center rounded-[10px] bg-[#6558e8] text-white shadow-[0_4px_12px_rgba(101,88,232,0.22)]"
-              aria-hidden="true"
-            >
-              <AudioWaveform size={17} strokeWidth={2.4} />
-            </div>
-            <div>
-              <strong className="block text-[13px] font-semibold tracking-[-0.01em]">
-                VoicePaste
-              </strong>
-              <small className="mt-0.5 block text-[9px] text-[#696d75]">
-                设置
-              </small>
-            </div>
-          </div>
-
-          <nav className="mt-5 grid gap-1" aria-label="设置分类">
-            {SECTIONS.map(([id, label, Icon]) => (
-              <Link
-                key={id}
-                activeOptions={{ exact: true }}
-                activeProps={{
-                  className: "bg-[#efedff] text-[#5748ca]",
-                }}
-                className="flex h-9 w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 text-left text-[11px] font-medium transition focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#7564e8]"
-                inactiveProps={{
-                  className:
-                    "bg-transparent text-[#666a73] hover:bg-[#f0f1f3] hover:text-[#282b31]",
-                }}
-                to={SETTINGS_PATHS[id]}
-                onClick={() => {
-                  toast.dismiss(SETTINGS_TOAST_ID);
-                }}
+      <TooltipProvider delay={400}>
+        {settingsToaster}
+        {hotwordConflictDialog}
+        <div className="grid h-screen w-screen grid-cols-[188px_minmax(0,1fr)] overflow-hidden bg-[#f6f7f9] text-[#202124]">
+          <aside className="flex flex-col border-r border-[#e4e5e8] bg-[#fbfbfc] px-3.5 py-4">
+            <div className="flex items-center gap-2.5 px-2.5 py-2">
+              <div
+                className="grid size-8 place-items-center rounded-[10px] bg-[#6558e8] text-white shadow-[0_4px_12px_rgba(101,88,232,0.22)]"
+                aria-hidden="true"
               >
-                {({ isActive }) => (
-                  <>
-                    <Icon size={14} strokeWidth={isActive ? 2.2 : 1.8} />
-                    {label}
-                    {isSectionChanged(id) ? (
-                      <span className="ml-auto rounded-full bg-[#fff2cc] px-1.5 py-0.5 text-[8px] font-medium text-[#7a5100]">
-                        未保存
-                      </span>
-                    ) : null}
-                  </>
-                )}
-              </Link>
-            ))}
-          </nav>
-
-          <p className="mt-auto px-3 pb-1 text-[9px] leading-4 text-[#696d75]">
-            关闭窗口后继续在系统托盘运行
-          </p>
-        </aside>
-
-        <div className="flex min-h-0 min-w-0 flex-col">
-          <header className="flex h-18 shrink-0 items-center justify-between border-b border-[#e4e5e8] bg-white px-8">
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-[18px] font-semibold tracking-[-0.02em] text-[#202124]">
-                  设置
-                </h1>
-                {hasUnsavedChanges ? (
-                  <span className="rounded-full bg-[#fff2cc] px-2 py-0.5 text-[9px] font-medium text-[#7a5100]">
-                    有未保存的修改
-                  </span>
-                ) : null}
+                <AudioWaveform size={17} strokeWidth={2.4} />
               </div>
-              <p className="mt-1 text-[10px] text-[#6f737b]">
-                {SECTION_DESCRIPTIONS[activeSection]}
-              </p>
+              <div>
+                <strong className="block text-[13px] font-semibold tracking-[-0.01em]">
+                  VoicePaste
+                </strong>
+                <small className="mt-0.5 block text-[9px] text-[#696d75]">
+                  设置
+                </small>
+              </div>
             </div>
-            <div className="flex gap-2">
-              {activeSection === "shortcut" ? (
-                <button
-                  className="flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-[#d7d9de] bg-white px-3 text-[10px] font-medium text-[#5c6068] transition hover:bg-[#f5f5f6] focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8] disabled:cursor-wait disabled:opacity-55"
-                  type="button"
-                  onClick={() => void resetVoiceInput()}
+
+            <nav className="mt-5 grid gap-1" aria-label="设置分类">
+              {SECTIONS.map(([id, label, Icon]) => (
+                <Link
+                  key={id}
+                  activeOptions={{ exact: true }}
+                  activeProps={{
+                    className: "bg-[#efedff] text-[#5748ca]",
+                  }}
+                  className="flex h-9 w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 text-left text-[11px] font-medium transition focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#7564e8]"
+                  inactiveProps={{
+                    className:
+                      "bg-transparent text-[#666a73] hover:bg-[#f0f1f3] hover:text-[#282b31]",
+                  }}
+                  to={SETTINGS_PATHS[id]}
+                  onClick={() => {
+                    toast.dismiss(SETTINGS_TOAST_ID);
+                  }}
+                >
+                  {({ isActive }) => (
+                    <>
+                      <Icon size={14} strokeWidth={isActive ? 2.2 : 1.8} />
+                      {label}
+                      {isSectionChanged(id) ? (
+                        <Badge className="ml-auto h-4 bg-[#fff2cc] px-1.5 text-[8px] text-[#7a5100]">
+                          未保存
+                        </Badge>
+                      ) : null}
+                    </>
+                  )}
+                </Link>
+              ))}
+            </nav>
+
+            <p className="mt-auto px-3 pb-1 text-[9px] leading-4 text-[#696d75]">
+              关闭窗口后继续在系统托盘运行
+            </p>
+          </aside>
+
+          <div className="flex min-h-0 min-w-0 flex-col">
+            <header className="flex h-18 shrink-0 items-center justify-between border-b border-[#e4e5e8] bg-white px-8">
+              <div>
+                <div className="flex items-center gap-2">
+                  <h1 className="text-[18px] font-semibold tracking-[-0.02em] text-[#202124]">
+                    设置
+                  </h1>
+                  {hasUnsavedChanges ? (
+                    <Badge className="h-5 bg-[#fff2cc] px-2 text-[9px] text-[#7a5100]">
+                      有未保存的修改
+                    </Badge>
+                  ) : null}
+                </div>
+                <p className="mt-1 text-[10px] text-[#6f737b]">
+                  {SECTION_DESCRIPTIONS[activeSection]}
+                </p>
+              </div>
+              <div className="flex gap-2">
+                {activeSection === "shortcut" ? (
+                  <Button
+                    variant="outline"
+                    type="button"
+                    onClick={(event) => {
+                      hotwordConflictReturnFocusRef.current =
+                        event.currentTarget;
+                      void resetVoiceInput();
+                    }}
+                    disabled={saving}
+                    className="text-[10px]"
+                  >
+                    <RotateCcw size={11} /> 恢复默认并保存
+                  </Button>
+                ) : null}
+                {hasUnsavedChanges ? (
+                  <Button
+                    type="button"
+                    onClick={(event) => {
+                      hotwordConflictReturnFocusRef.current =
+                        event.currentTarget;
+                      void save();
+                    }}
+                    disabled={saving}
+                    className="min-w-22 text-[10px]"
+                  >
+                    <Save size={11} />{" "}
+                    {saving
+                      ? activeSection === "recognition" && cloudDirty
+                        ? "同步中…"
+                        : "保存中…"
+                      : "保存更改"}
+                  </Button>
+                ) : (
+                  <Badge
+                    variant="secondary"
+                    className="h-8 min-w-22 rounded-lg px-3 text-[10px] text-[#62666f]"
+                  >
+                    <CheckCircle2 size={11} /> 已保存
+                  </Badge>
+                )}
+              </div>
+            </header>
+
+            <main
+              className="min-h-0 flex-1 overflow-auto scroll-smooth px-8 py-6"
+              data-scroll-restoration-id="settings-content"
+            >
+              <div className="mx-auto max-w-180">
+                <Feedback
+                  message={message?.kind === "error" ? message : null}
+                  className="mb-5"
+                />
+
+                <fieldset
+                  className="m-0 min-w-0 border-0 p-0"
                   disabled={saving}
                 >
-                  <RotateCcw size={11} /> 恢复默认并保存
-                </button>
-              ) : null}
-              {hasUnsavedChanges ? (
-                <button
-                  className="flex h-8 min-w-22 cursor-pointer items-center justify-center gap-1.5 rounded-lg border-0 bg-[#6558e8] px-3 text-[10px] font-medium text-white transition hover:bg-[#584bcf] focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8] disabled:cursor-wait disabled:opacity-55"
-                  type="button"
-                  onClick={() => void save()}
-                  disabled={saving}
-                >
-                  <Save size={11} />{" "}
-                  {saving
-                    ? activeSection === "recognition" && cloudDirty
-                      ? "同步中…"
-                      : "保存中…"
-                    : "保存更改"}
-                </button>
-              ) : (
-                <span className="flex h-8 min-w-22 items-center justify-center gap-1.5 rounded-lg bg-[#eeeff2] px-3 text-[10px] font-medium text-[#62666f]">
-                  <CheckCircle2 size={11} /> 已保存
-                </span>
-              )}
-            </div>
-          </header>
-
-          <main
-            className="min-h-0 flex-1 overflow-auto scroll-smooth px-8 py-6"
-            data-scroll-restoration-id="settings-content"
-          >
-            <div className="mx-auto max-w-180">
-              <Feedback
-                message={message?.kind === "error" ? message : null}
-                className="mb-5"
-              />
-
-              <fieldset className="m-0 min-w-0 border-0 p-0" disabled={saving}>
-                {children}
-              </fieldset>
-            </div>
-          </main>
+                  {children}
+                </fieldset>
+              </div>
+            </main>
+          </div>
         </div>
-      </div>
+      </TooltipProvider>
     </SettingsOutletContext.Provider>
   );
 }
