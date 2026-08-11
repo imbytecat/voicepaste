@@ -6,10 +6,12 @@ use tauri::AppHandle;
 use tauri_plugin_store::StoreExt;
 
 pub const DEFAULT_SHORTCUT: &str = "CommandOrControl+Shift+Space";
+pub const DEFAULT_LLM_PREFERENCE: &str = "保持自然口语，不要过度书面化。";
 const STORE_PATH: &str = "settings.json";
 const STORE_KEY: &str = "voicepaste";
 const KEYRING_SERVICE: &str = "com.imbytecat.voicepaste";
-const KEYRING_ACCOUNT: &str = "doubao-api-key";
+const DOUBAO_KEYRING_ACCOUNT: &str = "doubao-api-key";
+const LLM_KEYRING_ACCOUNT: &str = "llm-api-key";
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -27,6 +29,27 @@ pub enum OverlayPosition {
     Left,
     Right,
 }
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct LlmSettings {
+    pub enabled: bool,
+    pub base_url: String,
+    pub api_key: String,
+    pub model: String,
+    pub prompt: String,
+}
+
+impl Default for LlmSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            base_url: String::new(),
+            api_key: String::new(),
+            model: String::new(),
+            prompt: DEFAULT_LLM_PREFERENCE.to_owned(),
+        }
+    }
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -41,6 +64,7 @@ pub struct AppSettings {
     pub launch_at_startup: bool,
     pub open_settings_on_startup: bool,
     pub overlay_position: OverlayPosition,
+    pub llm: LlmSettings,
 }
 
 impl Default for AppSettings {
@@ -56,6 +80,26 @@ impl Default for AppSettings {
             launch_at_startup: false,
             open_settings_on_startup: true,
             overlay_position: OverlayPosition::default(),
+            llm: LlmSettings::default(),
+        }
+    }
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+struct PersistedLlmSettings {
+    enabled: bool,
+    base_url: String,
+    model: String,
+    prompt: String,
+}
+
+impl Default for PersistedLlmSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            base_url: String::new(),
+            model: String::new(),
+            prompt: DEFAULT_LLM_PREFERENCE.to_owned(),
         }
     }
 }
@@ -72,6 +116,7 @@ struct PersistedSettings {
     onboarding_completed: bool,
     open_settings_on_startup: bool,
     overlay_position: OverlayPosition,
+    llm: PersistedLlmSettings,
 }
 
 impl Default for PersistedSettings {
@@ -86,6 +131,7 @@ impl Default for PersistedSettings {
             onboarding_completed: false,
             open_settings_on_startup: true,
             overlay_position: OverlayPosition::default(),
+            llm: PersistedLlmSettings::default(),
         }
     }
 }
@@ -102,6 +148,38 @@ pub enum CredentialStorage {
     Keyring,
     Removed,
 }
+fn load_credential(account: &str, label: &str, notices: &mut Vec<String>) -> String {
+    let entry = match Entry::new(KEYRING_SERVICE, account) {
+        Ok(entry) => entry,
+        Err(error) => {
+            notices.push(format!("系统钥匙串暂时不可用，无法读取{label}：{error}"));
+            return String::new();
+        }
+    };
+    match entry.get_password() {
+        Ok(key) => key,
+        Err(KeyringError::NoEntry) => String::new(),
+        Err(error) => {
+            notices.push(format!("系统钥匙串暂时不可用，无法读取{label}：{error}"));
+            String::new()
+        }
+    }
+}
+
+fn save_credential(account: &str, label: &str, value: &str) -> Result<CredentialStorage, String> {
+    let entry = Entry::new(KEYRING_SERVICE, account)
+        .map_err(|error| format!("系统钥匙串不可用，{label}未保存：{error}"))?;
+    if value.is_empty() {
+        return match entry.delete_credential() {
+            Ok(()) | Err(KeyringError::NoEntry) => Ok(CredentialStorage::Removed),
+            Err(error) => Err(format!("删除系统钥匙串中的{label}失败：{error}")),
+        };
+    }
+    entry
+        .set_password(value)
+        .map_err(|error| format!("写入系统钥匙串失败，{label}未保存：{error}"))?;
+    Ok(CredentialStorage::Keyring)
+}
 
 pub fn load(app: &AppHandle) -> Result<LoadedSettings, String> {
     let store = app
@@ -114,16 +192,9 @@ pub fn load(app: &AppHandle) -> Result<LoadedSettings, String> {
         .map_err(|error| format!("解析设置失败：{error}"))?
         .unwrap_or_default();
 
-    let mut notice = None;
-    let entry = Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT).ok();
-    let api_key = match entry.as_ref().map(Entry::get_password) {
-        Some(Ok(key)) => key,
-        Some(Err(KeyringError::NoEntry)) | None => String::new(),
-        Some(Err(error)) => {
-            notice = Some(format!("系统钥匙串暂时不可用：{error}"));
-            String::new()
-        }
-    };
+    let mut notices = Vec::new();
+    let api_key = load_credential(DOUBAO_KEYRING_ACCOUNT, "豆包 API Key", &mut notices);
+    let llm_api_key = load_credential(LLM_KEYRING_ACCOUNT, "LLM API Key", &mut notices);
 
     Ok(LoadedSettings {
         settings: AppSettings {
@@ -141,9 +212,16 @@ pub fn load(app: &AppHandle) -> Result<LoadedSettings, String> {
             launch_at_startup: false,
             open_settings_on_startup: persisted.open_settings_on_startup,
             overlay_position: persisted.overlay_position,
+            llm: LlmSettings {
+                enabled: persisted.llm.enabled,
+                base_url: persisted.llm.base_url,
+                api_key: llm_api_key,
+                model: persisted.llm.model,
+                prompt: persisted.llm.prompt,
+            },
         },
         hotword_binding: persisted.hotword_binding,
-        notice,
+        notice: (!notices.is_empty()).then(|| notices.join("；")),
     })
 }
 
@@ -152,19 +230,9 @@ pub fn save(
     settings: &AppSettings,
     hotword_binding: Option<&Binding>,
 ) -> Result<CredentialStorage, String> {
-    let entry = Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT)
-        .map_err(|error| format!("系统钥匙串不可用，API Key 未保存：{error}"))?;
-    let credential_storage = if settings.api_key.is_empty() {
-        match entry.delete_credential() {
-            Ok(()) | Err(KeyringError::NoEntry) => CredentialStorage::Removed,
-            Err(error) => return Err(format!("删除系统钥匙串中的 API Key 失败：{error}")),
-        }
-    } else {
-        entry
-            .set_password(&settings.api_key)
-            .map_err(|error| format!("写入系统钥匙串失败，API Key 未保存：{error}"))?;
-        CredentialStorage::Keyring
-    };
+    let credential_storage =
+        save_credential(DOUBAO_KEYRING_ACCOUNT, "豆包 API Key", &settings.api_key)?;
+    save_credential(LLM_KEYRING_ACCOUNT, "LLM API Key", &settings.llm.api_key)?;
 
     persist(
         app,
@@ -178,6 +246,12 @@ pub fn save(
             open_settings_on_startup: settings.open_settings_on_startup,
             overlay_position: settings.overlay_position,
             hotword_binding: hotword_binding.cloned(),
+            llm: PersistedLlmSettings {
+                enabled: settings.llm.enabled,
+                base_url: settings.llm.base_url.clone(),
+                model: settings.llm.model.clone(),
+                prompt: settings.llm.prompt.clone(),
+            },
         },
     )?;
     Ok(credential_storage)
@@ -207,6 +281,26 @@ mod tests {
         assert!(persisted.hotwords_enabled);
         assert!(persisted.open_settings_on_startup);
         assert!(persisted.hotword_binding.is_none());
+        assert!(!persisted.llm.enabled);
+        assert_eq!(persisted.llm.prompt, DEFAULT_LLM_PREFERENCE);
+    }
+
+    #[test]
+    fn llm_settings_round_trip_without_api_key() {
+        let persisted = PersistedSettings {
+            llm: PersistedLlmSettings {
+                enabled: true,
+                base_url: "http://localhost:11434/v1".to_owned(),
+                model: "local-model".to_owned(),
+                prompt: "修正文稿".to_owned(),
+            },
+            ..PersistedSettings::default()
+        };
+        let encoded = serde_json::to_value(&persisted).unwrap();
+        assert!(encoded.pointer("/llm/apiKey").is_none());
+        let decoded: PersistedSettings = serde_json::from_value(encoded).unwrap();
+        assert!(decoded.llm.enabled);
+        assert_eq!(decoded.llm.model, "local-model");
     }
 
     #[test]

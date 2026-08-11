@@ -1,6 +1,13 @@
 export type ActivationMode = "toggle" | "hold";
 
 export type OverlayPosition = "bottom" | "left" | "right";
+export interface LlmSettings {
+  enabled: boolean;
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  prompt: string;
+}
 
 export interface AppSettings {
   apiKey: string;
@@ -13,10 +20,18 @@ export interface AppSettings {
   launchAtStartup: boolean;
   openSettingsOnStartup: boolean;
   overlayPosition: OverlayPosition;
+  llm: LlmSettings;
 }
 
 export interface AsrEvent {
-  kind: "partial" | "final" | "completed" | "copied" | "empty" | "error";
+  kind:
+    | "partial"
+    | "final"
+    | "processing"
+    | "completed"
+    | "copied"
+    | "empty"
+    | "error";
   sessionId: string;
   text?: string;
   message?: string;
@@ -117,11 +132,20 @@ export interface UpdateInfo {
   version: string;
 }
 
+export const DEFAULT_LLM_PREFERENCE = "保持自然口语，不要过度书面化。";
+
 export const DEFAULT_SETTINGS: AppSettings = {
   activationMode: "toggle",
   apiKey: "",
   hotwords: [],
   hotwordsEnabled: true,
+  llm: {
+    apiKey: "",
+    baseUrl: "",
+    enabled: false,
+    model: "",
+    prompt: DEFAULT_LLM_PREFERENCE,
+  },
   launchAtStartup: false,
   openSettingsOnStartup: true,
   microphoneId: "",

@@ -50,7 +50,7 @@ import {
   formatShortcutLabel,
   useShortcutRecorder,
 } from "@/shortcut";
-import { DEFAULT_SETTINGS } from "@/types";
+import { DEFAULT_LLM_PREFERENCE, DEFAULT_SETTINGS } from "@/types";
 import type {
   AppSettings,
   HotwordSnapshotResult,
@@ -195,14 +195,22 @@ function settingsChanged(
     current.launchAtStartup !== saved.launchAtStartup ||
     current.openSettingsOnStartup !== saved.openSettingsOnStartup ||
     current.overlayPosition !== saved.overlayPosition ||
+    current.llm.enabled !== saved.llm.enabled ||
+    current.llm.baseUrl !== saved.llm.baseUrl ||
+    current.llm.apiKey !== saved.llm.apiKey ||
+    current.llm.model !== saved.llm.model ||
+    current.llm.prompt !== saved.llm.prompt ||
     hotwordsText !== savedHotwordsText
   );
 }
 
-function safeError(error: unknown, apiKey = ""): string {
-  const detail = String(error);
-  const secret = apiKey.trim();
-  return secret.length >= 4 ? detail.split(secret).join("••••••••") : detail;
+function safeError(error: unknown, ...secrets: string[]): string {
+  let detail = String(error);
+  for (const value of secrets) {
+    const secret = value.trim();
+    if (secret.length >= 4) detail = detail.split(secret).join("••••••••");
+  }
+  return detail;
 }
 
 async function persistSettings(
@@ -582,6 +590,7 @@ export function Settings({
   const [microphoneMessage, setMicrophoneMessage] = useState<Message>(null);
   const [onboardingMessage, setOnboardingMessage] = useState<Message>(null);
   const [showApiKey, setShowApiKey] = useState(false);
+  const [showLlmApiKey, setShowLlmApiKey] = useState(false);
   const [onboardingStep, setOnboardingStep] = useState(0);
   const [verifiedApiKey, setVerifiedApiKey] = useState("");
   const [microphones, setMicrophones] = useState<MicrophoneDevice[]>([]);
@@ -638,7 +647,7 @@ export function Settings({
       void invoke("set_settings_dirty", { dirty }).catch((error: unknown) => {
         dirtyRef.current = null;
         reportPersistentError(
-          `同步未保存状态失败：${safeError(error, settingsRef.current.apiKey)}`
+          `同步未保存状态失败：${safeError(error, settingsRef.current.apiKey, settingsRef.current.llm.apiKey)}`
         );
       });
     },
@@ -662,6 +671,12 @@ export function Settings({
         savedHotwordsTextRef.current
       )
     );
+  };
+  const updateLlmSetting = <Key extends keyof AppSettings["llm"]>(
+    key: Key,
+    value: AppSettings["llm"][Key]
+  ) => {
+    updateSetting("llm", { ...settingsRef.current.llm, [key]: value });
   };
 
   const updateHotwordsText = (value: string) => {
@@ -724,7 +739,13 @@ export function Settings({
     try {
       setDiagnostics(await invoke<SystemDiagnostics>("system_diagnostics"));
     } catch (error) {
-      reportPersistentError(safeError(error, settingsRef.current.apiKey));
+      reportPersistentError(
+        safeError(
+          error,
+          settingsRef.current.apiKey,
+          settingsRef.current.llm.apiKey
+        )
+      );
     }
   }, [reportPersistentError]);
 
@@ -742,7 +763,7 @@ export function Settings({
       setHotwordSyncFailed(true);
       setHotwordMessage({
         kind: "error",
-        text: `无法校验云端词表：${safeError(error, settingsRef.current.apiKey)}`,
+        text: `无法校验云端词表：${safeError(error, settingsRef.current.apiKey, settingsRef.current.llm.apiKey)}`,
       });
     } finally {
       setCheckingHotwords(false);
@@ -772,7 +793,11 @@ export function Settings({
         if (showResult)
           showMessage({
             kind: "error",
-            text: safeError(error, settingsRef.current.apiKey),
+            text: safeError(
+              error,
+              settingsRef.current.apiKey,
+              settingsRef.current.llm.apiKey
+            ),
           });
       } finally {
         setCheckingUpdate(false);
@@ -802,7 +827,11 @@ export function Settings({
     } catch (error) {
       showMessage({
         kind: "error",
-        text: safeError(error, settingsRef.current.apiKey),
+        text: safeError(
+          error,
+          settingsRef.current.apiKey,
+          settingsRef.current.llm.apiKey
+        ),
       });
       setInstallingUpdate(false);
     }
@@ -884,7 +913,13 @@ export function Settings({
         else unlisten = callback;
       })
       .catch((error: unknown) => {
-        reportPersistentError(safeError(error, settingsRef.current.apiKey));
+        reportPersistentError(
+          safeError(
+            error,
+            settingsRef.current.apiKey,
+            settingsRef.current.llm.apiKey
+          )
+        );
       });
     return () => {
       disposed = true;
@@ -998,7 +1033,13 @@ export function Settings({
         setDoubaoMessage(null);
         setDoubaoIssue(error);
       } else
-        reportPersistentError(safeError(error, settingsRef.current.apiKey));
+        reportPersistentError(
+          safeError(
+            error,
+            settingsRef.current.apiKey,
+            settingsRef.current.llm.apiKey
+          )
+        );
     } finally {
       stopSaving();
     }
@@ -1019,7 +1060,13 @@ export function Settings({
       if (saved) await finishSuccessfulSave(conflict.source, saved);
     } catch (error) {
       setHotwordSyncFailed(true);
-      reportPersistentError(safeError(error, conflict.pendingSettings.apiKey));
+      reportPersistentError(
+        safeError(
+          error,
+          conflict.pendingSettings.apiKey,
+          conflict.pendingSettings.llm.apiKey
+        )
+      );
     } finally {
       stopSaving();
     }
@@ -1086,7 +1133,11 @@ export function Settings({
     } catch (error) {
       showMessage({
         kind: "error",
-        text: safeError(error, settingsRef.current.apiKey),
+        text: safeError(
+          error,
+          settingsRef.current.apiKey,
+          settingsRef.current.llm.apiKey
+        ),
       });
     } finally {
       stopSaving();
@@ -1269,7 +1320,13 @@ export function Settings({
       if (isTauri()) await invoke("open_api_key_console");
       else window.open(CONSOLE_URL, "_blank", "noopener,noreferrer");
     } catch (error) {
-      reportPersistentError(safeError(error, settingsRef.current.apiKey));
+      reportPersistentError(
+        safeError(
+          error,
+          settingsRef.current.apiKey,
+          settingsRef.current.llm.apiKey
+        )
+      );
     }
   };
 
@@ -1285,7 +1342,11 @@ export function Settings({
     } catch (error) {
       showMessage({
         kind: "error",
-        text: safeError(error, settingsRef.current.apiKey),
+        text: safeError(
+          error,
+          settingsRef.current.apiKey,
+          settingsRef.current.llm.apiKey
+        ),
       });
     }
   };
@@ -1298,7 +1359,11 @@ export function Settings({
     } catch (error) {
       showMessage({
         kind: "error",
-        text: safeError(error, settingsRef.current.apiKey),
+        text: safeError(
+          error,
+          settingsRef.current.apiKey,
+          settingsRef.current.llm.apiKey
+        ),
       });
     }
   };
@@ -1360,6 +1425,7 @@ export function Settings({
         hotwordStatus.state === "pending" ||
         isSettingChanged("apiKey") ||
         isSettingChanged("hotwordsEnabled") ||
+        isSettingChanged("llm") ||
         hotwordsChanged
       );
     return false;
@@ -1609,178 +1675,304 @@ export function Settings({
       }
       case "recognition": {
         return (
-          <SettingsSection
-            id="recognition"
-            title="识别与词汇"
-            description="配置识别服务，并提高人名和专业词汇的准确率。"
-          >
-            <SettingRow
-              title="豆包 API Key"
-              description="从火山引擎控制台获取，用于语音识别和云端常用词同步。"
-              changed={isSettingChanged("apiKey")}
+          <>
+            <SettingsSection
+              id="recognition"
+              title="识别与词汇"
+              description="配置识别服务，并提高人名和专业词汇的准确率。"
             >
-              <div className="w-102.5 max-[800px]:w-90">
-                <div className="flex h-9 items-center overflow-hidden rounded-lg border border-[#d7d9de] bg-white transition focus-within:border-[#7564e8] focus-within:ring-3 focus-within:ring-[#7564e8]/10">
-                  <input
-                    className="min-w-0 flex-1 border-0 bg-transparent px-3 text-[12px] text-[#202124] outline-none disabled:cursor-not-allowed disabled:bg-[#f5f5f6]"
-                    type={showApiKey ? "text" : "password"}
-                    value={settings.apiKey}
-                    onChange={(event) => {
-                      updateSetting("apiKey", event.target.value);
-                      setVerifiedApiKey("");
-                      setDoubaoMessage(null);
-                      setDoubaoIssue(null);
-                    }}
-                    placeholder="粘贴 API Key"
-                    autoComplete="off"
-                    spellCheck={false}
-                  />
-                  <button
-                    className="mr-1 grid size-7 cursor-pointer place-items-center rounded-md border-0 bg-transparent text-[#777b84] hover:bg-[#f1f1f3] focus-visible:outline-2 focus-visible:outline-[#7564e8]"
-                    type="button"
-                    onClick={() => {
-                      setShowApiKey(!showApiKey);
-                    }}
-                    aria-label={showApiKey ? "隐藏 API Key" : "显示 API Key"}
-                    title={showApiKey ? "隐藏 API Key" : "显示 API Key"}
-                  >
-                    {showApiKey ? <EyeOff size={13} /> : <Eye size={13} />}
-                  </button>
-                </div>
-                <div className="mt-2 flex items-center justify-end gap-3">
-                  <button
-                    className="cursor-pointer border-0 bg-transparent p-0 text-[10px] text-[#6558e8] hover:text-[#4f43bd] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8]"
-                    type="button"
-                    onClick={() => void openConsole()}
-                  >
-                    <span className="flex items-center gap-1">
-                      获取 API Key <ExternalLink size={10} />
-                    </span>
-                  </button>
-                  <button
-                    className="flex h-7 cursor-pointer items-center gap-1.5 rounded-md border border-[#d7d9de] bg-white px-2.5 text-[10px] font-medium text-[#555962] hover:bg-[#f5f5f6] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8] disabled:cursor-wait disabled:opacity-55"
-                    type="button"
-                    onClick={() => void testDoubao()}
-                    disabled={testingDoubao || !settings.apiKey.trim()}
-                  >
-                    <Activity size={11} />{" "}
-                    {testingDoubao ? "连接中…" : "测试连接"}
-                  </button>
-                </div>
-              </div>
-            </SettingRow>
-            {doubaoMessage ? (
-              <div className="px-5 py-3">
-                <Feedback message={doubaoMessage} />
-              </div>
-            ) : null}
-            {doubaoIssue ? (
-              <div className="px-5 py-3">
-                <ServiceIssueCard
-                  issue={doubaoIssue}
-                  onOpenLink={(target) => {
-                    void openProductLink(target);
-                  }}
-                />
-              </div>
-            ) : null}
-            <SettingRow
-              title="启用常用词"
-              description="关闭后保留云端词表，但听写时不使用。"
-              changed={isSettingChanged("hotwordsEnabled")}
-            >
-              <Toggle
-                checked={settings.hotwordsEnabled}
-                onChange={(checked) => {
-                  updateSetting("hotwordsEnabled", checked);
-                }}
-                label="启用常用词"
-              />
-            </SettingRow>
-            <SettingRow
-              title="常用词"
-              description="保存时同步到火山引擎，用于提高人名、产品名和专业术语的识别准确率。"
-              vertical
-              changed={hotwordsChanged}
-            >
-              <div className="mb-2.5 flex items-center gap-2">
-                <span
-                  className={`rounded-full px-2 py-0.5 text-[9px] font-medium ${HOTWORD_CHIP_CLASS[hotwordChipState.tone]}`}
-                  role="status"
-                  aria-live="polite"
-                >
-                  {hotwordChipState.label}
-                </span>
-                <span className="text-[9px] text-[#777b84]">
-                  本机 {localHotwords.length} · 云端 {cloudHotwords.length}
-                </span>
-                <span className="text-[9px] text-[#777b84]">
-                  上限 {hotwordStatus.limit}
-                </span>
-                <button
-                  className={`ml-auto ${TEXT_BUTTON_CLASS}`}
-                  type="button"
-                  onClick={() => void refreshHotwords()}
-                  disabled={checkingHotwords}
-                >
-                  {checkingHotwords ? "校验中…" : "重新校验"}
-                </button>
-                <button
-                  className={TEXT_BUTTON_CLASS}
-                  type="button"
-                  onClick={clearHotwords}
-                  disabled={!settings.hotwordsEnabled || !hotwordsText.trim()}
-                >
-                  清空
-                </button>
-              </div>
-              <textarea
-                className="min-h-32 w-full resize-y rounded-lg border border-[#d7d9de] bg-white px-3 py-2.5 text-[12px] leading-6 text-[#202124] transition outline-none focus:border-[#7564e8] focus:ring-3 focus:ring-[#7564e8]/10 disabled:cursor-not-allowed disabled:bg-[#f5f5f6]"
-                value={hotwordsText}
-                onChange={(event) => {
-                  updateHotwordsText(event.target.value);
-                }}
-                disabled={!settings.hotwordsEnabled}
-                placeholder={"VoicePaste\nTauri\nTanStack"}
-                rows={6}
-              />
-              <p className="mt-2 text-[9px] leading-4 text-[#777b84]">
-                每行一个词，不支持词内空格；词表会保存在火山引擎。听写仍保持实时流式返回。
-              </p>
-            </SettingRow>
-            {hotwordMessage ? (
-              <div className="px-5 py-3">
-                <Feedback message={hotwordMessage} />
-              </div>
-            ) : null}
-            {hotwordStatus.foreignTables.length > 0 ? (
               <SettingRow
-                title="火山引擎上的其它词表"
-                description={`账号里还有 ${hotwordStatus.foreignTables.length} 张 VoicePaste 未管理的词表，识别时不会使用。需要清理请前往火山引擎控制台。`}
-                vertical
+                title="豆包 API Key"
+                description="从火山引擎控制台获取，用于语音识别和云端常用词同步。"
+                changed={isSettingChanged("apiKey")}
               >
-                <ul className="mb-2.5 flex flex-col gap-1">
-                  {hotwordStatus.foreignTables.map((table) => (
-                    <li
-                      className="text-[10px] leading-5 text-[#6f737b]"
-                      key={table.name}
+                <div className="w-102.5 max-[800px]:w-90">
+                  <div className="flex h-9 items-center overflow-hidden rounded-lg border border-[#d7d9de] bg-white transition focus-within:border-[#7564e8] focus-within:ring-3 focus-within:ring-[#7564e8]/10">
+                    <input
+                      className="min-w-0 flex-1 border-0 bg-transparent px-3 text-[12px] text-[#202124] outline-none disabled:cursor-not-allowed disabled:bg-[#f5f5f6]"
+                      type={showApiKey ? "text" : "password"}
+                      value={settings.apiKey}
+                      onChange={(event) => {
+                        updateSetting("apiKey", event.target.value);
+                        setVerifiedApiKey("");
+                        setDoubaoMessage(null);
+                        setDoubaoIssue(null);
+                      }}
+                      placeholder="粘贴 API Key"
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                    <button
+                      className="mr-1 grid size-7 cursor-pointer place-items-center rounded-md border-0 bg-transparent text-[#777b84] hover:bg-[#f1f1f3] focus-visible:outline-2 focus-visible:outline-[#7564e8]"
+                      type="button"
+                      onClick={() => {
+                        setShowApiKey(!showApiKey);
+                      }}
+                      aria-label={showApiKey ? "隐藏 API Key" : "显示 API Key"}
+                      title={showApiKey ? "隐藏 API Key" : "显示 API Key"}
                     >
-                      {table.name}（{table.wordCount} 词）
-                    </li>
-                  ))}
-                </ul>
-                <div className="flex">
-                  <button
-                    className={SECONDARY_BUTTON_CLASS}
-                    type="button"
-                    onClick={() => void openConsole()}
-                  >
-                    <ExternalLink size={11} /> 打开控制台
-                  </button>
+                      {showApiKey ? <EyeOff size={13} /> : <Eye size={13} />}
+                    </button>
+                  </div>
+                  <div className="mt-2 flex items-center justify-end gap-3">
+                    <button
+                      className="cursor-pointer border-0 bg-transparent p-0 text-[10px] text-[#6558e8] hover:text-[#4f43bd] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8]"
+                      type="button"
+                      onClick={() => void openConsole()}
+                    >
+                      <span className="flex items-center gap-1">
+                        获取 API Key <ExternalLink size={10} />
+                      </span>
+                    </button>
+                    <button
+                      className="flex h-7 cursor-pointer items-center gap-1.5 rounded-md border border-[#d7d9de] bg-white px-2.5 text-[10px] font-medium text-[#555962] hover:bg-[#f5f5f6] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8] disabled:cursor-wait disabled:opacity-55"
+                      type="button"
+                      onClick={() => void testDoubao()}
+                      disabled={testingDoubao || !settings.apiKey.trim()}
+                    >
+                      <Activity size={11} />{" "}
+                      {testingDoubao ? "连接中…" : "测试连接"}
+                    </button>
+                  </div>
                 </div>
               </SettingRow>
-            ) : null}
-          </SettingsSection>
+              {doubaoMessage ? (
+                <div className="px-5 py-3">
+                  <Feedback message={doubaoMessage} />
+                </div>
+              ) : null}
+              {doubaoIssue ? (
+                <div className="px-5 py-3">
+                  <ServiceIssueCard
+                    issue={doubaoIssue}
+                    onOpenLink={(target) => {
+                      void openProductLink(target);
+                    }}
+                  />
+                </div>
+              ) : null}
+              <SettingRow
+                title="启用常用词"
+                description="关闭后保留云端词表，但听写时不使用。"
+                changed={isSettingChanged("hotwordsEnabled")}
+              >
+                <Toggle
+                  checked={settings.hotwordsEnabled}
+                  onChange={(checked) => {
+                    updateSetting("hotwordsEnabled", checked);
+                  }}
+                  label="启用常用词"
+                />
+              </SettingRow>
+              <SettingRow
+                title="常用词"
+                description="保存时同步到火山引擎，用于提高人名、产品名和专业术语的识别准确率。"
+                vertical
+                changed={hotwordsChanged}
+              >
+                <div className="mb-2.5 flex items-center gap-2">
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[9px] font-medium ${HOTWORD_CHIP_CLASS[hotwordChipState.tone]}`}
+                    role="status"
+                    aria-live="polite"
+                  >
+                    {hotwordChipState.label}
+                  </span>
+                  <span className="text-[9px] text-[#777b84]">
+                    本机 {localHotwords.length} · 云端 {cloudHotwords.length}
+                  </span>
+                  <span className="text-[9px] text-[#777b84]">
+                    上限 {hotwordStatus.limit}
+                  </span>
+                  <button
+                    className={`ml-auto ${TEXT_BUTTON_CLASS}`}
+                    type="button"
+                    onClick={() => void refreshHotwords()}
+                    disabled={checkingHotwords}
+                  >
+                    {checkingHotwords ? "校验中…" : "重新校验"}
+                  </button>
+                  <button
+                    className={TEXT_BUTTON_CLASS}
+                    type="button"
+                    onClick={clearHotwords}
+                    disabled={!settings.hotwordsEnabled || !hotwordsText.trim()}
+                  >
+                    清空
+                  </button>
+                </div>
+                <textarea
+                  className="min-h-32 w-full resize-y rounded-lg border border-[#d7d9de] bg-white px-3 py-2.5 text-[12px] leading-6 text-[#202124] transition outline-none focus:border-[#7564e8] focus:ring-3 focus:ring-[#7564e8]/10 disabled:cursor-not-allowed disabled:bg-[#f5f5f6]"
+                  value={hotwordsText}
+                  onChange={(event) => {
+                    updateHotwordsText(event.target.value);
+                  }}
+                  disabled={!settings.hotwordsEnabled}
+                  placeholder={"VoicePaste\nTauri\nTanStack"}
+                  rows={6}
+                />
+                <p className="mt-2 text-[9px] leading-4 text-[#777b84]">
+                  每行一个词，不支持词内空格；词表会保存在火山引擎。听写仍保持实时流式返回。
+                </p>
+              </SettingRow>
+              {hotwordMessage ? (
+                <div className="px-5 py-3">
+                  <Feedback message={hotwordMessage} />
+                </div>
+              ) : null}
+              {hotwordStatus.foreignTables.length > 0 ? (
+                <SettingRow
+                  title="火山引擎上的其它词表"
+                  description={`账号里还有 ${hotwordStatus.foreignTables.length} 张 VoicePaste 未管理的词表，识别时不会使用。需要清理请前往火山引擎控制台。`}
+                  vertical
+                >
+                  <ul className="mb-2.5 flex flex-col gap-1">
+                    {hotwordStatus.foreignTables.map((table) => (
+                      <li
+                        className="text-[10px] leading-5 text-[#6f737b]"
+                        key={table.name}
+                      >
+                        {table.name}（{table.wordCount} 词）
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="flex">
+                    <button
+                      className={SECONDARY_BUTTON_CLASS}
+                      type="button"
+                      onClick={() => void openConsole()}
+                    >
+                      <ExternalLink size={11} /> 打开控制台
+                    </button>
+                  </div>
+                </SettingRow>
+              ) : null}
+            </SettingsSection>
+
+            <SettingsSection
+              id="llm-postprocessing"
+              title="LLM 后处理"
+              description="使用固定的保真规则校对识别文本，并应用可选的表达偏好。"
+            >
+              <SettingRow
+                title="启用 LLM 后处理"
+                description="识别完成后再请求一次 LLM；会显著增加最终文本的等待时间。"
+                changed={isSettingChanged("llm")}
+              >
+                <Toggle
+                  checked={settings.llm.enabled}
+                  onChange={(checked) => {
+                    updateLlmSetting("enabled", checked);
+                  }}
+                  label="启用 LLM 后处理"
+                />
+              </SettingRow>
+              {settings.llm.enabled ? (
+                <>
+                  <SettingRow
+                    title="API 地址"
+                    description="填写 OpenAI 兼容 API 的基础地址；VoicePaste 会请求 /chat/completions。"
+                    changed={isSettingChanged("llm")}
+                  >
+                    <input
+                      aria-label="LLM API 地址"
+                      className="h-9 w-102.5 rounded-lg border border-[#d7d9de] bg-white px-3 text-[11px] text-[#202124] transition outline-none focus:border-[#7564e8] focus:ring-3 focus:ring-[#7564e8]/10 max-[800px]:w-90"
+                      type="url"
+                      value={settings.llm.baseUrl}
+                      onChange={(event) => {
+                        updateLlmSetting("baseUrl", event.target.value);
+                      }}
+                      placeholder="https://api.openai.com/v1"
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                  </SettingRow>
+                  <SettingRow
+                    title="模型"
+                    description="填写服务提供方支持的模型名称。"
+                    changed={isSettingChanged("llm")}
+                  >
+                    <input
+                      aria-label="LLM 模型"
+                      className="h-9 w-102.5 rounded-lg border border-[#d7d9de] bg-white px-3 text-[11px] text-[#202124] transition outline-none focus:border-[#7564e8] focus:ring-3 focus:ring-[#7564e8]/10 max-[800px]:w-90"
+                      type="text"
+                      value={settings.llm.model}
+                      onChange={(event) => {
+                        updateLlmSetting("model", event.target.value);
+                      }}
+                      placeholder="gpt-4.1-mini"
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                  </SettingRow>
+                  <SettingRow
+                    title="API Key"
+                    description="保存在系统凭据库；本地服务不需要鉴权时可以留空。"
+                    changed={isSettingChanged("llm")}
+                  >
+                    <div className="flex h-9 w-102.5 items-center overflow-hidden rounded-lg border border-[#d7d9de] bg-white transition focus-within:border-[#7564e8] focus-within:ring-3 focus-within:ring-[#7564e8]/10 max-[800px]:w-90">
+                      <input
+                        aria-label="LLM API Key"
+                        className="min-w-0 flex-1 border-0 bg-transparent px-3 text-[11px] text-[#202124] outline-none"
+                        type={showLlmApiKey ? "text" : "password"}
+                        value={settings.llm.apiKey}
+                        onChange={(event) => {
+                          updateLlmSetting("apiKey", event.target.value);
+                        }}
+                        placeholder="可选"
+                        autoComplete="off"
+                        spellCheck={false}
+                      />
+                      <button
+                        className="mr-1 grid size-7 cursor-pointer place-items-center rounded-md border-0 bg-transparent text-[#777b84] hover:bg-[#f1f1f3] focus-visible:outline-2 focus-visible:outline-[#7564e8]"
+                        type="button"
+                        onClick={() => {
+                          setShowLlmApiKey(!showLlmApiKey);
+                        }}
+                        aria-label={
+                          showLlmApiKey
+                            ? "隐藏 LLM API Key"
+                            : "显示 LLM API Key"
+                        }
+                        title={
+                          showLlmApiKey
+                            ? "隐藏 LLM API Key"
+                            : "显示 LLM API Key"
+                        }
+                      >
+                        {showLlmApiKey ? (
+                          <EyeOff size={13} />
+                        ) : (
+                          <Eye size={13} />
+                        )}
+                      </button>
+                    </div>
+                  </SettingRow>
+                  <SettingRow
+                    title="表达偏好"
+                    description="只描述你的语气和格式偏好；固定校对规则仍会保留说话者身份、第一人称、原意和事实。"
+                    changed={isSettingChanged("llm")}
+                    vertical
+                  >
+                    <textarea
+                      aria-label="LLM 表达偏好"
+                      className="min-h-32 w-full resize-y rounded-lg border border-[#d7d9de] bg-white px-3 py-2.5 text-[12px] leading-6 text-[#202124] transition outline-none focus:border-[#7564e8] focus:ring-3 focus:ring-[#7564e8]/10"
+                      value={settings.llm.prompt}
+                      onChange={(event) => {
+                        updateLlmSetting("prompt", event.target.value);
+                      }}
+                      placeholder={DEFAULT_LLM_PREFERENCE}
+                      maxLength={8000}
+                      rows={6}
+                    />
+                    <p className="mt-2 rounded-lg border border-[#ead9a4] bg-[#fff8df] px-3 py-2 text-[9px] leading-4 text-[#765b12]">
+                      启用后，识别文本和表达偏好会发送到你配置的第三方服务，最终输入通常会增加数秒等待。请求失败时自动使用原始识别文本。
+                    </p>
+                  </SettingRow>
+                </>
+              ) : null}
+            </SettingsSection>
+          </>
         );
       }
       case "diagnostics": {
@@ -1829,7 +2021,11 @@ export function Settings({
                       } catch (error) {
                         showMessage({
                           kind: "error",
-                          text: safeError(error, settingsRef.current.apiKey),
+                          text: safeError(
+                            error,
+                            settingsRef.current.apiKey,
+                            settingsRef.current.llm.apiKey
+                          ),
                         });
                       }
                     })();

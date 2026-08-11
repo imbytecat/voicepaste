@@ -1,6 +1,7 @@
 mod asr;
 mod audio;
 mod hotwords;
+mod llm;
 mod paste;
 mod settings;
 mod shortcut;
@@ -371,6 +372,11 @@ async fn save_settings(
     settings.shortcut = settings.shortcut.trim().to_owned();
     settings.microphone_id = settings.microphone_id.trim().to_owned();
     settings.hotwords = hotwords::normalize(settings.hotwords)?;
+    settings.llm.base_url = settings.llm.base_url.trim().to_owned();
+    settings.llm.api_key = settings.llm.api_key.trim().to_owned();
+    settings.llm.model = settings.llm.model.trim().to_owned();
+    settings.llm.prompt = settings.llm.prompt.trim().to_owned();
+    llm::validate(&settings.llm)?;
     if settings.shortcut.is_empty() {
         return Err("全局快捷键不能为空".to_owned());
     }
@@ -592,6 +598,7 @@ async fn start_recognition(
 
     let session_slot = Arc::clone(&state.session);
     let input_session = Arc::clone(&state.input_session);
+    let llm_settings = settings.llm.clone();
     tauri::async_runtime::spawn(async move {
         let result = asr::run(
             settings,
@@ -615,11 +622,27 @@ async fn start_recognition(
                 );
             }
             Ok(AsrOutcome::Text(text)) => {
+                let (text, completed_message) = if llm_settings.enabled {
+                    emit_asr_event(
+                        &app,
+                        &session_id,
+                        json!({
+                            "kind": "processing",
+                            "message": "正在进行 LLM 后处理，输入会比平时更慢…"
+                        }),
+                    );
+                    match llm::postprocess(&llm_settings, &text).await {
+                        Ok(processed) => (processed, "LLM 后处理完成，已输入"),
+                        Err(_) => (text, "LLM 后处理失败，已输入原始识别结果"),
+                    }
+                } else {
+                    (text, "已输入")
+                };
                 match paste::paste(&app, Arc::clone(&input_session), text).await {
                     Ok(PasteOutcome::Pasted) => emit_asr_event(
                         &app,
                         &session_id,
-                        json!({ "kind": "completed", "message": "已输入" }),
+                        json!({ "kind": "completed", "message": completed_message }),
                     ),
                     Ok(PasteOutcome::Copied(error)) => {
                         let _ = show_overlay(&app);

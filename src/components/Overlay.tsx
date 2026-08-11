@@ -191,6 +191,11 @@ export function Overlay() {
           updatePhase("finishing");
           return;
         }
+        if (payload.kind === "processing") {
+          setText(payload.message ?? "正在进行 LLM 后处理…");
+          updatePhase("finishing");
+          return;
+        }
         if (payload.kind === "completed" || payload.kind === "copied") {
           sessionRef.current = null;
           setText(
