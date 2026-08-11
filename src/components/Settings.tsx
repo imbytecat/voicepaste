@@ -109,6 +109,57 @@ const HOTWORD_CHIP_CLASS = {
   syncing: "bg-[#efedff] text-[#5748ca]",
 };
 const HOTWORD_DIFF_PREVIEW = 6;
+const RESERVED_LLM_PARAMETERS = [
+  "model",
+  "messages",
+  "stream",
+  "stream_options",
+] as const;
+const CUSTOM_LLM_PARAMETER_PRESET = "custom";
+const LLM_PARAMETER_PRESETS = [
+  {
+    description: "不附加额外请求参数，由服务和模型决定是否思考。",
+    id: "default",
+    label: "使用服务默认参数",
+    parameters: "",
+  },
+  {
+    description: "发送 thinking.type=disabled。",
+    id: "deepseek-no-thinking",
+    label: "DeepSeek · 关闭思考",
+    parameters: `{
+  "thinking": {
+    "type": "disabled"
+  }
+}`,
+  },
+  {
+    description: "发送 enable_thinking=false；仅适用于混合思考模型。",
+    id: "qwen-no-thinking",
+    label: "Qwen · 关闭思考",
+    parameters: `{
+  "enable_thinking": false
+}`,
+  },
+  {
+    description: "发送 reasoning_effort=none；模型不支持时可能忽略或拒绝。",
+    id: "reasoning-effort-none",
+    label: "OpenAI / Gemini 2.5 / Ollama · 关闭推理",
+    parameters: `{
+  "reasoning_effort": "none"
+}`,
+  },
+  {
+    description: "发送 reasoning.effort=none；强制推理模型无法关闭。",
+    id: "openrouter-no-reasoning",
+    label: "OpenRouter · 关闭推理",
+    parameters: `{
+  "reasoning": {
+    "effort": "none"
+  }
+}`,
+  },
+] as const;
 
 type Message = { kind: "success" | "error" | "info"; text: string } | null;
 interface LoadSettingsResult {
@@ -179,6 +230,53 @@ function ShortcutHint({ shortcut }: { shortcut: string }) {
   );
 }
 
+function llmSettingsChanged(
+  current: AppSettings["llm"],
+  saved: AppSettings["llm"]
+): boolean {
+  return (
+    current.enabled !== saved.enabled ||
+    current.baseUrl !== saved.baseUrl ||
+    current.apiKey !== saved.apiKey ||
+    current.model !== saved.model ||
+    current.prompt !== saved.prompt ||
+    current.streaming !== saved.streaming ||
+    current.extraParameters !== saved.extraParameters
+  );
+}
+
+function normalizeJson(value: string): string {
+  if (!value.trim()) return "";
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return JSON.stringify(parsed) ?? value.trim();
+  } catch {
+    return value.trim();
+  }
+}
+
+function detectLlmParameterPreset(parameters: string): string {
+  const normalized = normalizeJson(parameters);
+  return (
+    LLM_PARAMETER_PRESETS.find(
+      (preset) => normalizeJson(preset.parameters) === normalized
+    )?.id ?? CUSTOM_LLM_PARAMETER_PRESET
+  );
+}
+
+function llmParameterError(parameters: string): string | null {
+  if (!parameters.trim()) return null;
+  try {
+    const parsed: unknown = JSON.parse(parameters);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
+      return "必须输入一个 JSON 对象";
+    const reserved = RESERVED_LLM_PARAMETERS.find((key) => key in parsed);
+    return reserved ? `不能覆盖 ${reserved}` : null;
+  } catch (error) {
+    return `JSON 格式错误：${String(error)}`;
+  }
+}
+
 function settingsChanged(
   current: AppSettings,
   hotwordsText: string,
@@ -195,11 +293,7 @@ function settingsChanged(
     current.launchAtStartup !== saved.launchAtStartup ||
     current.openSettingsOnStartup !== saved.openSettingsOnStartup ||
     current.overlayPosition !== saved.overlayPosition ||
-    current.llm.enabled !== saved.llm.enabled ||
-    current.llm.baseUrl !== saved.llm.baseUrl ||
-    current.llm.apiKey !== saved.llm.apiKey ||
-    current.llm.model !== saved.llm.model ||
-    current.llm.prompt !== saved.llm.prompt ||
+    llmSettingsChanged(current.llm, saved.llm) ||
     hotwordsText !== savedHotwordsText
   );
 }
@@ -591,6 +685,8 @@ export function Settings({
   const [onboardingMessage, setOnboardingMessage] = useState<Message>(null);
   const [showApiKey, setShowApiKey] = useState(false);
   const [showLlmApiKey, setShowLlmApiKey] = useState(false);
+  const [editingCustomLlmParameters, setEditingCustomLlmParameters] =
+    useState(false);
   const [onboardingStep, setOnboardingStep] = useState(0);
   const [verifiedApiKey, setVerifiedApiKey] = useState("");
   const [microphones, setMicrophones] = useState<MicrophoneDevice[]>([]);
@@ -1389,6 +1485,24 @@ export function Settings({
     : "VoicePaste";
   const isSettingChanged = (key: keyof AppSettings) =>
     settings[key] !== savedSettingsRef.current[key];
+  const isLlmSettingChanged = (key: keyof AppSettings["llm"]) =>
+    settings.llm[key] !== savedSettingsRef.current.llm[key];
+  const llmChanged = llmSettingsChanged(
+    settings.llm,
+    savedSettingsRef.current.llm
+  );
+  const detectedLlmParameterPreset = detectLlmParameterPreset(
+    settings.llm.extraParameters
+  );
+  const selectedLlmParameterPreset = editingCustomLlmParameters
+    ? CUSTOM_LLM_PARAMETER_PRESET
+    : detectedLlmParameterPreset;
+  const selectedLlmParameterPresetDetails = LLM_PARAMETER_PRESETS.find(
+    (preset) => preset.id === selectedLlmParameterPreset
+  );
+  const customLlmParameterError = llmParameterError(
+    settings.llm.extraParameters
+  );
   const hotwordsChanged = hotwordsText !== savedHotwordsTextRef.current;
   const localHotwords = uniqueHotwords(hotwordsText);
   const cloudDirty = isSettingChanged("apiKey") || hotwordsChanged;
@@ -1425,7 +1539,7 @@ export function Settings({
         hotwordStatus.state === "pending" ||
         isSettingChanged("apiKey") ||
         isSettingChanged("hotwordsEnabled") ||
-        isSettingChanged("llm") ||
+        llmChanged ||
         hotwordsChanged
       );
     return false;
@@ -1852,12 +1966,12 @@ export function Settings({
             <SettingsSection
               id="llm-postprocessing"
               title="LLM 后处理"
-              description="使用固定的保真规则校对识别文本，并应用可选的表达偏好。"
+              description="使用固定保真规则校对识别文本；可流式预览结果，并附加服务商支持的请求参数。"
             >
               <SettingRow
                 title="启用 LLM 后处理"
                 description="识别完成后再请求一次 LLM；会显著增加最终文本的等待时间。"
-                changed={isSettingChanged("llm")}
+                changed={isLlmSettingChanged("enabled")}
               >
                 <Toggle
                   checked={settings.llm.enabled}
@@ -1872,7 +1986,7 @@ export function Settings({
                   <SettingRow
                     title="API 地址"
                     description="填写 OpenAI 兼容 API 的基础地址；VoicePaste 会请求 /chat/completions。"
-                    changed={isSettingChanged("llm")}
+                    changed={isLlmSettingChanged("baseUrl")}
                   >
                     <input
                       aria-label="LLM API 地址"
@@ -1890,7 +2004,7 @@ export function Settings({
                   <SettingRow
                     title="模型"
                     description="填写服务提供方支持的模型名称。"
-                    changed={isSettingChanged("llm")}
+                    changed={isLlmSettingChanged("model")}
                   >
                     <input
                       aria-label="LLM 模型"
@@ -1908,7 +2022,7 @@ export function Settings({
                   <SettingRow
                     title="API Key"
                     description="保存在系统凭据库；本地服务不需要鉴权时可以留空。"
-                    changed={isSettingChanged("llm")}
+                    changed={isLlmSettingChanged("apiKey")}
                   >
                     <div className="flex h-9 w-102.5 items-center overflow-hidden rounded-lg border border-[#d7d9de] bg-white transition focus-within:border-[#7564e8] focus-within:ring-3 focus-within:ring-[#7564e8]/10 max-[800px]:w-90">
                       <input
@@ -1949,9 +2063,132 @@ export function Settings({
                     </div>
                   </SettingRow>
                   <SettingRow
+                    title="流式显示"
+                    description="边生成边在悬浮窗显示最终文本；服务不支持流式响应时请关闭。"
+                    changed={isLlmSettingChanged("streaming")}
+                  >
+                    <Toggle
+                      checked={settings.llm.streaming}
+                      onChange={(checked) => {
+                        updateLlmSetting("streaming", checked);
+                      }}
+                      label="启用 LLM 流式显示"
+                    />
+                  </SettingRow>
+                  <SettingRow
+                    title="请求参数"
+                    description="常见需求直接选择预设；只有服务要求其它字段时才编辑高级 JSON。"
+                    changed={isLlmSettingChanged("extraParameters")}
+                    vertical
+                  >
+                    <select
+                      aria-label="LLM 请求参数预设"
+                      className={INPUT_CLASS}
+                      value={selectedLlmParameterPreset}
+                      onChange={(event) => {
+                        if (
+                          event.target.value === CUSTOM_LLM_PARAMETER_PRESET
+                        ) {
+                          setEditingCustomLlmParameters(true);
+                          return;
+                        }
+                        const preset = LLM_PARAMETER_PRESETS.find(
+                          ({ id }) => id === event.target.value
+                        );
+                        if (!preset) return;
+                        setEditingCustomLlmParameters(false);
+                        updateLlmSetting("extraParameters", preset.parameters);
+                      }}
+                    >
+                      {LLM_PARAMETER_PRESETS.map((preset) => (
+                        <option key={preset.id} value={preset.id}>
+                          {preset.label}
+                        </option>
+                      ))}
+                      <option value={CUSTOM_LLM_PARAMETER_PRESET}>
+                        高级自定义 JSON…
+                      </option>
+                    </select>
+                    {selectedLlmParameterPresetDetails ? (
+                      <p className="mt-2 rounded-lg border border-[#e1e2e6] bg-[#f7f7f8] px-3 py-2 text-[9px] leading-4 text-[#62666f]">
+                        {selectedLlmParameterPresetDetails.description}
+                      </p>
+                    ) : null}
+                    {selectedLlmParameterPreset ===
+                    CUSTOM_LLM_PARAMETER_PRESET ? (
+                      <div className="mt-2 rounded-lg border border-[#e1e2e6] bg-[#fafafa] p-2.5">
+                        <textarea
+                          aria-label="LLM 高级自定义 JSON 参数"
+                          className="min-h-24 w-full resize-y rounded-lg border border-[#d7d9de] bg-white px-3 py-2.5 font-mono text-[11px] leading-5 text-[#202124] transition outline-none focus:border-[#7564e8] focus:ring-3 focus:ring-[#7564e8]/10"
+                          value={settings.llm.extraParameters}
+                          onChange={(event) => {
+                            updateLlmSetting(
+                              "extraParameters",
+                              event.target.value
+                            );
+                          }}
+                          placeholder={'{\n  "parameter": "value"\n}'}
+                          maxLength={8000}
+                          rows={4}
+                          spellCheck={false}
+                        />
+                        <div className="mt-2 flex items-center justify-between gap-3">
+                          <span
+                            className={`min-w-0 text-[9px] leading-4 ${
+                              customLlmParameterError
+                                ? "text-[#a33a31]"
+                                : "text-[#55705f]"
+                            }`}
+                            role={customLlmParameterError ? "alert" : "status"}
+                          >
+                            {customLlmParameterError ??
+                              (settings.llm.extraParameters.trim()
+                                ? "JSON 对象有效"
+                                : "空内容不会附加参数")}
+                          </span>
+                          <div className="flex shrink-0 gap-3">
+                            <button
+                              className={TEXT_BUTTON_CLASS}
+                              type="button"
+                              disabled={
+                                Boolean(customLlmParameterError) ||
+                                !settings.llm.extraParameters.trim()
+                              }
+                              onClick={() => {
+                                const parsed: unknown = JSON.parse(
+                                  settings.llm.extraParameters
+                                );
+                                updateLlmSetting(
+                                  "extraParameters",
+                                  JSON.stringify(parsed, null, 2) ??
+                                    settings.llm.extraParameters
+                                );
+                              }}
+                            >
+                              格式化
+                            </button>
+                            <button
+                              className={TEXT_BUTTON_CLASS}
+                              type="button"
+                              onClick={() => {
+                                setEditingCustomLlmParameters(false);
+                                updateLlmSetting("extraParameters", "");
+                              }}
+                            >
+                              清空并使用默认
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
+                    <p className="mt-2 text-[9px] leading-4 text-[#777b84]">
+                      预设只填充对应服务的官方请求字段；模型不支持时可能忽略或拒绝。不要在此填写密钥。
+                    </p>
+                  </SettingRow>
+                  <SettingRow
                     title="表达偏好"
                     description="只描述你的语气和格式偏好；固定校对规则仍会保留说话者身份、第一人称、原意和事实。"
-                    changed={isSettingChanged("llm")}
+                    changed={isLlmSettingChanged("prompt")}
                     vertical
                   >
                     <textarea

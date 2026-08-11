@@ -1,6 +1,6 @@
 [package]
 name = "voicepaste"
-version = "1.2.3"
+version = "1.4.0"
 description = "跨平台便捷语音输入工具"
 authors = ["imbytecat"]
 license = "MIT"
@@ -43,6 +43,7 @@ tauri-plugin-dialog = "2"
 tauri-plugin-log = "2"
 tauri-plugin-updater = "2"
 async-openai = { version = "0.41.3", default-features = false, features = [
+  "byot",
   "chat-completion",
   "rustls-no-provider",
 ] }

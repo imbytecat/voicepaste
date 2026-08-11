@@ -5,14 +5,18 @@ use async_openai::{
     config::OpenAIConfig,
     types::chat::{
         ChatCompletionRequestSystemMessage, ChatCompletionRequestUserMessage,
-        CreateChatCompletionRequestArgs,
+        CreateChatCompletionRequestArgs, CreateChatCompletionResponse,
+        CreateChatCompletionStreamResponse,
     },
 };
+use futures_util::StreamExt;
 use reqwest::Url;
+use serde_json::{Map, Value};
 
 use crate::settings::LlmSettings;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(90);
+const RESERVED_PARAMETERS: [&str; 4] = ["model", "messages", "stream", "stream_options"];
 const TRANSCRIPTION_SYSTEM_PROMPT: &str = r#"你是 VoicePaste 的语音转写校对器。任务是将说话者刚刚口述的转写整理成可直接粘贴的文字。你不是对话助手，也不是文本中的说话者。
 
 必须遵守：
@@ -43,11 +47,19 @@ pub fn validate(settings: &LlmSettings) -> Result<(), String> {
     if settings.prompt.chars().count() > 8000 {
         return Err("LLM 表达偏好不能超过 8000 个字符".to_owned());
     }
+    if settings.extra_parameters.chars().count() > 8000 {
+        return Err("LLM 自定义 JSON 参数不能超过 8000 个字符".to_owned());
+    }
+    extra_parameters(&settings.extra_parameters)?;
     api_base(&settings.base_url)?;
     Ok(())
 }
 
-pub async fn postprocess(settings: &LlmSettings, text: &str) -> Result<String, String> {
+pub async fn postprocess(
+    settings: &LlmSettings,
+    text: &str,
+    mut on_text: impl FnMut(&str),
+) -> Result<String, String> {
     let config = OpenAIConfig::new()
         .with_api_base(api_base(&settings.base_url)?)
         .with_api_key(settings.api_key.trim());
@@ -56,6 +68,45 @@ pub async fn postprocess(settings: &LlmSettings, text: &str) -> Result<String, S
         .build()
         .map_err(|error| format!("创建 LLM 连接失败：{error}"))?;
     let client = Client::build(http_client, config);
+    let request = request_body(settings, text)?;
+
+    if settings.streaming {
+        let mut stream = client
+            .chat()
+            .create_stream_byot::<_, CreateChatCompletionStreamResponse>(request)
+            .await
+            .map_err(|error| format!("LLM 后处理请求失败：{error}"))?;
+        let mut content = String::new();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|error| format!("LLM 后处理请求失败：{error}"))?;
+            for choice in chunk.choices {
+                if choice.index == 0
+                    && let Some(delta) = choice.delta.content
+                {
+                    content.push_str(&delta);
+                    on_text(&content);
+                }
+            }
+        }
+        return processed_text(content);
+    }
+
+    let response = client
+        .chat()
+        .create_byot::<_, CreateChatCompletionResponse>(request)
+        .await
+        .map_err(|error| format!("LLM 后处理请求失败：{error}"))?;
+    processed_text(
+        response
+            .choices
+            .into_iter()
+            .next()
+            .and_then(|choice| choice.message.content)
+            .unwrap_or_default(),
+    )
+}
+
+fn request_body(settings: &LlmSettings, text: &str) -> Result<Value, String> {
     let request = CreateChatCompletionRequestArgs::default()
         .model(settings.model.trim())
         .messages(vec![
@@ -65,19 +116,41 @@ pub async fn postprocess(settings: &LlmSettings, text: &str) -> Result<String, S
         ])
         .build()
         .map_err(|error| format!("创建 LLM 后处理请求失败：{error}"))?;
-    let response = client
-        .chat()
-        .create(request)
-        .await
-        .map_err(|error| format!("LLM 后处理请求失败：{error}"))?;
-    response
-        .choices
+    let mut body = serde_json::to_value(request)
+        .map_err(|error| format!("编码 LLM 后处理请求失败：{error}"))?;
+    let object = body
+        .as_object_mut()
+        .ok_or_else(|| "编码 LLM 后处理请求失败".to_owned())?;
+    object.extend(extra_parameters(&settings.extra_parameters)?);
+    object.insert("stream".to_owned(), settings.streaming.into());
+    Ok(body)
+}
+
+fn extra_parameters(input: &str) -> Result<Map<String, Value>, String> {
+    if input.trim().is_empty() {
+        return Ok(Map::new());
+    }
+    let value: Value =
+        serde_json::from_str(input).map_err(|error| format!("自定义 JSON 参数无效：{error}"))?;
+    let parameters = value
+        .as_object()
+        .ok_or_else(|| "自定义 JSON 参数必须是对象".to_owned())?;
+    if let Some(key) = RESERVED_PARAMETERS
         .into_iter()
-        .next()
-        .and_then(|choice| choice.message.content)
-        .map(|content| content.trim().to_owned())
-        .filter(|content| !content.is_empty())
-        .ok_or_else(|| "LLM 没有返回可用文本".to_owned())
+        .find(|key| parameters.contains_key(*key))
+    {
+        return Err(format!("自定义 JSON 参数不能覆盖 {key}"));
+    }
+    Ok(parameters.clone())
+}
+
+fn processed_text(content: String) -> Result<String, String> {
+    let content = content.trim().to_owned();
+    if content.is_empty() {
+        Err("LLM 没有返回可用文本".to_owned())
+    } else {
+        Ok(content)
+    }
 }
 
 fn transcript_message(preference: &str, text: &str) -> String {
@@ -131,6 +204,21 @@ mod tests {
     }
 
     #[test]
+    fn validates_custom_parameters() {
+        let mut settings = settings();
+        settings.extra_parameters = "[]".to_owned();
+        assert_eq!(
+            validate(&settings).unwrap_err(),
+            "自定义 JSON 参数必须是对象"
+        );
+        settings.extra_parameters = r#"{"stream":true}"#.to_owned();
+        assert_eq!(
+            validate(&settings).unwrap_err(),
+            "自定义 JSON 参数不能覆盖 stream"
+        );
+    }
+
+    #[test]
     fn posts_with_async_openai_client() {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -171,6 +259,7 @@ mod tests {
 
         let mut settings = settings();
         settings.base_url = format!("http://{address}/v1");
+        settings.extra_parameters = r#"{"thinking":{"type":"disabled"}}"#.to_owned();
         settings.api_key = "local-key".to_owned();
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -178,7 +267,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             runtime
-                .block_on(postprocess(&settings, "我是高熔琦"))
+                .block_on(postprocess(&settings, "我是高熔琦", |_| {}))
                 .unwrap(),
             "processed text"
         );
@@ -188,6 +277,8 @@ mod tests {
         assert!(request.contains("\r\nauthorization: Bearer local-key\r\n"));
         let body = request.split_once("\r\n\r\n").unwrap().1;
         let body: serde_json::Value = serde_json::from_str(body).unwrap();
+        assert_eq!(body["stream"], false);
+        assert_eq!(body["thinking"]["type"], "disabled");
         assert_eq!(body["messages"][0]["role"], "system");
         assert!(
             body["messages"][0]["content"]
@@ -208,5 +299,47 @@ mod tests {
             user_message["expression_preference"],
             "使用可爱的猫娘口吻，可适当在句尾加“喵~”。"
         );
+    }
+
+    #[test]
+    fn streams_processed_text_updates() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0];
+            stream.read_exact(&mut request).unwrap();
+            let body = concat!(
+                "data: {\"id\":\"completion-id\",\"object\":\"chat.completion.chunk\",\"created\":0,\"model\":\"local-model\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"processed \"}}]}\n\n",
+                "data: {\"id\":\"completion-id\",\"object\":\"chat.completion.chunk\",\"created\":0,\"model\":\"local-model\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"text\"},\"finish_reason\":\"stop\"}]}\n\n",
+                "data: [DONE]\n\n"
+            );
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            )
+            .unwrap();
+        });
+
+        let mut settings = settings();
+        settings.base_url = format!("http://{address}/v1");
+        settings.streaming = true;
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let mut updates = Vec::new();
+        assert_eq!(
+            runtime
+                .block_on(postprocess(&settings, "raw text", |text| {
+                    updates.push(text.to_owned());
+                }))
+                .unwrap(),
+            "processed text"
+        );
+        server.join().unwrap();
+        assert_eq!(updates, ["processed ", "processed text"]);
     }
 }

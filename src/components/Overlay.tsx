@@ -11,6 +11,7 @@ type Phase =
   | "starting"
   | "recording"
   | "finishing"
+  | "processing"
   | "success"
   | "error";
 const WAVE_WEIGHTS = [0.45, 0.7, 1, 0.62, 0.84, 0.52, 0.92, 0.66, 0.4] as const;
@@ -192,8 +193,8 @@ export function Overlay() {
           return;
         }
         if (payload.kind === "processing") {
-          setText(payload.message ?? "正在进行 LLM 后处理…");
-          updatePhase("finishing");
+          setText(payload.text ?? payload.message ?? "正在进行 LLM 后处理…");
+          updatePhase("processing");
           return;
         }
         if (payload.kind === "completed" || payload.kind === "copied") {
@@ -260,7 +261,8 @@ export function Overlay() {
   useEffect(() => {
     const preview = previewRef.current;
     if (!preview) return;
-    preview.scrollLeft = phase === "recording" ? preview.scrollWidth : 0;
+    preview.scrollLeft =
+      phase === "recording" || phase === "processing" ? preview.scrollWidth : 0;
   }, [phase, text]);
 
   const status =
@@ -268,17 +270,21 @@ export function Overlay() {
       ? "正在听"
       : phase === "finishing"
         ? "正在整理"
-        : phase === "starting"
-          ? "正在连接"
-          : phase === "success"
-            ? "已完成"
-            : phase === "error"
-              ? "需要处理"
-              : "VoicePaste";
+        : phase === "processing"
+          ? "LLM 处理中"
+          : phase === "starting"
+            ? "正在连接"
+            : phase === "success"
+              ? "已完成"
+              : phase === "error"
+                ? "需要处理"
+                : "VoicePaste";
   const displayText =
-    phase === "finishing"
-      ? "正在生成最终文本…"
-      : text || (phase === "recording" ? "请开始说话…" : "按快捷键开始听写");
+    phase === "processing"
+      ? text || "正在等待 LLM 返回…"
+      : phase === "finishing"
+        ? "正在生成最终文本…"
+        : text || (phase === "recording" ? "请开始说话…" : "按快捷键开始听写");
   const orbColor =
     phase === "success"
       ? "from-[#6ee7b7] to-[#087a4b] shadow-[0_6px_18px_rgba(22,163,106,0.28)]"
@@ -299,7 +305,9 @@ export function Overlay() {
           className={`relative grid size-10 place-items-center rounded-full bg-linear-to-br ${orbColor}`}
           aria-hidden="true"
         >
-          {phase === "starting" || phase === "finishing" ? (
+          {phase === "starting" ||
+          phase === "finishing" ||
+          phase === "processing" ? (
             <LoaderCircle
               className="size-5 animate-spin text-white"
               strokeWidth={2.2}
@@ -346,7 +354,7 @@ export function Overlay() {
         >
           {WAVE_WEIGHTS.map((weight, index) => (
             <span
-              className={`max-h-8 min-h-1 w-0.5 rounded-full bg-linear-to-t from-[#7161df] to-[#c4b9ff] transition-[height,opacity] duration-75 ${phase === "finishing" ? "animate-[pulse_900ms_ease-in-out_infinite]" : ""}`}
+              className={`max-h-8 min-h-1 w-0.5 rounded-full bg-linear-to-t from-[#7161df] to-[#c4b9ff] transition-[height,opacity] duration-75 ${phase === "finishing" || phase === "processing" ? "animate-[pulse_900ms_ease-in-out_infinite]" : ""}`}
               key={`${weight}-${index}`}
               style={{
                 animationDelay: `${index * -90}ms`,

@@ -37,6 +37,8 @@ pub struct LlmSettings {
     pub api_key: String,
     pub model: String,
     pub prompt: String,
+    pub streaming: bool,
+    pub extra_parameters: String,
 }
 
 impl Default for LlmSettings {
@@ -47,6 +49,8 @@ impl Default for LlmSettings {
             api_key: String::new(),
             model: String::new(),
             prompt: DEFAULT_LLM_PREFERENCE.to_owned(),
+            streaming: false,
+            extra_parameters: String::new(),
         }
     }
 }
@@ -91,6 +95,8 @@ struct PersistedLlmSettings {
     base_url: String,
     model: String,
     prompt: String,
+    streaming: bool,
+    extra_parameters: String,
 }
 
 impl Default for PersistedLlmSettings {
@@ -100,6 +106,8 @@ impl Default for PersistedLlmSettings {
             base_url: String::new(),
             model: String::new(),
             prompt: DEFAULT_LLM_PREFERENCE.to_owned(),
+            streaming: false,
+            extra_parameters: String::new(),
         }
     }
 }
@@ -218,6 +226,8 @@ pub fn load(app: &AppHandle) -> Result<LoadedSettings, String> {
                 api_key: llm_api_key,
                 model: persisted.llm.model,
                 prompt: persisted.llm.prompt,
+                streaming: persisted.llm.streaming,
+                extra_parameters: persisted.llm.extra_parameters,
             },
         },
         hotword_binding: persisted.hotword_binding,
@@ -251,6 +261,8 @@ pub fn save(
                 base_url: settings.llm.base_url.clone(),
                 model: settings.llm.model.clone(),
                 prompt: settings.llm.prompt.clone(),
+                streaming: settings.llm.streaming,
+                extra_parameters: settings.llm.extra_parameters.clone(),
             },
         },
     )?;
@@ -283,6 +295,8 @@ mod tests {
         assert!(persisted.hotword_binding.is_none());
         assert!(!persisted.llm.enabled);
         assert_eq!(persisted.llm.prompt, DEFAULT_LLM_PREFERENCE);
+        assert!(!persisted.llm.streaming);
+        assert!(persisted.llm.extra_parameters.is_empty());
     }
 
     #[test]
@@ -293,6 +307,8 @@ mod tests {
                 base_url: "http://localhost:11434/v1".to_owned(),
                 model: "local-model".to_owned(),
                 prompt: "修正文稿".to_owned(),
+                streaming: true,
+                extra_parameters: r#"{"thinking":{"type":"disabled"}}"#.to_owned(),
             },
             ..PersistedSettings::default()
         };
@@ -301,6 +317,11 @@ mod tests {
         let decoded: PersistedSettings = serde_json::from_value(encoded).unwrap();
         assert!(decoded.llm.enabled);
         assert_eq!(decoded.llm.model, "local-model");
+        assert!(decoded.llm.streaming);
+        assert_eq!(
+            decoded.llm.extra_parameters,
+            r#"{"thinking":{"type":"disabled"}}"#
+        );
     }
 
     #[test]

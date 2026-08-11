@@ -32,6 +32,15 @@ VoicePaste 是完全开源的早期项目，目前不购买 Apple Developer 或 
 - **托盘**：关闭设置窗口后 VoicePaste 继续在系统托盘运行。托盘菜单可打开设置、检查更新或完全退出。
 - **版本更新**：应用启动后会检查 GitHub Releases；发现新版本时，可在“关于”页确认安装。更新包使用 VoicePaste updater 密钥验证。
 
+### LLM 后处理
+
+- 可选“流式显示”会在模型生成最终正文时实时更新悬浮窗；思考内容不会显示或粘贴。不支持流式响应的服务可关闭此选项。
+- “请求参数”提供 DeepSeek、Qwen、OpenAI / Gemini / Ollama、OpenRouter 的常用关闭思考预设，无需手写 JSON；其它参数可切换到高级 JSON 编辑，并获得即时格式校验。
+- 高级参数会合并到 `/chat/completions` 请求顶层；`model`、`messages`、`stream`、`stream_options` 由 VoicePaste 管理，不能覆盖。不要在此填写密钥。
+- 参数支持取决于服务和模型。Qwen 思考专用模型、Gemini 2.5 Pro / Gemini 3 等模型不能关闭思考；部分 Qwen 模型只支持流式调用。
+
+参数依据：[DeepSeek](https://api-docs.deepseek.com/api/create-chat-completion)、[Qwen](https://www.alibabacloud.com/help/en/model-studio/deep-thinking)、[Gemini OpenAI 兼容接口](https://ai.google.dev/gemini-api/docs/openai)、[OpenRouter](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens)、[Ollama OpenAI 兼容接口](https://docs.ollama.com/api/openai-compatibility)。
+
 ## 数据与隐私
 
 VoicePaste 没有自建遥测。麦克风音频只在用户主动听写期间发送给豆包语音识别服务；常用词会保存在本机，并同步到用户自己的火山引擎账户。可选 LLM 后处理会将识别文本发送到用户配置的第三方服务。API Key 优先保存在系统凭据库。日志不会记录 API Key、音频数据或识别正文。详见 [PRIVACY.md](PRIVACY.md)。

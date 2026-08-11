@@ -376,6 +376,7 @@ async fn save_settings(
     settings.llm.api_key = settings.llm.api_key.trim().to_owned();
     settings.llm.model = settings.llm.model.trim().to_owned();
     settings.llm.prompt = settings.llm.prompt.trim().to_owned();
+    settings.llm.extra_parameters = settings.llm.extra_parameters.trim().to_owned();
     llm::validate(&settings.llm)?;
     if settings.shortcut.is_empty() {
         return Err("全局快捷键不能为空".to_owned());
@@ -631,7 +632,15 @@ async fn start_recognition(
                             "message": "正在进行 LLM 后处理，输入会比平时更慢…"
                         }),
                     );
-                    match llm::postprocess(&llm_settings, &text).await {
+                    match llm::postprocess(&llm_settings, &text, |processed| {
+                        emit_asr_event(
+                            &app,
+                            &session_id,
+                            json!({ "kind": "processing", "text": processed }),
+                        );
+                    })
+                    .await
+                    {
                         Ok(processed) => (processed, "LLM 后处理完成，已输入"),
                         Err(_) => (text, "LLM 后处理失败，已输入原始识别结果"),
                     }

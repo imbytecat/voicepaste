@@ -7,6 +7,8 @@ export interface LlmSettings {
   apiKey: string;
   model: string;
   prompt: string;
+  streaming: boolean;
+  extraParameters: string;
 }
 
 export interface AppSettings {
@@ -145,6 +147,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     enabled: false,
     model: "",
     prompt: DEFAULT_LLM_PREFERENCE,
+    streaming: false,
+    extraParameters: "",
   },
   launchAtStartup: false,
   openSettingsOnStartup: true,
