@@ -115,6 +115,7 @@ struct RemoteTable {
 }
 
 struct CloudState {
+    app_id: Option<Value>,
     limits: Limits,
     table: Option<RemoteTable>,
     foreign_tables: Vec<ForeignTable>,
@@ -199,15 +200,22 @@ pub async fn sync(
     let table_id = state.table.as_ref().map(|table| table.id.clone());
     let action = match (decision, table_id.as_deref()) {
         (Plan::Delete, Some(id)) => {
-            delete_table(&client, api_key, id).await?;
+            delete_table(&client, api_key, required_app_id(&state)?, id).await?;
             SyncAction::Deleted
         }
         (Plan::Update, Some(id)) => {
-            update_table(&client, api_key, id, desired_words).await?;
+            update_table(
+                &client,
+                api_key,
+                required_app_id(&state)?,
+                id,
+                desired_words,
+            )
+            .await?;
             SyncAction::Updated
         }
         (Plan::Create, _) => {
-            create_table(&client, api_key, desired_words).await?;
+            create_table(&client, api_key, required_app_id(&state)?, desired_words).await?;
             SyncAction::Created
         }
         _ => {
@@ -314,6 +322,7 @@ async fn load_with_client(
         request_json(client, api_key, "ListBoostingTable", list_body),
         request_json(client, api_key, "ListBoostingTableLimits", limits_body),
     )?;
+    let app_id = list.pointer("/Result/AppID").cloned();
     let limits = parse_limits(&limits);
     let tables = list
         .pointer("/Result/BoostingTables")
@@ -373,45 +382,84 @@ async fn load_with_client(
         })
         .transpose()?;
     Ok(CloudState {
+        app_id,
         limits,
         table,
         foreign_tables,
     })
 }
 
-async fn create_table(client: &Client, api_key: &str, words: &[String]) -> Result<(), String> {
-    let form = Form::new()
-        .text("Action", "CreateBoostingTable")
-        .text("Version", VERSION)
-        .text("BoostingTableName", TABLE_NAME)
-        .part("File", word_file(words)?);
+fn required_app_id(state: &CloudState) -> Result<&Value, String> {
+    state
+        .app_id
+        .as_ref()
+        .ok_or_else(|| "豆包常用词响应缺少 AppID，无法同步".to_owned())
+}
+
+async fn create_table(
+    client: &Client,
+    api_key: &str,
+    app_id: &Value,
+    words: &[String],
+) -> Result<(), String> {
+    let form = create_form(app_id, words)?;
     request_multipart(client, api_key, "CreateBoostingTable", form).await?;
     Ok(())
+}
+
+fn create_form(app_id: &Value, words: &[String]) -> Result<Form, String> {
+    Ok(Form::new()
+        .text("Action", "CreateBoostingTable")
+        .text("Version", VERSION)
+        .text("AppID", scalar(app_id))
+        .text("BoostingTableName", TABLE_NAME)
+        .part("File", word_file(words)?))
 }
 
 async fn update_table(
     client: &Client,
     api_key: &str,
+    app_id: &Value,
     table_id: &str,
     words: &[String],
 ) -> Result<(), String> {
-    let form = Form::new()
-        .text("Action", "UpdateBoostingTable")
-        .text("Version", VERSION)
-        .text("BoostingTableID", table_id.to_owned())
-        .part("File", word_file(words)?);
+    let form = update_form(app_id, table_id, words)?;
     request_multipart(client, api_key, "UpdateBoostingTable", form).await?;
     Ok(())
 }
 
-async fn delete_table(client: &Client, api_key: &str, table_id: &str) -> Result<(), String> {
-    let body = json!({
+fn update_form(app_id: &Value, table_id: &str, words: &[String]) -> Result<Form, String> {
+    Ok(Form::new()
+        .text("Action", "UpdateBoostingTable")
+        .text("Version", VERSION)
+        .text("AppID", scalar(app_id))
+        .text("BoostingTableID", table_id.to_owned())
+        .part("File", word_file(words)?))
+}
+
+async fn delete_table(
+    client: &Client,
+    api_key: &str,
+    app_id: &Value,
+    table_id: &str,
+) -> Result<(), String> {
+    request_json(
+        client,
+        api_key,
+        "DeleteBoostingTable",
+        delete_body(app_id, table_id),
+    )
+    .await?;
+    Ok(())
+}
+
+fn delete_body(app_id: &Value, table_id: &str) -> Value {
+    json!({
         "Action": "DeleteBoostingTable",
         "Version": VERSION,
+        "AppID": app_id,
         "BoostingTableID": table_id,
-    });
-    request_json(client, api_key, "DeleteBoostingTable", body).await?;
-    Ok(())
+    })
 }
 
 fn word_file(words: &[String]) -> Result<Part, String> {
@@ -571,12 +619,37 @@ fn usize_field(value: &Value, field: &str) -> Option<usize> {
         .and_then(|value| usize::try_from(value).ok())
 }
 
+fn scalar(value: &Value) -> String {
+    match value {
+        Value::String(text) => text.clone(),
+        _ => value.to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn words(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| (*value).to_owned()).collect()
+    }
+
+    fn multipart_text(form: Form) -> String {
+        use futures_util::StreamExt as _;
+
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(async {
+                let stream = form.into_stream();
+                futures_util::pin_mut!(stream);
+                let mut body = Vec::new();
+                while let Some(chunk) = stream.next().await {
+                    body.extend_from_slice(&chunk.unwrap());
+                }
+                String::from_utf8(body).unwrap()
+            })
     }
 
     #[test]
@@ -614,6 +687,23 @@ mod tests {
             encode_file(&["VoicePaste".to_owned(), "Tauri".to_owned()]),
             "VoicePaste|10\nTauri|10"
         );
+    }
+
+    #[test]
+    fn writes_app_id_to_hotword_mutations() {
+        let app_id = json!(12345);
+        let words = words(&["VoicePaste"]);
+
+        for form in [
+            create_form(&app_id, &words).unwrap(),
+            update_form(&app_id, "table-id", &words).unwrap(),
+        ] {
+            assert!(
+                multipart_text(form).contains("name=\"AppID\"\r\n\r\n12345\r\n"),
+                "multipart mutation must include AppID"
+            );
+        }
+        assert_eq!(delete_body(&app_id, "table-id")["AppID"], json!(12345));
     }
 
     #[test]
