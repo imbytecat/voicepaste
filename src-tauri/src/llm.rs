@@ -178,7 +178,7 @@ fn api_base(base_url: &str) -> Result<String, String> {
 mod tests {
     use std::{
         io::{Read, Write},
-        net::TcpListener,
+        net::{TcpListener, TcpStream},
         thread,
     };
 
@@ -191,6 +191,31 @@ mod tests {
             model: "example-model".to_owned(),
             prompt: "使用可爱的猫娘口吻，可适当在句尾加“喵~”。".to_owned(),
             ..LlmSettings::default()
+        }
+    }
+
+    fn read_request(stream: &mut TcpStream) -> String {
+        let mut request = Vec::new();
+        let mut buffer = [0; 4096];
+        loop {
+            let read = stream.read(&mut buffer).unwrap();
+            assert!(read > 0, "client closed before sending the full request");
+            request.extend_from_slice(&buffer[..read]);
+            let Some(headers_end) = request.windows(4).position(|part| part == b"\r\n\r\n") else {
+                continue;
+            };
+            let headers = String::from_utf8_lossy(&request[..headers_end]);
+            let content_length = headers
+                .lines()
+                .find_map(|line| {
+                    line.to_ascii_lowercase()
+                        .strip_prefix("content-length: ")
+                        .and_then(|length| length.parse::<usize>().ok())
+                })
+                .unwrap();
+            if request.len() >= headers_end + 4 + content_length {
+                return String::from_utf8(request).unwrap();
+            }
         }
     }
 
@@ -225,28 +250,7 @@ mod tests {
         let address = listener.local_addr().unwrap();
         let server = thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
-            let mut request = Vec::new();
-            let mut buffer = [0; 4096];
-            loop {
-                let read = stream.read(&mut buffer).unwrap();
-                request.extend_from_slice(&buffer[..read]);
-                let Some(headers_end) = request.windows(4).position(|part| part == b"\r\n\r\n")
-                else {
-                    continue;
-                };
-                let headers = String::from_utf8_lossy(&request[..headers_end]);
-                let content_length = headers
-                    .lines()
-                    .find_map(|line| {
-                        line.to_ascii_lowercase()
-                            .strip_prefix("content-length: ")
-                            .and_then(|length| length.parse::<usize>().ok())
-                    })
-                    .unwrap();
-                if request.len() >= headers_end + 4 + content_length {
-                    break;
-                }
-            }
+            let request = read_request(&mut stream);
             let body = r#"{"id":"completion-id","object":"chat.completion","created":0,"model":"local-model","choices":[{"index":0,"message":{"role":"assistant","content":"processed text"}}]}"#;
             write!(
                 stream,
@@ -254,7 +258,7 @@ mod tests {
                 body.len()
             )
             .unwrap();
-            String::from_utf8(request).unwrap()
+            request
         });
 
         let mut settings = settings();
@@ -308,8 +312,7 @@ mod tests {
         let address = listener.local_addr().unwrap();
         let server = thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
-            let mut request = [0];
-            stream.read_exact(&mut request).unwrap();
+            read_request(&mut stream);
             let body = concat!(
                 "data: {\"id\":\"completion-id\",\"object\":\"chat.completion.chunk\",\"created\":0,\"model\":\"local-model\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"processed \"}}]}\n\n",
                 "data: {\"id\":\"completion-id\",\"object\":\"chat.completion.chunk\",\"created\":0,\"model\":\"local-model\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"text\"},\"finish_reason\":\"stop\"}]}\n\n",
