@@ -1,15 +1,32 @@
 name: Release
 
 on:
-  push:
-    tags: ["v*"]
+  workflow_call:
+    inputs:
+      release_tag:
+        description: Existing draft release tag created by Release Please
+        required: true
+        type: string
+      release_body:
+        description: Generated release notes written into latest.json
+        required: true
+        type: string
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+
+env:
+  RELEASE_ASSET_NAME_PATTERN: "[name]-[version]-[platform]-[arch][setup][ext]"
+
+concurrency:
+  group: release-${{ inputs.release_tag || github.ref }}
+  cancel-in-progress: false
 
 jobs:
   publish:
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -18,29 +35,22 @@ jobs:
     timeout-minutes: 60
     env:
       MISE_AUTO_INSTALL: "false"
-      RELEASE_BODY: |
-        ## 下载指南
-
-        - Windows 10/11 x64：下载 `*_Windows_x64-setup.exe`。
-        - Apple Silicon Mac：下载 `*_macOS_aarch64.dmg`。
-        - Debian / Ubuntu x64：下载 `*_Linux_amd64.deb`。
-        - Fedora / RHEL x64：下载 `*_Linux_x86_64.rpm`。
-        - 其他 x64 Linux：下载 `*_Linux_amd64.AppImage`。
-
-        `latest.json`、`.sig` 和 `.app.tar.gz` 用于应用内更新，普通用户无需手动下载。
+      RELEASE_TAG: ${{ inputs.release_tag }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
 
       - uses: jdx/mise-action@v4
         with:
           install_args: node pnpm rust
 
-      - name: Validate release tag
-        if: github.event_name == 'push'
+      - name: Validate release version
         shell: bash
         run: |
           set -euo pipefail
-          node -e "const v=require('fs').readFileSync('./src-tauri/Cargo.toml','utf8').match(/^version = \"([^\"]+)\"/m)?.[1];if(process.env.GITHUB_REF_NAME!==('v'+v)){console.error('tag 与 Cargo.toml 版本不一致：cargo='+v+', tag='+process.env.GITHUB_REF_NAME);process.exit(1)}"
+          node -e "const fs=require('fs');const expected=fs.readFileSync('version.txt','utf8').trim();const cargo=fs.readFileSync('src-tauri/Cargo.toml','utf8').match(/^version = \"([^\"]+)\"/m)?.[1];const tag=process.env.RELEASE_TAG;if(expected!==cargo){throw new Error('version.txt 与 Cargo.toml 版本不一致: '+expected+' != '+cargo)}if(tag && tag!=='v'+expected){throw new Error('release tag 与版本不一致: '+tag+' != v'+expected)}"
+          cargo metadata --locked --manifest-path src-tauri/Cargo.toml --no-deps --format-version 1 >/dev/null
 
       - name: Install Linux system dependencies
         if: runner.os == 'Linux'
@@ -94,96 +104,139 @@ jobs:
           if-no-files-found: error
 
       - name: Build and publish Linux release
-        if: github.event_name == 'push' && runner.os == 'Linux'
+        if: inputs.release_tag != '' && runner.os == 'Linux'
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: VoicePaste ${{ github.ref_name }}
-          releaseBody: ${{ env.RELEASE_BODY }}
-          releaseAssetNamePattern: "[name]_[version]_Linux_[arch][setup][ext]"
-          generateReleaseNotes: true
+          tagName: ${{ inputs.release_tag }}
+          releaseName: VoicePaste ${{ inputs.release_tag }}
+          releaseBody: ${{ inputs.release_body }}
+          releaseAssetNamePattern: ${{ env.RELEASE_ASSET_NAME_PATTERN }}
           releaseDraft: true
           prerelease: false
 
       - name: Repack and republish AppImage without host Wayland libraries
-        if: github.event_name == 'push' && runner.os == 'Linux'
+        if: inputs.release_tag != '' && runner.os == 'Linux'
         shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         run: |
           set -euo pipefail
           ./tools/repack-appimage.sh
-          version="${GITHUB_REF_NAME#v}"
+          version="${RELEASE_TAG#v}"
           built="src-tauri/target/release/bundle/appimage/VoicePaste_${version}_amd64.AppImage"
-          asset="VoicePaste_${version}_Linux_amd64.AppImage"
+          asset="VoicePaste-${version}-linux-amd64.AppImage"
           staging="$(mktemp -d)"
           cp "$built" "$staging/$asset"
           cp "$built.sig" "$staging/$asset.sig"
-          gh release upload "$GITHUB_REF_NAME" "$staging/$asset" "$staging/$asset.sig" --clobber
+          gh release upload "$RELEASE_TAG" "$staging/$asset" "$staging/$asset.sig" --clobber
 
       - name: Build and publish macOS release
-        if: github.event_name == 'push' && runner.os == 'macOS'
+        if: inputs.release_tag != '' && runner.os == 'macOS'
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: VoicePaste ${{ github.ref_name }}
-          releaseBody: ${{ env.RELEASE_BODY }}
-          releaseAssetNamePattern: "[name]_[version]_macOS_[arch][setup][ext]"
-          generateReleaseNotes: true
+          tagName: ${{ inputs.release_tag }}
+          releaseName: VoicePaste ${{ inputs.release_tag }}
+          releaseBody: ${{ inputs.release_body }}
+          releaseAssetNamePattern: ${{ env.RELEASE_ASSET_NAME_PATTERN }}
           releaseDraft: true
           prerelease: false
 
       - name: Build and publish Windows release
-        if: github.event_name == 'push' && runner.os == 'Windows'
+        if: inputs.release_tag != '' && runner.os == 'Windows'
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: VoicePaste ${{ github.ref_name }}
-          releaseBody: ${{ env.RELEASE_BODY }}
-          releaseAssetNamePattern: "[name]_[version]_Windows_[arch][setup][ext]"
-          generateReleaseNotes: true
+          tagName: ${{ inputs.release_tag }}
+          releaseName: VoicePaste ${{ inputs.release_tag }}
+          releaseBody: ${{ inputs.release_body }}
+          releaseAssetNamePattern: ${{ env.RELEASE_ASSET_NAME_PATTERN }}
           releaseDraft: true
           prerelease: false
 
   # Every publish job rewrites latest.json, so the repacked AppImage signature is
   # synced once all of them are done. The updater rejects an update whose signature
   # does not match the published file.
-  sync-updater-signature:
-    if: github.event_name == 'push'
+  finalize:
+    permissions:
+      contents: write
+    if: inputs.release_tag != ''
     needs: publish
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
     steps:
-      - name: Point latest.json at the repacked AppImage
+      - name: Finalize updater manifest and release notes
         shell: bash
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           staging="$(mktemp -d)"
-          gh release download "$GITHUB_REF_NAME" --dir "$staging" \
-            --pattern latest.json --pattern '*_Linux_amd64.AppImage.sig'
-          signature="$(cat "$staging"/*_Linux_amd64.AppImage.sig)"
+          version="${RELEASE_TAG#v}"
+          appimage_asset="VoicePaste-${version}-linux-amd64.AppImage"
+          gh release download "$RELEASE_TAG" --dir "$staging" \
+            --pattern latest.json --pattern "$appimage_asset.sig"
+          signature="$(cat "$staging/$appimage_asset.sig")"
           appimage_url="$(
-            gh release view "$GITHUB_REF_NAME" --repo "$GH_REPO" --json assets \
-              --jq '.assets[] | select(.name | endswith("_Linux_amd64.AppImage")) | .apiUrl'
+            gh release view "$RELEASE_TAG" --repo "$GH_REPO" --json assets \
+              --jq ".assets[] | select(.name == \"$appimage_asset\") | .apiUrl"
           )"
           test -n "$appimage_url"
           jq --arg sig "$signature" --arg url "$appimage_url" \
             '(.platforms["linux-x86_64"], .platforms["linux-x86_64-appimage"]) |= (.signature = $sig | .url = $url)' \
             "$staging/latest.json" > "$staging/latest.patched.json"
           mv "$staging/latest.patched.json" "$staging/latest.json"
-          gh release upload "$GITHUB_REF_NAME" "$staging/latest.json" --clobber
+
+          # Existing installations select these stable target keys; asset filenames are
+          # resolved from their URLs and can change without breaking upgrades.
+          jq -e --arg version "$version" '
+            .version == $version and (
+              .platforms as $platforms
+              | [
+                  "darwin-aarch64",
+                  "darwin-aarch64-app",
+                  "linux-x86_64",
+                  "linux-x86_64-appimage",
+                  "linux-x86_64-deb",
+                  "linux-x86_64-rpm",
+                  "windows-x86_64",
+                  "windows-x86_64-msi",
+                  "windows-x86_64-nsis"
+                ]
+              | all(. as $key |
+                  ($platforms[$key].url | type == "string" and length > 0) and
+                  ($platforms[$key].signature | type == "string" and length > 0)
+                )
+            )
+          ' "$staging/latest.json" >/dev/null
+          gh release upload "$RELEASE_TAG" "$staging/latest.json" --clobber
+
+          notes="$staging/release-notes.md"
+          gh release view "$RELEASE_TAG" --repo "$GH_REPO" --json body --jq .body > "$notes"
+          if ! grep -qx '## 下载指南' "$notes"; then
+            cat >> "$notes" <<'EOF'
+
+          ## 下载指南
+
+          - Windows 10/11 x64：下载 `VoicePaste-*-windows-x64-setup.exe`。
+          - Apple Silicon Mac：下载 `VoicePaste-*-darwin-aarch64.dmg`。
+          - Debian / Ubuntu x64：下载 `VoicePaste-*-linux-amd64.deb`。
+          - Fedora / RHEL x64：下载 `VoicePaste-*-linux-x86_64.rpm`。
+          - 其他 x64 Linux：下载 `VoicePaste-*-linux-amd64.AppImage`。
+
+          `latest.json`、`.sig` 和 `.app.tar.gz` 用于应用内更新，普通用户无需手动下载。
+          EOF
+          fi
+          gh release edit "$RELEASE_TAG" --repo "$GH_REPO" --notes-file "$notes"
           jq -r '.platforms | keys[]' "$staging/latest.json"

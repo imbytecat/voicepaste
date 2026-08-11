@@ -47,6 +47,17 @@ jobs:
       - uses: jdx/mise-action@v4
         with:
           install_args: rust
+      - name: Validate release version
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(tr -d '\r\n' < version.txt)"
+          actual="$(cargo metadata --locked --manifest-path src-tauri/Cargo.toml --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "voicepaste") | .version')"
+          test "$expected" = "$actual" || {
+            echo "::error::version.txt 与 Cargo metadata 版本不一致: $expected != $actual"
+            exit 1
+          }
       - name: Cache Cargo sources
         uses: actions/cache@v6
         with:

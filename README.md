@@ -35,11 +35,11 @@ VoicePaste 使用用户自己的火山引擎豆包语音识别服务，不运营
 
 | 系统 | 支持范围 | 推荐安装包 |
 | --- | --- | --- |
-| Windows | Windows 10/11 x64 | `VoicePaste_<版本>_Windows_x64-setup.exe` |
-| macOS | Apple Silicon，macOS 11 及以上 | `VoicePaste_<版本>_macOS_aarch64.dmg` |
-| Debian / Ubuntu | x86_64 | `VoicePaste_<版本>_Linux_amd64.deb` |
-| Fedora / RHEL | x86_64 | `VoicePaste_<版本>_Linux_x86_64.rpm` |
-| 其他 Linux 发行版 | x86_64，FHS 环境 | `VoicePaste_<版本>_Linux_amd64.AppImage` |
+| Windows | Windows 10/11 x64 | `VoicePaste-<版本>-windows-x64-setup.exe` |
+| macOS | Apple Silicon，macOS 11 及以上 | `VoicePaste-<版本>-darwin-aarch64.dmg` |
+| Debian / Ubuntu | x86_64 | `VoicePaste-<版本>-linux-amd64.deb` |
+| Fedora / RHEL | x86_64 | `VoicePaste-<版本>-linux-x86_64.rpm` |
+| 其他 Linux 发行版 | x86_64，FHS 环境 | `VoicePaste-<版本>-linux-amd64.AppImage` |
 
 Windows 也提供 MSI 安装包。Release 中的 `latest.json`、`.sig` 和 `.app.tar.gz` 用于应用内更新，普通用户无需手动下载。
 
