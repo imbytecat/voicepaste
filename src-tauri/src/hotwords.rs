@@ -795,6 +795,15 @@ mod tests {
                 Plan::Unchanged,
             ),
             (
+                "new device with empty local state preserves cloud words",
+                Some(saved),
+                empty,
+                empty,
+                false,
+                false,
+                Plan::Conflict,
+            ),
+            (
                 "nothing local, nothing remote",
                 None,
                 empty,

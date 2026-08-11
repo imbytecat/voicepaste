@@ -19,8 +19,8 @@ function NotFoundPage() {
           当前链接无效或页面已移动。
         </p>
         <Link
-          className="mt-6 inline-flex h-10 items-center justify-center rounded-[10px] bg-primary px-4 text-[12px] font-semibold text-primary-foreground shadow-[0_7px_18px_rgba(39,96,82,0.16)] transition-[transform,background-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] hover:-translate-y-0.5 hover:bg-[#286758] focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring active:scale-[0.98]"
-          to="/settings/general"
+          className="mt-6 inline-flex h-10 items-center justify-center rounded-[10px] bg-primary px-4 text-[12px] font-semibold text-primary-foreground shadow-[0_8px_20px_rgba(79,96,220,0.2)] transition-[transform,background-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-[#4658d8] focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring active:scale-[0.98]"
+          to="/settings/voice-input"
         >
           返回设置
         </Link>

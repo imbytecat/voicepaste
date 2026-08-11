@@ -17,6 +17,7 @@ import { Route as SettingsIndexRouteImport } from './routes/settings/index'
 import { Route as SettingsAboutRouteImport } from './routes/settings/about'
 import { Route as SettingsDiagnosticsRouteImport } from './routes/settings/diagnostics'
 import { Route as SettingsGeneralRouteImport } from './routes/settings/general'
+import { Route as SettingsProcessingRouteImport } from './routes/settings/processing'
 import { Route as SettingsRecognitionRouteImport } from './routes/settings/recognition'
 import { Route as SettingsVoiceInputRouteImport } from './routes/settings/voice-input'
 
@@ -60,6 +61,11 @@ const SettingsGeneralRoute = SettingsGeneralRouteImport.update({
   path: '/general',
   getParentRoute: () => SettingsRoute,
 } as any)
+const SettingsProcessingRoute = SettingsProcessingRouteImport.update({
+  id: '/processing',
+  path: '/processing',
+  getParentRoute: () => SettingsRoute,
+} as any)
 const SettingsRecognitionRoute = SettingsRecognitionRouteImport.update({
   id: '/recognition',
   path: '/recognition',
@@ -79,6 +85,7 @@ export interface FileRoutesByFullPath {
   '/settings/about': typeof SettingsAboutRoute
   '/settings/diagnostics': typeof SettingsDiagnosticsRoute
   '/settings/general': typeof SettingsGeneralRoute
+  '/settings/processing': typeof SettingsProcessingRoute
   '/settings/recognition': typeof SettingsRecognitionRoute
   '/settings/voice-input': typeof SettingsVoiceInputRoute
   '/settings/': typeof SettingsIndexRoute
@@ -90,6 +97,7 @@ export interface FileRoutesByTo {
   '/settings/about': typeof SettingsAboutRoute
   '/settings/diagnostics': typeof SettingsDiagnosticsRoute
   '/settings/general': typeof SettingsGeneralRoute
+  '/settings/processing': typeof SettingsProcessingRoute
   '/settings/recognition': typeof SettingsRecognitionRoute
   '/settings/voice-input': typeof SettingsVoiceInputRoute
   '/settings': typeof SettingsIndexRoute
@@ -103,6 +111,7 @@ export interface FileRoutesById {
   '/settings/about': typeof SettingsAboutRoute
   '/settings/diagnostics': typeof SettingsDiagnosticsRoute
   '/settings/general': typeof SettingsGeneralRoute
+  '/settings/processing': typeof SettingsProcessingRoute
   '/settings/recognition': typeof SettingsRecognitionRoute
   '/settings/voice-input': typeof SettingsVoiceInputRoute
   '/settings/': typeof SettingsIndexRoute
@@ -117,6 +126,7 @@ export interface FileRouteTypes {
     | '/settings/about'
     | '/settings/diagnostics'
     | '/settings/general'
+    | '/settings/processing'
     | '/settings/recognition'
     | '/settings/voice-input'
     | '/settings/'
@@ -128,6 +138,7 @@ export interface FileRouteTypes {
     | '/settings/about'
     | '/settings/diagnostics'
     | '/settings/general'
+    | '/settings/processing'
     | '/settings/recognition'
     | '/settings/voice-input'
     | '/settings'
@@ -140,6 +151,7 @@ export interface FileRouteTypes {
     | '/settings/about'
     | '/settings/diagnostics'
     | '/settings/general'
+    | '/settings/processing'
     | '/settings/recognition'
     | '/settings/voice-input'
     | '/settings/'
@@ -210,6 +222,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsGeneralRouteImport
       parentRoute: typeof SettingsRoute
     }
+    '/settings/processing': {
+      id: '/settings/processing'
+      path: '/processing'
+      fullPath: '/settings/processing'
+      preLoaderRoute: typeof SettingsProcessingRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     '/settings/recognition': {
       id: '/settings/recognition'
       path: '/recognition'
@@ -231,6 +250,7 @@ interface SettingsRouteChildren {
   SettingsAboutRoute: typeof SettingsAboutRoute
   SettingsDiagnosticsRoute: typeof SettingsDiagnosticsRoute
   SettingsGeneralRoute: typeof SettingsGeneralRoute
+  SettingsProcessingRoute: typeof SettingsProcessingRoute
   SettingsRecognitionRoute: typeof SettingsRecognitionRoute
   SettingsVoiceInputRoute: typeof SettingsVoiceInputRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
@@ -240,6 +260,7 @@ const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsAboutRoute: SettingsAboutRoute,
   SettingsDiagnosticsRoute: SettingsDiagnosticsRoute,
   SettingsGeneralRoute: SettingsGeneralRoute,
+  SettingsProcessingRoute: SettingsProcessingRoute,
   SettingsRecognitionRoute: SettingsRecognitionRoute,
   SettingsVoiceInputRoute: SettingsVoiceInputRoute,
   SettingsIndexRoute: SettingsIndexRoute,

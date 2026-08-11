@@ -8,8 +8,6 @@ use tauri_plugin_store::StoreExt;
 pub const DEFAULT_SHORTCUT: &str = "CommandOrControl+Shift+Space";
 pub const DEFAULT_LLM_PREFERENCE: &str =
     "保持说话者原意、人称和自然口语，只做必要润色，不要过度书面化。";
-const DEFAULT_LLM_BASE_URL: &str = "https://api.deepseek.com/v1";
-const DEFAULT_LLM_MODEL: &str = "deepseek-v4-flash";
 const STORE_PATH: &str = "settings.json";
 const STORE_KEY: &str = "voicepaste";
 const KEYRING_SERVICE: &str = "com.imbytecat.voicepaste";
@@ -48,9 +46,9 @@ impl Default for LlmSettings {
     fn default() -> Self {
         Self {
             enabled: false,
-            base_url: DEFAULT_LLM_BASE_URL.to_owned(),
+            base_url: String::new(),
             api_key: String::new(),
-            model: DEFAULT_LLM_MODEL.to_owned(),
+            model: String::new(),
             prompt: DEFAULT_LLM_PREFERENCE.to_owned(),
             streaming: true,
             extra_parameters: String::new(),
@@ -82,7 +80,7 @@ impl Default for AppSettings {
             activation_mode: ActivationMode::default(),
             microphone_id: String::new(),
             hotwords: Vec::new(),
-            hotwords_enabled: true,
+            hotwords_enabled: false,
             onboarding_completed: false,
             launch_at_startup: false,
             open_settings_on_startup: true,
@@ -106,8 +104,8 @@ impl Default for PersistedLlmSettings {
     fn default() -> Self {
         Self {
             enabled: false,
-            base_url: DEFAULT_LLM_BASE_URL.to_owned(),
-            model: DEFAULT_LLM_MODEL.to_owned(),
+            base_url: String::new(),
+            model: String::new(),
             prompt: DEFAULT_LLM_PREFERENCE.to_owned(),
             streaming: true,
             extra_parameters: String::new(),
@@ -137,7 +135,7 @@ impl Default for PersistedSettings {
             activation_mode: ActivationMode::default(),
             microphone_id: String::new(),
             hotwords: Vec::new(),
-            hotwords_enabled: true,
+            hotwords_enabled: false,
             hotword_binding: None,
             onboarding_completed: false,
             open_settings_on_startup: true,
@@ -294,12 +292,12 @@ mod tests {
         let persisted = PersistedSettings::default();
         assert_eq!(persisted.shortcut, DEFAULT_SHORTCUT);
         assert!(matches!(persisted.activation_mode, ActivationMode::Hold));
-        assert!(persisted.hotwords_enabled);
+        assert!(!persisted.hotwords_enabled);
         assert!(persisted.open_settings_on_startup);
         assert!(persisted.hotword_binding.is_none());
         assert!(!persisted.llm.enabled);
-        assert_eq!(persisted.llm.base_url, DEFAULT_LLM_BASE_URL);
-        assert_eq!(persisted.llm.model, DEFAULT_LLM_MODEL);
+        assert!(persisted.llm.base_url.is_empty());
+        assert!(persisted.llm.model.is_empty());
         assert_eq!(persisted.llm.prompt, DEFAULT_LLM_PREFERENCE);
         assert!(persisted.llm.streaming);
         assert!(persisted.llm.extra_parameters.is_empty());

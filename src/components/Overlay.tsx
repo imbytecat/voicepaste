@@ -267,17 +267,17 @@ export function Overlay() {
 
   const status =
     phase === "recording"
-      ? "正在听"
+      ? "正在听写"
       : phase === "finishing"
         ? "正在整理"
         : phase === "processing"
           ? "文本处理中"
           : phase === "starting"
-            ? "正在连接"
+            ? "连接麦克风"
             : phase === "success"
               ? "已完成"
               : phase === "error"
-                ? "需要处理"
+                ? "发生错误"
                 : "VoicePaste";
   const displayText =
     phase === "processing"
@@ -287,26 +287,26 @@ export function Overlay() {
         : text || (phase === "recording" ? "请开始说话…" : "按快捷键开始听写");
   const indicatorClass =
     phase === "success"
-      ? "bg-[#2f7b5d] text-[#f5fff9]"
+      ? "bg-overlay-success text-overlay-foreground"
       : phase === "error"
-        ? "bg-[#a93a2e] text-white"
+        ? "bg-overlay-error text-overlay-foreground"
         : phase === "recording"
-          ? "bg-[#2f7665] text-[#f7fffb]"
-          : "bg-white/8 text-white";
+          ? "bg-primary/15 text-primary"
+          : "bg-overlay-foreground/8 text-primary";
   const statusColor =
     phase === "success"
-      ? "text-[#8ed6b5]"
+      ? "text-overlay-success-foreground"
       : phase === "error"
-        ? "text-[#f2a49c]"
+        ? "text-overlay-error-foreground"
         : phase === "recording"
-          ? "text-[#83c7b6]"
-          : "text-[#9ba49d]";
+          ? "text-overlay-foreground"
+          : "text-overlay-muted";
 
   return (
     <main className="grid size-full place-items-center overflow-hidden bg-transparent p-1 select-none">
-      <div className="grid size-full animate-in grid-cols-[42px_minmax(0,1fr)_82px] items-center gap-3 rounded-[20px] border border-white/10 bg-[#171a18] py-2 pr-3.5 pl-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.055),0_16px_44px_rgba(16,24,19,0.28)] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] zoom-in-95 fade-in slide-in-from-bottom-2">
+      <div className="grid size-full animate-in grid-cols-[42px_minmax(0,1fr)_82px] items-center gap-3 rounded-[16px] border border-overlay-foreground/10 bg-overlay py-2 pr-3.5 pl-2.5 shadow-(--overlay-shadow) duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] zoom-in-95 fade-in slide-in-from-bottom-2">
         <div
-          className={`relative grid size-10 place-items-center rounded-[13px] transition-[background-color,color,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${indicatorClass}`}
+          className={`relative grid size-10 place-items-center rounded-[12px] border border-overlay-foreground/8 transition-[background-color,border-color,color,transform,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${indicatorClass}`}
           aria-hidden="true"
         >
           {phase === "starting" ||
@@ -321,7 +321,7 @@ export function Overlay() {
             <Mic className="size-5 text-current" strokeWidth={1.9} />
           )}
           {phase === "recording" ? (
-            <span className="absolute -inset-1 rounded-[16px] border border-[#69aa99]/35" />
+            <span className="absolute -inset-1 rounded-[16px] border border-primary/45" />
           ) : null}
         </div>
 
@@ -333,7 +333,7 @@ export function Overlay() {
               {status}
             </span>
             {phase === "recording" ? (
-              <small className="truncate text-[10px] text-[#747f77]">
+              <small className="truncate text-[10px] text-overlay-subtle">
                 {activationModeRef.current === "hold"
                   ? "松开完成"
                   : "再次按下完成"}
@@ -342,7 +342,7 @@ export function Overlay() {
           </div>
           <p
             ref={previewRef}
-            className={`m-0 overflow-hidden text-[13px] leading-[1.3] font-medium tracking-[-0.012em] whitespace-nowrap ${phase === "error" ? "text-[#ffd2cd]" : phase === "success" ? "text-[#c6f3dc]" : "text-[#f0f3ef]"}`}
+            className={`m-0 overflow-hidden text-[13px] leading-[1.3] font-medium tracking-[-0.012em] whitespace-nowrap ${phase === "error" ? "text-overlay-error-foreground" : phase === "success" ? "text-overlay-success-foreground" : "text-overlay-foreground"}`}
             title={displayText}
           >
             {displayText}
@@ -355,7 +355,7 @@ export function Overlay() {
         >
           {WAVE_WEIGHTS.map((weight, index) => (
             <span
-              className={`max-h-8 min-h-1 w-0.5 rounded-full bg-[#62a894] transition-[height,opacity] duration-100 ${phase === "finishing" || phase === "processing" ? "animate-[pulse_900ms_cubic-bezier(0.22,1,0.36,1)_infinite]" : ""}`}
+              className={`max-h-8 min-h-1 w-0.5 rounded-full bg-primary transition-[height,opacity] duration-100 ${phase === "finishing" || phase === "processing" ? "animate-[pulse_900ms_cubic-bezier(0.22,1,0.36,1)_infinite]" : ""}`}
               key={`${weight}-${index}`}
               style={{
                 animationDelay: `${index * -90}ms`,

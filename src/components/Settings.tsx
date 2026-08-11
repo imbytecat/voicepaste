@@ -106,19 +106,23 @@ import appIconUrl from "../../src-tauri/icons/app-icon.svg";
 
 const DEFAULT_MICROPHONE_VALUE = "__voicepaste_system_default__";
 const CONSOLE_URL = "https://console.volcengine.com/speech/new/setting/apikeys";
+const LLM_BASE_URL_PLACEHOLDER = "https://api.deepseek.com/v1";
+const LLM_MODEL_PLACEHOLDER = "deepseek-v4-flash";
 const SECTIONS = [
-  ["general", "通用", Settings2],
   ["shortcut", "语音输入", Command],
-  ["recognition", "识别与词汇", Sparkles],
-  ["diagnostics", "权限与状态", ShieldCheck],
+  ["recognition", "语音识别", Mic],
+  ["processing", "文本处理", Sparkles],
+  ["general", "应用", Settings2],
+  ["diagnostics", "系统检查", ShieldCheck],
   ["about", "关于", Info],
 ] as const;
 const SECTION_DESCRIPTIONS: Record<SettingsSectionId, string> = {
+  shortcut: "设置听写方式、快捷键、麦克风和悬浮窗",
+  recognition: "连接豆包语音识别并管理常用词",
+  processing: "配置识别文本的智能校对与改写",
+  general: "管理 VoicePaste 的启动行为",
+  diagnostics: "检查系统权限与输入链路",
   about: "查看版本、更新和支持信息",
-  diagnostics: "检查系统权限与输入状态",
-  general: "管理启动行为和悬浮窗位置",
-  recognition: "配置语音识别、常用词和文本处理",
-  shortcut: "调整快捷键、触发方式和麦克风",
 };
 const ONBOARDING_STEPS = [
   "欢迎",
@@ -233,16 +237,20 @@ function SettingsRouteSection({
   return renderSection(section);
 }
 
-export function GeneralSettingsPage() {
-  return <SettingsRouteSection section="general" />;
-}
-
 export function VoiceInputSettingsPage() {
   return <SettingsRouteSection section="shortcut" />;
 }
 
 export function RecognitionSettingsPage() {
   return <SettingsRouteSection section="recognition" />;
+}
+
+export function ProcessingSettingsPage() {
+  return <SettingsRouteSection section="processing" />;
+}
+
+export function GeneralSettingsPage() {
+  return <SettingsRouteSection section="general" />;
 }
 
 export function DiagnosticsSettingsPage() {
@@ -257,7 +265,7 @@ function ShortcutHint({ shortcut }: { shortcut: string }) {
   return (
     <kbd
       aria-label={formatShortcutLabel(shortcut)}
-      className="rounded-lg border border-foreground/15 bg-[#fffefb] px-2 py-1.5 font-mono text-[11px] leading-none font-semibold text-foreground shadow-[0_2px_0_rgba(59,69,61,0.12)]"
+      className="rounded-lg border border-border bg-card px-2 py-1.5 font-mono text-[11px] leading-none font-semibold text-foreground shadow-[0_2px_0_rgba(74,82,112,0.12)]"
     >
       {formatShortcut(shortcut)}
     </kbd>
@@ -385,18 +393,18 @@ function SettingsSection({
 }) {
   return (
     <section
-      className="mb-9 grid grid-cols-[9rem_minmax(0,1fr)] gap-6 max-[1100px]:grid-cols-1 max-[1100px]:gap-3"
+      className="mb-10 grid grid-cols-[10rem_minmax(0,1fr)] gap-8 max-[1040px]:grid-cols-1 max-[1040px]:gap-3"
       id={id}
     >
       <header className="pt-1">
         <h2 className="text-[17px] leading-tight font-semibold tracking-[-0.025em] text-foreground">
           {title}
         </h2>
-        <p className="mt-2 max-w-40 text-[12px] leading-5 text-muted-foreground max-[1100px]:max-w-[60ch]">
+        <p className="mt-2 max-w-44 text-[12px] leading-5 text-muted-foreground max-[1040px]:max-w-[60ch]">
           {description}
         </p>
       </header>
-      <div className="vp-control-surface divide-y divide-foreground/[0.07] overflow-hidden rounded-[18px] bg-card ring-1 ring-foreground/8">
+      <div className="vp-control-surface divide-y divide-border overflow-hidden rounded-[14px] border border-border bg-card">
         {children}
       </div>
     </section>
@@ -1173,7 +1181,7 @@ export function Settings({
     result: SavedSettingsResult
   ) => {
     if (source === "onboarding") {
-      selectSection("general");
+      selectSection("shortcut");
       setShowApiKey(false);
       showMessage({
         kind: "success",
@@ -1271,6 +1279,7 @@ export function Settings({
       activationMode: DEFAULT_SETTINGS.activationMode,
       microphoneId: DEFAULT_SETTINGS.microphoneId,
       shortcut: DEFAULT_SETTINGS.shortcut,
+      overlayPosition: DEFAULT_SETTINGS.overlayPosition,
     };
     try {
       const result = await persistSettings(persistedReset);
@@ -1289,6 +1298,7 @@ export function Settings({
         activationMode: DEFAULT_SETTINGS.activationMode,
         microphoneId: DEFAULT_SETTINGS.microphoneId,
         shortcut: DEFAULT_SETTINGS.shortcut,
+        overlayPosition: DEFAULT_SETTINGS.overlayPosition,
       };
       savedSettingsRef.current = persistedReset;
       settingsRef.current = nextCurrent;
@@ -1678,25 +1688,25 @@ export function Settings({
       savedHotwordsTextRef.current
     );
   const isSectionChanged = (section: SettingsSectionId) => {
-    if (section === "general")
-      return (
-        isSettingChanged("launchAtStartup") ||
-        isSettingChanged("openSettingsOnStartup") ||
-        isSettingChanged("overlayPosition")
-      );
     if (section === "shortcut")
       return (
         isSettingChanged("activationMode") ||
         isSettingChanged("shortcut") ||
-        isSettingChanged("microphoneId")
+        isSettingChanged("microphoneId") ||
+        isSettingChanged("overlayPosition")
       );
     if (section === "recognition")
       return (
         hotwordStatus.state === "pending" ||
         isSettingChanged("apiKey") ||
         isSettingChanged("hotwordsEnabled") ||
-        llmChanged ||
         hotwordsChanged
+      );
+    if (section === "processing") return llmChanged;
+    if (section === "general")
+      return (
+        isSettingChanged("launchAtStartup") ||
+        isSettingChanged("openSettingsOnStartup")
       );
     return false;
   };
@@ -1720,8 +1730,8 @@ export function Settings({
         return (
           <SettingsSection
             id="general"
-            title="启动与悬浮窗"
-            description="控制 VoicePaste 的启动方式和悬浮窗位置。"
+            title="启动行为"
+            description="控制 VoicePaste 如何随系统启动。"
           >
             <SettingRow
               title="开机启动"
@@ -1748,39 +1758,6 @@ export function Settings({
                 }}
                 aria-label="启动时打开窗口"
               />
-            </SettingRow>
-            <SettingRow
-              title="悬浮窗位置"
-              description="选择听写状态悬浮窗出现的屏幕边缘。"
-              changed={isSettingChanged("overlayPosition")}
-            >
-              <ToggleGroup
-                className="grid w-full max-w-102.5 grid-cols-3"
-                value={[settings.overlayPosition]}
-                onValueChange={(values) => {
-                  const value = values[0] as
-                    | AppSettings["overlayPosition"]
-                    | undefined;
-                  if (value) updateSetting("overlayPosition", value);
-                }}
-                aria-label="悬浮窗位置"
-              >
-                {(
-                  [
-                    ["bottom", "底部"],
-                    ["left", "左侧"],
-                    ["right", "右侧"],
-                  ] as const
-                ).map(([value, label]) => (
-                  <ToggleGroupItem
-                    key={value}
-                    className="h-9 w-full text-[12px]"
-                    value={value}
-                  >
-                    {label}
-                  </ToggleGroupItem>
-                ))}
-              </ToggleGroup>
             </SettingRow>
           </SettingsSection>
         );
@@ -1811,7 +1788,7 @@ export function Settings({
             )}
             <SettingsSection
               id="shortcut"
-              title="快捷键与设备"
+              title="开始听写"
               description="配置触发方式、全局快捷键和输入设备。"
             >
               <SettingRow
@@ -1938,35 +1915,306 @@ export function Settings({
                 </div>
               ) : null}
             </SettingsSection>
+            <SettingsSection
+              id="overlay"
+              title="悬浮窗"
+              description="选择听写状态悬浮窗出现的位置。"
+            >
+              <SettingRow
+                title="显示位置"
+                description="固定在屏幕底部、左侧或右侧。"
+                changed={isSettingChanged("overlayPosition")}
+              >
+                <ToggleGroup
+                  className="grid w-full max-w-102.5 grid-cols-3"
+                  value={[settings.overlayPosition]}
+                  onValueChange={(values) => {
+                    const value = values[0] as
+                      | AppSettings["overlayPosition"]
+                      | undefined;
+                    if (value) updateSetting("overlayPosition", value);
+                  }}
+                  aria-label="悬浮窗位置"
+                >
+                  {(
+                    [
+                      ["bottom", "底部"],
+                      ["left", "左侧"],
+                      ["right", "右侧"],
+                    ] as const
+                  ).map(([value, label]) => (
+                    <ToggleGroupItem
+                      key={value}
+                      className="h-9 w-full text-[12px]"
+                      value={value}
+                    >
+                      {label}
+                    </ToggleGroupItem>
+                  ))}
+                </ToggleGroup>
+              </SettingRow>
+            </SettingsSection>
           </>
         );
       }
       case "recognition": {
         return (
-          <>
-            <SettingsSection
-              id="recognition"
-              title="语音识别"
-              description="连接识别服务，并提高人名和专业词汇的准确率。"
+          <SettingsSection
+            id="recognition"
+            title="语音识别"
+            description="连接识别服务，并提高人名和专业词汇的准确率。"
+          >
+            <SettingRow
+              title="豆包 API Key"
+              description="从火山引擎控制台获取，用于语音识别和云端常用词同步。"
+              changed={isSettingChanged("apiKey")}
             >
-              <SettingRow
-                title="豆包 API Key"
-                description="从火山引擎控制台获取，用于语音识别和云端常用词同步。"
-                changed={isSettingChanged("apiKey")}
-              >
-                <div className="w-full max-w-102.5">
-                  <div className="flex h-10 items-center overflow-hidden rounded-[10px] border border-input bg-card transition-[background-color,border-color,box-shadow] duration-300 focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/20">
-                    <Input
-                      className="h-10 min-w-0 flex-1 border-0 bg-transparent px-3 shadow-none focus-visible:ring-0"
-                      type={showApiKey ? "text" : "password"}
-                      value={settings.apiKey}
-                      onChange={(event) => {
-                        updateSetting("apiKey", event.target.value);
-                        setVerifiedApiKey("");
-                        setDoubaoMessage(null);
-                        setDoubaoIssue(null);
+              <div className="w-full max-w-102.5">
+                <div className="flex h-10 items-center overflow-hidden rounded-[10px] border border-input bg-card transition-[background-color,border-color,box-shadow] duration-300 focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/20">
+                  <Input
+                    className="h-10 min-w-0 flex-1 border-0 bg-transparent px-3 shadow-none focus-visible:ring-0"
+                    type={showApiKey ? "text" : "password"}
+                    value={settings.apiKey}
+                    onChange={(event) => {
+                      updateSetting("apiKey", event.target.value);
+                      setVerifiedApiKey("");
+                      setDoubaoMessage(null);
+                      setDoubaoIssue(null);
+                    }}
+                    placeholder="粘贴 API Key"
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          type="button"
+                          className="mr-1 text-muted-foreground"
+                        />
+                      }
+                      onClick={() => {
+                        setShowApiKey(!showApiKey);
                       }}
-                      placeholder="粘贴 API Key"
+                      aria-label={showApiKey ? "隐藏 API Key" : "显示 API Key"}
+                    >
+                      {showApiKey ? <EyeOff size={13} /> : <Eye size={13} />}
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {showApiKey ? "隐藏 API Key" : "显示 API Key"}
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+                <div className="mt-2 flex items-center justify-end gap-3">
+                  <Button
+                    variant="link"
+                    size="sm"
+                    className="h-auto px-0 text-[11px]"
+                    type="button"
+                    onClick={() => void openConsole()}
+                  >
+                    获取 API Key <ExternalLink size={10} />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-[11px]"
+                    type="button"
+                    onClick={() => void testDoubao()}
+                    disabled={testingDoubao || !settings.apiKey.trim()}
+                  >
+                    <Activity size={11} />{" "}
+                    {testingDoubao ? "连接中…" : "测试连接"}
+                  </Button>
+                </div>
+              </div>
+            </SettingRow>
+            {doubaoMessage ? (
+              <div className="px-5 py-3">
+                <Feedback message={doubaoMessage} />
+              </div>
+            ) : null}
+            {doubaoIssue ? (
+              <div className="px-5 py-3">
+                <ServiceIssueCard
+                  issue={doubaoIssue}
+                  onOpenLink={(target) => {
+                    void openProductLink(target);
+                  }}
+                />
+              </div>
+            ) : null}
+            <SettingRow
+              title="常用词"
+              description="添加人名、产品名和术语；保存时同步到火山引擎。"
+              vertical
+              changed={isSettingChanged("hotwordsEnabled") || hotwordsChanged}
+            >
+              <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+                <div className="flex items-center gap-2">
+                  <Switch
+                    checked={settings.hotwordsEnabled}
+                    onCheckedChange={(checked) => {
+                      updateSetting("hotwordsEnabled", checked);
+                    }}
+                    aria-labelledby="hotwords-enabled-label"
+                  />
+                  <span
+                    id="hotwords-enabled-label"
+                    className="text-[11px] font-semibold text-foreground"
+                  >
+                    听写时使用
+                  </span>
+                </div>
+                <Badge
+                  className={`h-5.5 px-2 text-[10px] ${HOTWORD_CHIP_CLASS[hotwordChipState.tone]}`}
+                  role="status"
+                  aria-live="polite"
+                >
+                  {hotwordChipState.label}
+                </Badge>
+                <span className="text-[10px] text-muted-foreground">
+                  本机 {localHotwords.length} · 云端 {cloudHotwords.length}
+                </span>
+                <span className="text-[10px] text-muted-foreground">
+                  上限 {hotwordStatus.limit}
+                </span>
+                <div className="ml-auto flex items-center gap-3">
+                  <Button
+                    variant="link"
+                    size="sm"
+                    className="h-auto px-0 text-[11px]"
+                    type="button"
+                    onClick={() => void refreshHotwords()}
+                    disabled={checkingHotwords}
+                  >
+                    {checkingHotwords ? "检查中…" : "重新检查"}
+                  </Button>
+                  <Button
+                    variant="link"
+                    size="sm"
+                    className="h-auto px-0 text-[11px]"
+                    type="button"
+                    onClick={clearHotwords}
+                    disabled={!hotwordsText.trim()}
+                  >
+                    清空
+                  </Button>
+                </div>
+              </div>
+              <Textarea
+                className="min-h-32 resize-y text-[12px] leading-6"
+                value={hotwordsText}
+                onChange={(event) => {
+                  updateHotwordsText(event.target.value);
+                }}
+                placeholder={"VoicePaste\nTauri\nTanStack"}
+                rows={6}
+              />
+              <p className="mt-2 text-[10px] leading-4 text-muted-foreground">
+                每行一个词，不支持词内空格。关闭“听写时使用”只停用识别加权，不会删除云端词表。
+              </p>
+            </SettingRow>
+            {hotwordMessage ? (
+              <div className="px-5 py-3">
+                <Feedback message={hotwordMessage} />
+              </div>
+            ) : null}
+            {hotwordStatus.foreignTables.length > 0 ? (
+              <SettingRow
+                title="火山引擎上的其它词表"
+                description={`账号里还有 ${hotwordStatus.foreignTables.length} 张 VoicePaste 未管理的词表，识别时不会使用。需要清理请前往火山引擎控制台。`}
+                vertical
+              >
+                <ul className="mb-2.5 flex flex-col gap-1">
+                  {hotwordStatus.foreignTables.map((table) => (
+                    <li
+                      className="text-[11px] leading-5 text-muted-foreground"
+                      key={table.name}
+                    >
+                      {table.name}（{table.wordCount} 词）
+                    </li>
+                  ))}
+                </ul>
+                <div className="flex">
+                  <Button
+                    variant="outline"
+                    size="lg"
+                    className="text-[11px]"
+                    type="button"
+                    onClick={() => void openConsole()}
+                  >
+                    <ExternalLink size={11} /> 打开控制台
+                  </Button>
+                </div>
+              </SettingRow>
+            ) : null}
+          </SettingsSection>
+        );
+      }
+      case "processing": {
+        return (
+          <SettingsSection
+            id="processing"
+            title="智能文本处理"
+            description="用 OpenAI 兼容服务校对或改写识别文本。"
+          >
+            <SettingRow
+              title="启用 LLM 后处理"
+              description="识别完成后将文本发送到已配置的 LLM 服务；通常会增加数秒等待时间。"
+              changed={isLlmSettingChanged("enabled")}
+            >
+              <Switch
+                checked={settings.llm.enabled}
+                onCheckedChange={(checked) => {
+                  updateLlmSetting("enabled", checked);
+                }}
+                aria-label="启用 LLM 后处理"
+              />
+            </SettingRow>
+            {settings.llm.enabled ? (
+              <>
+                <SettingRow
+                  title="API 基础地址"
+                  description="填写 OpenAI 兼容服务的 API 地址。"
+                  changed={isLlmSettingChanged("baseUrl")}
+                >
+                  <div className="w-full max-w-102.5">
+                    <Input
+                      aria-label="LLM API 基础地址"
+                      className="text-[12px]"
+                      type="url"
+                      value={settings.llm.baseUrl}
+                      onChange={(event) => {
+                        updateLlmSetting("baseUrl", event.target.value);
+                        setAvailableLlmModels([]);
+                        setLlmModelsMessage(null);
+                      }}
+                      placeholder={LLM_BASE_URL_PLACEHOLDER}
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                  </div>
+                </SettingRow>
+                <SettingRow
+                  title="API Key"
+                  description="保存在系统凭据库；本地服务不需要鉴权时可以留空。"
+                  changed={isLlmSettingChanged("apiKey")}
+                >
+                  <div className="flex h-10 w-full max-w-102.5 items-center overflow-hidden rounded-[10px] border border-input bg-card transition-[background-color,border-color,box-shadow] duration-300 focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/20">
+                    <Input
+                      aria-label="LLM API Key"
+                      className="h-10 min-w-0 flex-1 border-0 bg-transparent px-3 text-[12px] shadow-none focus-visible:ring-0"
+                      type={showLlmApiKey ? "text" : "password"}
+                      value={settings.llm.apiKey}
+                      onChange={(event) => {
+                        updateLlmSetting("apiKey", event.target.value);
+                        setAvailableLlmModels([]);
+                        setLlmModelsMessage(null);
+                      }}
+                      placeholder="可选"
                       autoComplete="off"
                       spellCheck={false}
                     />
@@ -1981,504 +2229,270 @@ export function Settings({
                           />
                         }
                         onClick={() => {
-                          setShowApiKey(!showApiKey);
+                          setShowLlmApiKey(!showLlmApiKey);
                         }}
                         aria-label={
-                          showApiKey ? "隐藏 API Key" : "显示 API Key"
+                          showLlmApiKey
+                            ? "隐藏 LLM API Key"
+                            : "显示 LLM API Key"
                         }
                       >
-                        {showApiKey ? <EyeOff size={13} /> : <Eye size={13} />}
+                        {showLlmApiKey ? (
+                          <EyeOff size={13} />
+                        ) : (
+                          <Eye size={13} />
+                        )}
                       </TooltipTrigger>
                       <TooltipContent>
-                        {showApiKey ? "隐藏 API Key" : "显示 API Key"}
+                        {showLlmApiKey
+                          ? "隐藏 LLM API Key"
+                          : "显示 LLM API Key"}
                       </TooltipContent>
                     </Tooltip>
                   </div>
-                  <div className="mt-2 flex items-center justify-end gap-3">
-                    <Button
-                      variant="link"
-                      size="sm"
-                      className="h-auto px-0 text-[11px]"
-                      type="button"
-                      onClick={() => void openConsole()}
-                    >
-                      获取 API Key <ExternalLink size={10} />
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-8 text-[11px]"
-                      type="button"
-                      onClick={() => void testDoubao()}
-                      disabled={testingDoubao || !settings.apiKey.trim()}
-                    >
-                      <Activity size={11} />{" "}
-                      {testingDoubao ? "连接中…" : "测试连接"}
-                    </Button>
-                  </div>
-                </div>
-              </SettingRow>
-              {doubaoMessage ? (
-                <div className="px-5 py-3">
-                  <Feedback message={doubaoMessage} />
-                </div>
-              ) : null}
-              {doubaoIssue ? (
-                <div className="px-5 py-3">
-                  <ServiceIssueCard
-                    issue={doubaoIssue}
-                    onOpenLink={(target) => {
-                      void openProductLink(target);
-                    }}
-                  />
-                </div>
-              ) : null}
-              <SettingRow
-                title="启用常用词"
-                description="关闭后保留云端词表，但听写时不使用。"
-                changed={isSettingChanged("hotwordsEnabled")}
-              >
-                <Switch
-                  checked={settings.hotwordsEnabled}
-                  onCheckedChange={(checked) => {
-                    updateSetting("hotwordsEnabled", checked);
-                  }}
-                  aria-label="启用常用词"
-                />
-              </SettingRow>
-              <SettingRow
-                title="常用词"
-                description="保存时同步到火山引擎，用于提高人名、产品名和专业术语的识别准确率。"
-                vertical
-                changed={hotwordsChanged}
-              >
-                <div className="mb-2.5 flex items-center gap-2">
-                  <Badge
-                    className={`h-5.5 px-2 text-[10px] ${HOTWORD_CHIP_CLASS[hotwordChipState.tone]}`}
-                    role="status"
-                    aria-live="polite"
-                  >
-                    {hotwordChipState.label}
-                  </Badge>
-                  <span className="text-[10px] text-muted-foreground">
-                    本机 {localHotwords.length} · 云端 {cloudHotwords.length}
-                  </span>
-                  <span className="text-[10px] text-muted-foreground">
-                    上限 {hotwordStatus.limit}
-                  </span>
-                  <Button
-                    variant="link"
-                    size="sm"
-                    className="ml-auto h-auto px-0 text-[11px]"
-                    type="button"
-                    onClick={() => void refreshHotwords()}
-                    disabled={checkingHotwords}
-                  >
-                    {checkingHotwords ? "检查中…" : "重新检查"}
-                  </Button>
-                  <Button
-                    variant="link"
-                    size="sm"
-                    className="h-auto px-0 text-[11px]"
-                    type="button"
-                    onClick={clearHotwords}
-                    disabled={!settings.hotwordsEnabled || !hotwordsText.trim()}
-                  >
-                    清空
-                  </Button>
-                </div>
-                <Textarea
-                  className="min-h-32 resize-y text-[12px] leading-6"
-                  value={hotwordsText}
-                  onChange={(event) => {
-                    updateHotwordsText(event.target.value);
-                  }}
-                  disabled={!settings.hotwordsEnabled}
-                  placeholder={"VoicePaste\nTauri\nTanStack"}
-                  rows={6}
-                />
-                <p className="mt-2 text-[10px] leading-4 text-muted-foreground">
-                  每行一个词，不支持词内空格；词表会保存在火山引擎。听写仍保持实时流式返回。
-                </p>
-              </SettingRow>
-              {hotwordMessage ? (
-                <div className="px-5 py-3">
-                  <Feedback message={hotwordMessage} />
-                </div>
-              ) : null}
-              {hotwordStatus.foreignTables.length > 0 ? (
-                <SettingRow
-                  title="火山引擎上的其它词表"
-                  description={`账号里还有 ${hotwordStatus.foreignTables.length} 张 VoicePaste 未管理的词表，识别时不会使用。需要清理请前往火山引擎控制台。`}
-                  vertical
-                >
-                  <ul className="mb-2.5 flex flex-col gap-1">
-                    {hotwordStatus.foreignTables.map((table) => (
-                      <li
-                        className="text-[11px] leading-5 text-muted-foreground"
-                        key={table.name}
-                      >
-                        {table.name}（{table.wordCount} 词）
-                      </li>
-                    ))}
-                  </ul>
-                  <div className="flex">
-                    <Button
-                      variant="outline"
-                      size="lg"
-                      className="text-[11px]"
-                      type="button"
-                      onClick={() => void openConsole()}
-                    >
-                      <ExternalLink size={11} /> 打开控制台
-                    </Button>
-                  </div>
                 </SettingRow>
-              ) : null}
-            </SettingsSection>
-
-            <SettingsSection
-              id="llm-postprocessing"
-              title="文本后处理"
-              description="使用 OpenAI 兼容服务校对或改写识别文本，并可流式预览结果。"
-            >
-              <SettingRow
-                title="启用 LLM 后处理"
-                description="识别完成后将文本发送到已配置的 LLM 服务；通常会增加数秒等待时间。"
-                changed={isLlmSettingChanged("enabled")}
-              >
-                <Switch
-                  checked={settings.llm.enabled}
-                  onCheckedChange={(checked) => {
-                    updateLlmSetting("enabled", checked);
-                  }}
-                  aria-label="启用 LLM 后处理"
-                />
-              </SettingRow>
-              {settings.llm.enabled ? (
-                <>
-                  <SettingRow
-                    title="API 基础地址"
-                    description="默认使用 DeepSeek 官方服务，也可填写其他 OpenAI 兼容服务地址。"
-                    changed={isLlmSettingChanged("baseUrl")}
-                  >
-                    <div className="w-full max-w-102.5">
-                      <Input
-                        aria-label="LLM API 基础地址"
-                        className="text-[12px]"
-                        type="url"
-                        value={settings.llm.baseUrl}
-                        onChange={(event) => {
-                          updateLlmSetting("baseUrl", event.target.value);
-                          setAvailableLlmModels([]);
-                          setLlmModelsMessage(null);
+                <SettingRow
+                  title="模型"
+                  description="填写模型名称，或从服务获取可用模型列表。"
+                  changed={isLlmSettingChanged("model")}
+                >
+                  <div className="w-full max-w-102.5">
+                    <div className="flex gap-2">
+                      <Combobox
+                        items={filteredLlmModels}
+                        filter={null}
+                        inputValue={settings.llm.model}
+                        value={settings.llm.model || null}
+                        onInputValueChange={(value) => {
+                          updateLlmSetting("model", value);
                         }}
-                        placeholder={DEFAULT_SETTINGS.llm.baseUrl}
-                        autoComplete="off"
-                        spellCheck={false}
-                      />
-                    </div>
-                  </SettingRow>
-                  <SettingRow
-                    title="API Key"
-                    description="保存在系统凭据库；本地服务不需要鉴权时可以留空。"
-                    changed={isLlmSettingChanged("apiKey")}
-                  >
-                    <div className="flex h-10 w-full max-w-102.5 items-center overflow-hidden rounded-[10px] border border-input bg-card transition-[background-color,border-color,box-shadow] duration-300 focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/20">
-                      <Input
-                        aria-label="LLM API Key"
-                        className="h-10 min-w-0 flex-1 border-0 bg-transparent px-3 text-[12px] shadow-none focus-visible:ring-0"
-                        type={showLlmApiKey ? "text" : "password"}
-                        value={settings.llm.apiKey}
-                        onChange={(event) => {
-                          updateLlmSetting("apiKey", event.target.value);
-                          setAvailableLlmModels([]);
-                          setLlmModelsMessage(null);
-                        }}
-                        placeholder="可选"
-                        autoComplete="off"
-                        spellCheck={false}
-                      />
-                      <Tooltip>
-                        <TooltipTrigger
-                          render={
-                            <Button
-                              variant="ghost"
-                              size="icon-sm"
-                              type="button"
-                              className="mr-1 text-muted-foreground"
-                            />
-                          }
-                          onClick={() => {
-                            setShowLlmApiKey(!showLlmApiKey);
-                          }}
-                          aria-label={
-                            showLlmApiKey
-                              ? "隐藏 LLM API Key"
-                              : "显示 LLM API Key"
-                          }
-                        >
-                          {showLlmApiKey ? (
-                            <EyeOff size={13} />
-                          ) : (
-                            <Eye size={13} />
-                          )}
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          {showLlmApiKey
-                            ? "隐藏 LLM API Key"
-                            : "显示 LLM API Key"}
-                        </TooltipContent>
-                      </Tooltip>
-                    </div>
-                  </SettingRow>
-                  <SettingRow
-                    title="模型"
-                    description="默认使用 DeepSeek V4 Flash，也可手动填写或获取其他模型。"
-                    changed={isLlmSettingChanged("model")}
-                  >
-                    <div className="w-full max-w-102.5">
-                      <div className="flex gap-2">
-                        <Combobox
-                          items={filteredLlmModels}
-                          filter={null}
-                          inputValue={settings.llm.model}
-                          value={settings.llm.model || null}
-                          onInputValueChange={(value) => {
-                            updateLlmSetting("model", value);
-                          }}
-                          onValueChange={(value) => {
-                            if (value !== null)
-                              updateLlmSetting("model", value);
-                          }}
-                        >
-                          <ComboboxInput
-                            aria-label="LLM 模型"
-                            className="min-w-0 flex-1 text-[12px]"
-                            placeholder={DEFAULT_SETTINGS.llm.model}
-                            autoComplete="off"
-                            spellCheck={false}
-                            showTrigger={availableLlmModels.length > 0}
-                          />
-                          <ComboboxContent>
-                            {availableLlmModels.length > 0 &&
-                            filteredLlmModels.length === 0 ? (
-                              <ComboboxEmpty>
-                                未在列表中找到，仍可直接使用此名称
-                              </ComboboxEmpty>
-                            ) : null}
-                            <ComboboxList>
-                              {filteredLlmModels.map((model) => (
-                                <ComboboxItem key={model} value={model}>
-                                  {model}
-                                </ComboboxItem>
-                              ))}
-                            </ComboboxList>
-                          </ComboboxContent>
-                        </Combobox>
-                        <Button
-                          variant="outline"
-                          size="lg"
-                          className="text-[11px]"
-                          type="button"
-                          onClick={() => void fetchLlmModels()}
-                          disabled={loadingLlmModels}
-                        >
-                          <RefreshCw
-                            className={
-                              loadingLlmModels ? "animate-spin" : undefined
-                            }
-                            size={11}
-                          />{" "}
-                          {loadingLlmModels ? "获取中…" : "获取模型"}
-                        </Button>
-                      </div>
-                      <Feedback message={llmModelsMessage} className="mt-2" />
-                    </div>
-                  </SettingRow>
-                  <SettingRow
-                    title="流式显示"
-                    description="边生成边在悬浮窗显示最终文本；服务不支持流式响应时请关闭。"
-                    changed={isLlmSettingChanged("streaming")}
-                  >
-                    <Switch
-                      checked={settings.llm.streaming}
-                      onCheckedChange={(checked) => {
-                        updateLlmSetting("streaming", checked);
-                      }}
-                      aria-label="启用 LLM 流式显示"
-                    />
-                  </SettingRow>
-                  <SettingRow
-                    title="请求参数"
-                    description="使用预设控制常见推理选项；其它服务参数可在高级 JSON 中配置。"
-                    changed={isLlmSettingChanged("extraParameters")}
-                    vertical
-                  >
-                    <div className="flex items-center gap-2">
-                      <Select
-                        items={llmParameterPresetOptions}
-                        value={selectedLlmParameterPreset}
                         onValueChange={(value) => {
-                          if (value === null) return;
-                          const preset = LLM_PARAMETER_PRESETS.find(
-                            ({ id }) => id === value
-                          );
-                          if (!preset) return;
-                          setEditingCustomLlmParameters(false);
-                          updateLlmSetting(
-                            "extraParameters",
-                            preset.parameters
-                          );
+                          if (value !== null) updateLlmSetting("model", value);
                         }}
                       >
-                        <SelectTrigger
-                          aria-label="LLM 参数预设"
-                          className="h-9 min-w-0 flex-1 text-[12px]"
-                        >
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {llmParameterPresetOptions.map((option) => (
-                            <SelectItem key={option.value} value={option.value}>
-                              {option.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                        <ComboboxInput
+                          aria-label="LLM 模型"
+                          className="min-w-0 flex-1 text-[12px]"
+                          placeholder={LLM_MODEL_PLACEHOLDER}
+                          autoComplete="off"
+                          spellCheck={false}
+                          showTrigger={availableLlmModels.length > 0}
+                        />
+                        <ComboboxContent>
+                          {availableLlmModels.length > 0 &&
+                          filteredLlmModels.length === 0 ? (
+                            <ComboboxEmpty>
+                              未在列表中找到，仍可直接使用此名称
+                            </ComboboxEmpty>
+                          ) : null}
+                          <ComboboxList>
+                            {filteredLlmModels.map((model) => (
+                              <ComboboxItem key={model} value={model}>
+                                {model}
+                              </ComboboxItem>
+                            ))}
+                          </ComboboxList>
+                        </ComboboxContent>
+                      </Combobox>
                       <Button
                         variant="outline"
                         size="lg"
                         className="text-[11px]"
                         type="button"
-                        aria-expanded={editingCustomLlmParameters}
-                        onClick={() => {
-                          setEditingCustomLlmParameters(
-                            !editingCustomLlmParameters
-                          );
-                        }}
+                        onClick={() => void fetchLlmModels()}
+                        disabled={loadingLlmModels}
                       >
-                        <Settings2 size={11} />{" "}
-                        {editingCustomLlmParameters
-                          ? "收起高级 JSON"
-                          : "高级 JSON"}
+                        <RefreshCw
+                          className={
+                            loadingLlmModels ? "animate-spin" : undefined
+                          }
+                          size={11}
+                        />{" "}
+                        {loadingLlmModels ? "获取中…" : "获取模型"}
                       </Button>
                     </div>
-                    {selectedLlmParameterPresetDetails ? (
-                      <p className="mt-2 rounded-[10px] bg-muted/70 px-3 py-2.5 text-[10px] leading-4 text-muted-foreground">
-                        {selectedLlmParameterPresetDetails.description}
-                      </p>
-                    ) : (
-                      <p className="mt-2 rounded-[10px] bg-muted/70 px-3 py-2.5 text-[10px] leading-4 text-muted-foreground">
-                        当前使用自定义 JSON 参数。
-                      </p>
-                    )}
-                    {editingCustomLlmParameters ? (
-                      <div className="mt-2 rounded-[12px] bg-muted/55 p-3">
-                        <Textarea
-                          aria-label="LLM 高级自定义 JSON 参数"
-                          className="min-h-24 resize-y font-mono text-[11px] leading-5"
-                          value={settings.llm.extraParameters}
-                          onChange={(event) => {
-                            updateLlmSetting(
-                              "extraParameters",
-                              event.target.value
-                            );
-                          }}
-                          placeholder={'{\n  "parameter": "value"\n}'}
-                          maxLength={8000}
-                          rows={4}
-                          spellCheck={false}
-                        />
-                        <div className="mt-2 flex items-center justify-between gap-3">
-                          <Badge
-                            variant="outline"
-                            className={`h-5.5 min-w-0 text-[10px] ${
-                              customLlmParameterError
-                                ? "border-[#e8b7b0] bg-[#fff0ee] text-[#a33a31]"
-                                : "border-[#a9d8c4] bg-[#eaf8f1] text-[#55705f]"
-                            }`}
-                            role={customLlmParameterError ? "alert" : "status"}
-                          >
-                            {customLlmParameterError ??
-                              (settings.llm.extraParameters.trim()
-                                ? "JSON 对象有效"
-                                : "空内容不会附加参数")}
-                          </Badge>
-                          <div className="flex shrink-0 gap-3">
-                            <Button
-                              variant="link"
-                              size="sm"
-                              className="h-auto px-0 text-[11px]"
-                              type="button"
-                              disabled={
-                                Boolean(customLlmParameterError) ||
-                                !settings.llm.extraParameters.trim()
-                              }
-                              onClick={() => {
-                                const parsed: unknown = JSON.parse(
+                    <Feedback message={llmModelsMessage} className="mt-2" />
+                  </div>
+                </SettingRow>
+                <SettingRow
+                  title="流式显示"
+                  description="边生成边在悬浮窗显示最终文本；服务不支持流式响应时请关闭。"
+                  changed={isLlmSettingChanged("streaming")}
+                >
+                  <Switch
+                    checked={settings.llm.streaming}
+                    onCheckedChange={(checked) => {
+                      updateLlmSetting("streaming", checked);
+                    }}
+                    aria-label="启用 LLM 流式显示"
+                  />
+                </SettingRow>
+                <SettingRow
+                  title="请求参数"
+                  description="使用预设控制常见推理选项；其它服务参数可在高级 JSON 中配置。"
+                  changed={isLlmSettingChanged("extraParameters")}
+                  vertical
+                >
+                  <div className="flex items-center gap-2">
+                    <Select
+                      items={llmParameterPresetOptions}
+                      value={selectedLlmParameterPreset}
+                      onValueChange={(value) => {
+                        if (value === null) return;
+                        const preset = LLM_PARAMETER_PRESETS.find(
+                          ({ id }) => id === value
+                        );
+                        if (!preset) return;
+                        setEditingCustomLlmParameters(false);
+                        updateLlmSetting("extraParameters", preset.parameters);
+                      }}
+                    >
+                      <SelectTrigger
+                        aria-label="LLM 参数预设"
+                        className="h-9 min-w-0 flex-1 text-[12px]"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {llmParameterPresetOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      variant="outline"
+                      size="lg"
+                      className="text-[11px]"
+                      type="button"
+                      aria-expanded={editingCustomLlmParameters}
+                      onClick={() => {
+                        setEditingCustomLlmParameters(
+                          !editingCustomLlmParameters
+                        );
+                      }}
+                    >
+                      <Settings2 size={11} />{" "}
+                      {editingCustomLlmParameters
+                        ? "收起高级 JSON"
+                        : "高级 JSON"}
+                    </Button>
+                  </div>
+                  {selectedLlmParameterPresetDetails ? (
+                    <p className="mt-2 rounded-[10px] bg-muted/70 px-3 py-2.5 text-[10px] leading-4 text-muted-foreground">
+                      {selectedLlmParameterPresetDetails.description}
+                    </p>
+                  ) : (
+                    <p className="mt-2 rounded-[10px] bg-muted/70 px-3 py-2.5 text-[10px] leading-4 text-muted-foreground">
+                      当前使用自定义 JSON 参数。
+                    </p>
+                  )}
+                  {editingCustomLlmParameters ? (
+                    <div className="mt-2 rounded-[12px] bg-muted/55 p-3">
+                      <Textarea
+                        aria-label="LLM 高级自定义 JSON 参数"
+                        className="min-h-24 resize-y font-mono text-[11px] leading-5"
+                        value={settings.llm.extraParameters}
+                        onChange={(event) => {
+                          updateLlmSetting(
+                            "extraParameters",
+                            event.target.value
+                          );
+                        }}
+                        placeholder={'{\n  "parameter": "value"\n}'}
+                        maxLength={8000}
+                        rows={4}
+                        spellCheck={false}
+                      />
+                      <div className="mt-2 flex items-center justify-between gap-3">
+                        <Badge
+                          variant="outline"
+                          className={`h-5.5 min-w-0 text-[10px] ${
+                            customLlmParameterError
+                              ? "border-[#e8b7b0] bg-[#fff0ee] text-[#a33a31]"
+                              : "border-[#a9d8c4] bg-[#eaf8f1] text-[#55705f]"
+                          }`}
+                          role={customLlmParameterError ? "alert" : "status"}
+                        >
+                          {customLlmParameterError ??
+                            (settings.llm.extraParameters.trim()
+                              ? "JSON 对象有效"
+                              : "空内容不会附加参数")}
+                        </Badge>
+                        <div className="flex shrink-0 gap-3">
+                          <Button
+                            variant="link"
+                            size="sm"
+                            className="h-auto px-0 text-[11px]"
+                            type="button"
+                            disabled={
+                              Boolean(customLlmParameterError) ||
+                              !settings.llm.extraParameters.trim()
+                            }
+                            onClick={() => {
+                              const parsed: unknown = JSON.parse(
+                                settings.llm.extraParameters
+                              );
+                              updateLlmSetting(
+                                "extraParameters",
+                                JSON.stringify(parsed, null, 2) ??
                                   settings.llm.extraParameters
-                                );
-                                updateLlmSetting(
-                                  "extraParameters",
-                                  JSON.stringify(parsed, null, 2) ??
-                                    settings.llm.extraParameters
-                                );
-                              }}
-                            >
-                              格式化
-                            </Button>
-                            <Button
-                              variant="link"
-                              size="sm"
-                              className="h-auto px-0 text-[11px]"
-                              type="button"
-                              onClick={() => {
-                                setEditingCustomLlmParameters(false);
-                                updateLlmSetting("extraParameters", "");
-                              }}
-                            >
-                              恢复服务默认
-                            </Button>
-                          </div>
+                              );
+                            }}
+                          >
+                            格式化
+                          </Button>
+                          <Button
+                            variant="link"
+                            size="sm"
+                            className="h-auto px-0 text-[11px]"
+                            type="button"
+                            onClick={() => {
+                              setEditingCustomLlmParameters(false);
+                              updateLlmSetting("extraParameters", "");
+                            }}
+                          >
+                            恢复服务默认
+                          </Button>
                         </div>
                       </div>
-                    ) : null}
-                    <p className="mt-2 text-[10px] leading-4 text-muted-foreground">
-                      预设只会修改额外请求字段，不会更改 API
-                      Key、模型或表达偏好。模型不支持相应字段时，服务可能忽略或拒绝请求。
-                    </p>
-                  </SettingRow>
-                  <SettingRow
-                    title="表达偏好"
-                    description="描述期望的语气和格式。VoicePaste 会尽量保留说话者身份、第一人称、原意和事实。"
-                    changed={isLlmSettingChanged("prompt")}
-                    vertical
+                    </div>
+                  ) : null}
+                  <p className="mt-2 text-[10px] leading-4 text-muted-foreground">
+                    预设只会修改额外请求字段，不会更改 API
+                    Key、模型或表达偏好。模型不支持相应字段时，服务可能忽略或拒绝请求。
+                  </p>
+                </SettingRow>
+                <SettingRow
+                  title="表达偏好"
+                  description="描述期望的语气和格式。VoicePaste 会尽量保留说话者身份、第一人称、原意和事实。"
+                  changed={isLlmSettingChanged("prompt")}
+                  vertical
+                >
+                  <Textarea
+                    aria-label="LLM 表达偏好"
+                    className="min-h-32 resize-y text-[12px] leading-6"
+                    value={settings.llm.prompt}
+                    onChange={(event) => {
+                      updateLlmSetting("prompt", event.target.value);
+                    }}
+                    placeholder={DEFAULT_LLM_PREFERENCE}
+                    maxLength={8000}
+                    rows={6}
+                  />
+                  <Alert
+                    className="mt-2 border-[#ead9a4] bg-[#fff8df] px-3 py-2 text-[#765b12]"
+                    role="status"
                   >
-                    <Textarea
-                      aria-label="LLM 表达偏好"
-                      className="min-h-32 resize-y text-[12px] leading-6"
-                      value={settings.llm.prompt}
-                      onChange={(event) => {
-                        updateLlmSetting("prompt", event.target.value);
-                      }}
-                      placeholder={DEFAULT_LLM_PREFERENCE}
-                      maxLength={8000}
-                      rows={6}
-                    />
-                    <Alert
-                      className="mt-2 border-[#ead9a4] bg-[#fff8df] px-3 py-2 text-[#765b12]"
-                      role="status"
-                    >
-                      <AlertDescription className="text-[10px] leading-4 text-inherit">
-                        启用后，识别文本和表达偏好会发送到你配置的第三方服务，最终输入通常会增加数秒等待。处理失败时会自动使用原始识别文本。
-                      </AlertDescription>
-                    </Alert>
-                  </SettingRow>
-                </>
-              ) : null}
-            </SettingsSection>
-          </>
+                    <AlertDescription className="text-[10px] leading-4 text-inherit">
+                      启用后，识别文本和表达偏好会发送到你配置的第三方服务，最终输入通常会增加数秒等待。处理失败时会自动使用原始识别文本。
+                    </AlertDescription>
+                  </Alert>
+                </SettingRow>
+              </>
+            ) : null}
+          </SettingsSection>
         );
       }
       case "diagnostics": {
@@ -2698,7 +2712,7 @@ export function Settings({
           <div className="w-full max-w-150 animate-pulse">
             <div className="h-4 w-24 rounded bg-foreground/10" />
             <div className="mt-3 h-8 w-48 rounded-lg bg-foreground/12" />
-            <div className="mt-8 space-y-2 rounded-[18px] bg-card/70 p-5 ring-1 ring-foreground/8">
+            <div className="mt-8 space-y-2 rounded-[16px] border border-border bg-card/70 p-5">
               <div className="h-14 rounded-xl bg-foreground/5.5" />
               <div className="h-14 rounded-xl bg-foreground/5.5" />
               <div className="h-14 rounded-xl bg-foreground/5.5" />
@@ -2724,125 +2738,161 @@ export function Settings({
       <TooltipProvider delay={400}>
         {settingsToaster}
         {hotwordConflictDialog}
-        <main className="vp-app-frame grid h-screen w-screen grid-cols-[248px_minmax(0,1fr)] overflow-hidden text-foreground max-[720px]:grid-cols-1">
-          <aside className="flex flex-col bg-foreground p-7 text-background max-[720px]:hidden">
-            <div className="flex items-center gap-3">
-              <img
-                src={appIconUrl}
-                alt=""
-                aria-hidden="true"
-                className="size-10 rounded-[13px] shadow-[0_8px_24px_rgba(0,0,0,0.18)]"
-                draggable={false}
-              />
-              <div>
-                <strong className="block text-[14px] font-semibold tracking-[-0.02em]">
-                  VoicePaste
-                </strong>
-                <small className="mt-0.5 block text-[10px] text-background/55">
-                  首次设置
-                </small>
-              </div>
-            </div>
-
-            <ol className="mt-12 grid gap-1.5" aria-label="首次设置进度">
-              {ONBOARDING_STEPS.map((label, index) => {
-                const active = onboardingStep === index;
-                const complete = onboardingStep > index;
-                return (
-                  <li key={label}>
-                    <Button
-                      variant="ghost"
-                      className={`h-11 w-full justify-start gap-3 px-3 text-left text-[12px] ${
-                        active
-                          ? "bg-white/10 text-white"
-                          : complete
-                            ? "text-white/72"
-                            : "text-white/34"
-                      }`}
-                      type="button"
-                      aria-current={active ? "step" : undefined}
-                      disabled={!complete && !active}
-                      onClick={() => {
-                        goToOnboardingStep(index);
-                      }}
-                    >
-                      <span
-                        className={`grid size-5.5 shrink-0 place-items-center rounded-full border text-[10px] ${
-                          active
-                            ? "border-primary bg-primary text-primary-foreground"
-                            : complete
-                              ? "border-white/25 bg-white/10 text-white/75"
-                              : "border-white/12 bg-transparent text-white/35"
-                        }`}
-                        aria-hidden="true"
-                      >
-                        {complete ? <CheckCircle2 size={12} /> : index + 1}
-                      </span>
-                      {label}
-                    </Button>
-                  </li>
-                );
-              })}
-            </ol>
-
-            <p className="mt-auto max-w-40 text-[10px] leading-4 text-background/60">
-              每一步都可确认设备和服务是否可用。
-            </p>
-          </aside>
-
-          <section className="min-w-0 overflow-auto px-10 py-8 max-[720px]:px-5 max-[720px]:py-6">
-            <div className="mx-auto flex min-h-full max-w-155 flex-col justify-center">
-              <div className="mb-7 hidden items-center gap-2.5 max-[720px]:flex">
+        <main className="vp-app-frame h-screen w-screen overflow-auto bg-background text-foreground">
+          <header className="border-b border-border bg-card px-8 py-5 max-[720px]:px-5">
+            <div className="mx-auto flex max-w-260 items-center gap-8 max-[860px]:flex-col max-[860px]:items-stretch max-[860px]:gap-5">
+              <div className="flex shrink-0 items-center gap-3">
                 <img
                   src={appIconUrl}
                   alt=""
                   aria-hidden="true"
-                  className="size-9 rounded-[12px]"
+                  className="size-10 rounded-[12px] shadow-[0_8px_22px_rgba(50,58,92,0.14)]"
                   draggable={false}
                 />
-                <strong className="text-[13px] font-semibold">
-                  VoicePaste
-                </strong>
-                <span className="ml-auto font-mono text-[11px] text-muted-foreground tabular-nums">
-                  {onboardingStep + 1} / {ONBOARDING_STEPS.length}
-                </span>
+                <div>
+                  <strong className="block text-[14px] font-semibold tracking-[-0.02em]">
+                    VoicePaste
+                  </strong>
+                  <small className="mt-0.5 block text-[10px] text-muted-foreground">
+                    首次设置
+                  </small>
+                </div>
               </div>
 
-              <div className="vp-control-surface vp-enter rounded-[22px] bg-card px-9 py-8 ring-1 ring-foreground/8 max-[720px]:px-5">
-                {onboardingStep === 0 ? (
-                  <div>
-                    <img
-                      src={appIconUrl}
-                      alt=""
-                      aria-hidden="true"
-                      className="mb-7 size-12 rounded-[14px]"
-                      draggable={false}
-                    />
-                    <p className="text-[11px] font-semibold tracking-[0.08em] text-primary">
-                      欢迎使用
-                    </p>
-                    <h1
-                      ref={onboardingHeadingRef}
-                      className="mt-2 text-[32px] leading-9 font-semibold tracking-[-0.045em] text-balance text-foreground outline-none"
-                      tabIndex={-1}
+              <ol
+                className="flex min-w-0 flex-1 items-center overflow-x-auto"
+                aria-label="首次设置进度"
+              >
+                {ONBOARDING_STEPS.map((label, index) => {
+                  const active = onboardingStep === index;
+                  const complete = onboardingStep > index;
+                  return (
+                    <li
+                      className="flex min-w-28 flex-1 items-center last:flex-none"
+                      key={label}
                     >
-                      用说话代替打字
-                    </h1>
-                    <p className="mt-4 max-w-125 text-[13px] leading-6 text-pretty text-muted-foreground">
-                      VoicePaste
-                      可在任意输入框中听写，并将识别结果输入到当前光标位置。接下来完成识别服务、快捷键和麦克风设置。
-                    </p>
-                    <Feedback message={onboardingMessage} className="mt-5" />
-                    <div className="mt-7 flex justify-end">
                       <Button
-                        size="lg"
+                        variant="ghost"
+                        className={`h-9 shrink-0 gap-2 px-2.5 text-[11px] ${
+                          active
+                            ? "bg-accent text-foreground"
+                            : complete
+                              ? "text-foreground"
+                              : "text-muted-foreground"
+                        }`}
                         type="button"
+                        aria-current={active ? "step" : undefined}
+                        disabled={!complete && !active}
                         onClick={() => {
-                          goToOnboardingStep(1);
+                          goToOnboardingStep(index);
                         }}
                       >
-                        开始设置 <ChevronRight size={13} />
+                        <span
+                          className={`grid size-5 shrink-0 place-items-center rounded-full text-[10px] ${
+                            active
+                              ? "bg-primary text-primary-foreground"
+                              : complete
+                                ? "bg-foreground text-background"
+                                : "bg-muted text-muted-foreground"
+                          }`}
+                          aria-hidden="true"
+                        >
+                          {complete ? <CheckCircle2 size={12} /> : index + 1}
+                        </span>
+                        {label}
                       </Button>
+                      {index < ONBOARDING_STEPS.length - 1 ? (
+                        <span
+                          className={`mx-2 h-px min-w-5 flex-1 ${
+                            complete ? "bg-primary/45" : "bg-border"
+                          }`}
+                          aria-hidden="true"
+                        />
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ol>
+            </div>
+          </header>
+
+          <section className="min-h-[calc(100%-81px)] px-8 py-10 max-[720px]:px-5 max-[720px]:py-7">
+            <div className="mx-auto flex min-h-[calc(100vh-162px)] max-w-210 flex-col justify-center">
+              <div className="vp-enter w-full">
+                {onboardingStep === 0 ? (
+                  <div className="grid items-center gap-12 lg:grid-cols-[minmax(0,1.15fr)_minmax(18rem,0.85fr)]">
+                    <div>
+                      <p className="text-[11px] font-semibold tracking-[0.08em] text-primary">
+                        欢迎使用 VoicePaste
+                      </p>
+                      <h1
+                        ref={onboardingHeadingRef}
+                        className="mt-3 max-w-150 text-[44px] leading-[1.08] font-semibold tracking-[-0.055em] text-balance text-foreground outline-none max-[720px]:text-[36px]"
+                        tabIndex={-1}
+                      >
+                        说完，文字已经在光标处
+                      </h1>
+                      <p className="mt-5 max-w-135 text-[14px] leading-7 text-pretty text-muted-foreground">
+                        在任意应用按下快捷键开始听写。完成识别服务、快捷键和麦克风设置后即可使用。
+                      </p>
+                      <Feedback message={onboardingMessage} className="mt-5" />
+                      <div className="mt-8">
+                        <Button
+                          size="lg"
+                          type="button"
+                          onClick={() => {
+                            goToOnboardingStep(1);
+                          }}
+                        >
+                          开始设置 <ChevronRight size={13} />
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="rounded-[16px] bg-foreground p-6 text-background shadow-[0_24px_70px_rgba(23,26,34,0.18)]">
+                      <div className="flex items-center gap-3">
+                        <img
+                          src={appIconUrl}
+                          alt=""
+                          aria-hidden="true"
+                          className="size-11 rounded-[13px]"
+                          draggable={false}
+                        />
+                        <div>
+                          <p className="text-[13px] font-semibold">
+                            一次快捷键
+                          </p>
+                          <p className="mt-1 text-[11px] text-background/55">
+                            从声音到文字
+                          </p>
+                        </div>
+                      </div>
+                      <ol className="mt-8 grid gap-5">
+                        {(
+                          [
+                            [Command, "按下快捷键", "在当前输入框开始"],
+                            [Mic, "自然说话", "实时识别你的声音"],
+                            [ClipboardPaste, "自动输入", "结果回到光标位置"],
+                          ] as const
+                        ).map(([Icon, title, description], index) => (
+                          <li className="flex items-center gap-4" key={title}>
+                            <span className="grid size-9 shrink-0 place-items-center rounded-[11px] bg-primary text-primary-foreground">
+                              <Icon size={16} strokeWidth={1.9} />
+                            </span>
+                            <div>
+                              <p className="text-[12px] font-semibold">
+                                {title}
+                              </p>
+                              <p className="mt-0.5 text-[10px] text-background/55">
+                                {description}
+                              </p>
+                            </div>
+                            <span className="ml-auto font-mono text-[10px] text-background/60">
+                              0{index + 1}
+                            </span>
+                          </li>
+                        ))}
+                      </ol>
                     </div>
                   </div>
                 ) : null}
@@ -3253,14 +3303,14 @@ export function Settings({
       <TooltipProvider delay={400}>
         {settingsToaster}
         {hotwordConflictDialog}
-        <div className="vp-app-frame grid h-screen w-screen grid-cols-[184px_minmax(0,1fr)] overflow-hidden text-foreground">
-          <aside className="flex min-h-0 flex-col border-r border-foreground/10 bg-[#f7f8f4] px-3.5 py-4">
+        <div className="vp-app-frame grid h-screen w-screen grid-cols-[200px_minmax(0,1fr)] overflow-hidden bg-background text-foreground">
+          <aside className="flex min-h-0 flex-col border-r border-border bg-card px-3.5 py-4">
             <div className="flex items-center gap-3 px-2 py-1.5">
               <img
                 src={appIconUrl}
                 alt=""
                 aria-hidden="true"
-                className="size-9 shrink-0 rounded-[12px] shadow-[0_7px_18px_rgba(33,40,35,0.14)]"
+                className="size-9 shrink-0 rounded-[11px] shadow-[0_6px_18px_rgba(50,58,92,0.14)]"
                 draggable={false}
               />
               <div className="min-w-0">
@@ -3279,12 +3329,12 @@ export function Settings({
                   key={id}
                   activeOptions={{ exact: true }}
                   activeProps={{
-                    className: "bg-[#e7e9e4] text-foreground",
+                    className: "bg-accent text-foreground",
                   }}
                   className="group relative flex h-10 w-full items-center gap-2.5 rounded-[11px] px-3 text-left text-[12px] font-medium transition-[background-color,color,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] focus-visible:outline-3 focus-visible:outline-offset-1 focus-visible:outline-ring active:scale-[0.98]"
                   inactiveProps={{
                     className:
-                      "bg-transparent text-muted-foreground hover:bg-[#eceee9] hover:text-foreground",
+                      "bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground",
                   }}
                   to={SETTINGS_PATHS[id]}
                   onClick={() => {
@@ -3307,7 +3357,7 @@ export function Settings({
                       <span className="truncate">{label}</span>
                       {isSectionChanged(id) ? (
                         <span
-                          className="ml-auto size-1.5 rounded-full bg-[#b87723]"
+                          className="ml-auto size-1.5 rounded-full bg-primary"
                           aria-label="有未保存的修改"
                         />
                       ) : null}
@@ -3329,9 +3379,9 @@ export function Settings({
           </aside>
 
           <div className="flex min-h-0 min-w-0 flex-col">
-            <header className="flex shrink-0 items-center justify-between gap-6 border-b border-foreground/10 bg-[#f7f8f4] px-7 py-5">
+            <header className="flex shrink-0 items-center justify-between gap-6 border-b border-border bg-background px-9 py-7">
               <div className="min-w-0">
-                <h1 className="truncate text-[28px] leading-8 font-semibold tracking-[-0.045em] text-foreground">
+                <h1 className="truncate text-[30px] leading-9 font-semibold tracking-[-0.045em] text-foreground">
                   {SECTIONS.find(([id]) => id === activeSection)?.[1] ?? "设置"}
                 </h1>
                 <p className="mt-1.5 truncate text-[12px] text-muted-foreground">
@@ -3340,6 +3390,23 @@ export function Settings({
               </div>
 
               <div className="flex shrink-0 items-center gap-2">
+                <span className="mr-1 inline-flex h-9 items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+                  <span
+                    className={`size-1.5 rounded-full ${
+                      hasUnsavedChanges
+                        ? "bg-primary"
+                        : "bg-muted-foreground/45"
+                    }`}
+                    aria-hidden="true"
+                  />
+                  {saving
+                    ? activeSection === "recognition" && cloudDirty
+                      ? "正在同步"
+                      : "正在保存"
+                    : hasUnsavedChanges
+                      ? "有未保存修改"
+                      : "已保存"}
+                </span>
                 {activeSection === "shortcut" ? (
                   <Button
                     variant="ghost"
@@ -3372,19 +3439,15 @@ export function Settings({
                         : "保存中…"
                       : "保存更改"}
                   </Button>
-                ) : (
-                  <span className="inline-flex h-9 min-w-24 items-center justify-end gap-1.5 text-[11px] font-medium text-muted-foreground">
-                    <CheckCircle2 size={13} strokeWidth={1.8} /> 已保存
-                  </span>
-                )}
+                ) : null}
               </div>
             </header>
 
             <main
-              className="min-h-0 flex-1 overflow-auto scroll-smooth px-6 py-7"
+              className="min-h-0 flex-1 overflow-auto scroll-smooth p-9"
               data-scroll-restoration-id="settings-content"
             >
-              <div className="vp-enter mx-auto max-w-190">
+              <div className="vp-enter mx-auto max-w-225">
                 <Feedback
                   message={message?.kind === "error" ? message : null}
                   className="mb-6"

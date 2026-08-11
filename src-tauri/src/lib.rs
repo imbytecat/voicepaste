@@ -169,14 +169,14 @@ struct TestDoubaoResult {
 /// Status backed by a fresh cloud snapshot: the cloud is the truth.
 fn hotword_status(settings: &AppSettings, snapshot: &hotwords::Snapshot) -> HotwordSyncStatus {
     HotwordSyncStatus {
-        state: if !settings.hotwords_enabled {
-            "disabled"
-        } else if settings.hotwords.is_empty() && snapshot.words.is_empty() {
-            "empty"
-        } else if snapshot.words == settings.hotwords {
-            "synced"
-        } else {
+        state: if snapshot.words != settings.hotwords {
             "pending"
+        } else if !settings.hotwords_enabled {
+            "disabled"
+        } else if settings.hotwords.is_empty() {
+            "empty"
+        } else {
+            "synced"
         },
         count: settings.hotwords.len(),
         cloud_count: snapshot.words.len(),
@@ -1271,6 +1271,11 @@ fn setup_app(app: &mut tauri::App) -> Result<(), String> {
         .map_err(|_| "托盘状态已损坏，请重启应用".to_owned())? = Some(status);
     let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png"))
         .map_err(|error| format!("加载托盘图标失败：{error}"))?;
+    if let Some(window) = app.get_webview_window("settings") {
+        window
+            .set_icon(tray_icon.clone())
+            .map_err(|error| format!("设置窗口图标失败：{error}"))?;
+    }
     let tray = TrayIconBuilder::new()
         .icon(tray_icon)
         .menu(&menu)
@@ -1392,8 +1397,8 @@ pub fn run() {
 mod tests {
     use super::{
         AudioCaptureKind, AudioCommand, RecognitionSession, can_replace_audio_capture,
-        offload_blocking_result, require_saved_settings, settings::AppSettings,
-        should_show_settings_on_launch, signal_cancel,
+        hotword_status, hotwords::Snapshot, offload_blocking_result, require_saved_settings,
+        settings::AppSettings, should_show_settings_on_launch, signal_cancel,
     };
     use std::sync::Mutex;
     use tokio::sync::{mpsc, watch};
@@ -1419,6 +1424,20 @@ mod tests {
 
         settings.open_settings_on_startup = false;
         assert!(!should_show_settings_on_launch(&settings));
+    }
+
+    #[test]
+    fn disabled_hotwords_still_surface_remote_drift() {
+        let settings = AppSettings {
+            hotwords_enabled: false,
+            ..AppSettings::default()
+        };
+        let snapshot = Snapshot {
+            words: vec!["VoicePaste".to_owned()],
+            ..Snapshot::default()
+        };
+
+        assert_eq!(hotword_status(&settings, &snapshot).state, "pending");
     }
 
     #[test]

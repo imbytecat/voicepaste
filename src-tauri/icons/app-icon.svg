@@ -3,7 +3,7 @@
   <rect x="16" y="16" width="480" height="480" rx="108" fill="none" stroke="#ffffff" stroke-opacity="0.08" stroke-width="2"/>
   <rect x="116" y="222" width="40" height="68" rx="20" fill="#f7f8f4"/>
   <rect x="176" y="166" width="40" height="180" rx="20" fill="#f7f8f4"/>
-  <rect x="236" y="102" width="40" height="308" rx="20" fill="#71ad9a"/>
+  <rect x="236" y="102" width="40" height="308" rx="20" fill="#4f61e6"/>
   <rect x="296" y="182" width="40" height="148" rx="20" fill="#f7f8f4"/>
   <rect x="356" y="214" width="40" height="84" rx="20" fill="#f7f8f4"/>
 </svg>
