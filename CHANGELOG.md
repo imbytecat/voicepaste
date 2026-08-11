@@ -5,4 +5,4 @@
 
 ### 修复
 
-* **release:** standardize publication flow ([c5d9f9a](https://github.com/imbytecat/voicepaste/commit/c5d9f9a65dbf1c45de338b1323ead6d148d6a2e6))
+* **release:** 规范发布流程 ([c5d9f9a](https://github.com/imbytecat/voicepaste/commit/c5d9f9a65dbf1c45de338b1323ead6d148d6a2e6))

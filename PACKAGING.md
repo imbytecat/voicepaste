@@ -115,14 +115,16 @@ NixOS 本地环境不能可靠生成 AppImage；本地只运行检查与原生�
 
 ## 发布版本
 
-日常提交和合并后的 PR 标题必须遵循 [Conventional Commits](https://www.conventionalcommits.org/)：
+日常提交和合并后的 PR 标题必须遵循 [Conventional Commits](https://www.conventionalcommits.org/)，且摘要必须写中文：
 
+- 格式为 `<type>(<scope>): <中文摘要>`；`type` 和可选 `scope` 使用小写 ASCII，摘要至少包含一个汉字；
 - `fix:` 产生 patch 版本；
 - `feat:` 产生 minor 版本；
 - `feat!:`、`fix!:` 或正文中的 `BREAKING CHANGE:` 产生 major 版本；
-- `docs:`、`test:`、`refactor:`、`ci:`、`build:` 与 `chore:` 不单独触发版本。
+- `docs:`、`test:`、`refactor:`、`ci:`、`build:` 与 `chore:` 不单独触发版本；
+- 自动生成的 `chore(release): <version>` 不受中文摘要限制。
 
-推荐 squash merge，让每个用户可见改动只产生一条清晰的发布记录。发布说明由提交历史自动生成，不再手写版本摘要。
+例如：`feat(settings): 增加模型自动发现`、`fix(release): 修复更新资产命名`。Release Please 会直接将摘要写入 `CHANGELOG.md` 和 GitHub Release，禁止使用英文摘要。推荐 squash merge，让每个用户可见改动只产生一条清晰的发布记录。
 
 1. 合并普通功能或修复 PR。`Release Please` workflow 会创建或更新 `chore(release): <version>` Release PR。
 2. 审核 Release PR 中的版本和 `CHANGELOG.md`。该 PR 会同时更新根目录 `version.txt`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock` 与 `.release-please-manifest.json`；不要手动修改其中任一版本。Release PR 由内置 `GITHUB_TOKEN` 创建，其 `pull_request` checks 会进入待批准状态；仓库维护者批准运行后再合并。

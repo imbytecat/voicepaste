@@ -26,9 +26,16 @@ run = "pnpm check && cargo test --manifest-path src-tauri/Cargo.toml && cargo cl
 description = "提交前运行完整项目检查"
 run = "mise run check"
 
+[tasks.commit-msg]
+description = "校验中文 Conventional Commit 标题"
+run = "node tools/check-commit-message.ts"
+
 [tasks."hooks:install"]
 description = "安装仓库 Git hooks"
-run = "mise generate git-pre-commit --write --task=pre-commit"
+run = """
+mise generate git-pre-commit --write --task=pre-commit
+install -m 755 tools/git-hooks/commit-msg .git/hooks/commit-msg
+"""
 
 [tasks.fix]
 description = "自动修复前端与 Rust 格式"
