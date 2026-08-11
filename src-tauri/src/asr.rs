@@ -553,6 +553,7 @@ fn encode_full_request(
     connection_id: &str,
     hotword_table_id: Option<&str>,
 ) -> Result<Vec<u8>, String> {
+    let use_hotwords = hotword_table_id.is_some();
     let request = FullClientRequest {
         user: UserMeta {
             uid: connection_id.to_owned(),
@@ -568,10 +569,10 @@ fn encode_full_request(
             model_name: "bigmodel",
             enable_itn: true,
             enable_punc: true,
-            enable_ddc: true,
+            enable_ddc: !use_hotwords,
             show_utterances: false,
             result_type: "full",
-            enable_nonstream: true,
+            enable_nonstream: !use_hotwords,
             end_window_size: 800,
             corpus: hotword_table_id.map(|table_id| Corpus {
                 boosting_table_id: table_id.to_owned(),
@@ -770,7 +771,7 @@ mod tests {
     }
 
     #[test]
-    fn cloud_hotword_request_keeps_streaming_second_pass() {
+    fn cloud_hotword_request_avoids_second_pass_overwrite() {
         let frame = encode_full_request("request-id", Some("table-id")).expect("encode request");
         let payload: serde_json::Value =
             serde_json::from_slice(&gunzip(&frame[8..]).expect("decompress request"))
@@ -779,8 +780,8 @@ mod tests {
             payload["request"]["corpus"]["boosting_table_id"],
             "table-id"
         );
-        assert_eq!(payload["request"]["enable_nonstream"], true);
-        assert_eq!(payload["request"]["enable_ddc"], true);
+        assert_eq!(payload["request"]["enable_nonstream"], false);
+        assert_eq!(payload["request"]["enable_ddc"], false);
         assert!(payload["request"]["corpus"].get("context").is_none());
     }
     #[test]
