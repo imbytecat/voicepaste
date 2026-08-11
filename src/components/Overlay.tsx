@@ -306,34 +306,37 @@ export function Overlay() {
     <main className="grid size-full place-items-center overflow-hidden bg-transparent p-1 select-none">
       <div className="grid size-full animate-in grid-cols-[42px_minmax(0,1fr)_82px] items-center gap-3 rounded-[16px] border border-overlay-foreground/10 bg-overlay py-2 pr-3.5 pl-2.5 shadow-(--overlay-shadow) duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] zoom-in-95 fade-in slide-in-from-bottom-2">
         <div
-          className={`relative grid size-10 place-items-center rounded-[12px] border border-overlay-foreground/8 transition-[background-color,border-color,color,transform,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${indicatorClass}`}
+          className={`vp-motion-control relative grid size-10 place-items-center rounded-[12px] border border-overlay-foreground/8 transition-[background-color,border-color,color,transform,opacity] ${indicatorClass}`}
           aria-hidden="true"
         >
-          {phase === "starting" ||
-          phase === "finishing" ||
-          phase === "processing" ? (
-            <LoaderCircle className="size-5 animate-spin" strokeWidth={1.9} />
-          ) : phase === "success" ? (
-            <Check className="size-5 text-current" strokeWidth={2.1} />
-          ) : phase === "error" ? (
-            <TriangleAlert className="size-5 text-current" strokeWidth={2} />
-          ) : (
-            <Mic className="size-5 text-current" strokeWidth={1.9} />
-          )}
+          <span key={phase} className="vp-state-pop grid place-items-center">
+            {phase === "starting" ||
+            phase === "finishing" ||
+            phase === "processing" ? (
+              <LoaderCircle className="size-5 animate-spin" strokeWidth={1.9} />
+            ) : phase === "success" ? (
+              <Check className="size-5 text-current" strokeWidth={2.1} />
+            ) : phase === "error" ? (
+              <TriangleAlert className="size-5 text-current" strokeWidth={2} />
+            ) : (
+              <Mic className="size-5 text-current" strokeWidth={1.9} />
+            )}
+          </span>
           {phase === "recording" ? (
-            <span className="absolute -inset-1 rounded-[16px] border border-primary/45" />
+            <span className="vp-recording-pulse absolute -inset-1 rounded-[16px] border border-primary/45" />
           ) : null}
         </div>
 
         <div className="min-w-0" aria-live="polite">
           <div className="mb-0.5 flex items-center gap-2 overflow-hidden whitespace-nowrap">
             <span
-              className={`shrink-0 text-[10px] font-semibold tracking-[0.025em] ${statusColor}`}
+              key={status}
+              className={`vp-feedback-enter shrink-0 text-[10px] font-semibold tracking-[0.025em] ${statusColor}`}
             >
               {status}
             </span>
             {phase === "recording" ? (
-              <small className="truncate text-[10px] text-overlay-subtle">
+              <small className="vp-feedback-enter truncate text-[10px] text-overlay-subtle">
                 {activationModeRef.current === "hold"
                   ? "松开完成"
                   : "再次按下完成"}
@@ -350,16 +353,22 @@ export function Overlay() {
         </div>
 
         <div
-          className={`flex h-8 items-center justify-end gap-1 transition-opacity duration-200 ${phase === "success" || phase === "error" ? "opacity-0" : "opacity-90"}`}
+          className={`vp-motion-fast flex h-8 items-center justify-end gap-1 transition-opacity ${phase === "success" || phase === "error" ? "opacity-0" : "opacity-90"}`}
           aria-hidden="true"
         >
           {WAVE_WEIGHTS.map((weight, index) => (
             <span
-              className={`max-h-8 min-h-1 w-0.5 rounded-full bg-primary transition-[height,opacity] duration-100 ${phase === "finishing" || phase === "processing" ? "animate-[pulse_900ms_cubic-bezier(0.22,1,0.36,1)_infinite]" : ""}`}
+              className={`vp-motion-fast h-8 w-0.5 origin-bottom rounded-full bg-primary transition-[transform,opacity] ${phase === "finishing" || phase === "processing" ? "animate-[pulse_900ms_cubic-bezier(0.22,1,0.36,1)_infinite]" : ""}`}
               key={`${weight}-${index}`}
               style={{
                 animationDelay: `${index * -90}ms`,
-                height: `${6 + Math.max(level, phase === "recording" ? 0.1 : 0) * weight * 24}px`,
+                transform: `scaleY(${
+                  (6 +
+                    Math.max(level, phase === "recording" ? 0.1 : 0) *
+                      weight *
+                      24) /
+                  32
+                })`,
                 opacity: phase === "recording" ? 1 : 0.52,
               }}
             />

@@ -105,6 +105,11 @@
   --tooltip-shadow: 0 12px 32px rgb(25 30 47 / 0.22);
   --overlay-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.06), 0 16px 44px rgb(16 21 36 / 0.34);
+  --vp-duration-fast: 180ms;
+  --vp-duration-control: 280ms;
+  --vp-duration-layout: 420ms;
+  --vp-ease-standard: cubic-bezier(0.32, 0.72, 0, 1);
+  --vp-ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 html,
@@ -137,6 +142,39 @@ textarea {
     transparent;
   scrollbar-width: thin;
 }
+.vp-stable-scroll {
+  scrollbar-gutter: stable;
+}
+
+.vp-stable-scroll::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.vp-stable-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.vp-stable-scroll::-webkit-scrollbar-thumb {
+  min-height: 40px;
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--foreground) 24%, transparent);
+  background-clip: content-box;
+}
+
+.vp-stable-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in oklab, var(--foreground) 36%, transparent);
+}
+
+.vp-segment-item,
+.vp-segment-item:hover,
+.vp-segment-item[aria-pressed="true"],
+.vp-segment-item[data-pressed] {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
 
 .vp-app-frame {
   background: var(--background);
@@ -146,19 +184,103 @@ textarea {
   box-shadow: var(--control-shadow);
 }
 
-.vp-enter {
-  animation: vp-enter 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+.vp-motion-fast {
+  transition-duration: var(--vp-duration-fast);
+  transition-timing-function: var(--vp-ease-standard);
 }
 
-@keyframes vp-enter {
+.vp-motion-control {
+  transition-duration: var(--vp-duration-control);
+  transition-timing-function: var(--vp-ease-spring);
+}
+
+.vp-motion-layout {
+  transition-duration: var(--vp-duration-layout);
+  transition-timing-function: var(--vp-ease-spring);
+}
+
+.vp-enter,
+.vp-section-enter {
+  animation: vp-section-enter var(--vp-duration-layout) var(--vp-ease-spring)
+    both;
+}
+
+.vp-title-enter {
+  animation: vp-title-enter var(--vp-duration-control) var(--vp-ease-spring)
+    both;
+}
+
+.vp-feedback-enter {
+  animation: vp-feedback-enter var(--vp-duration-fast) var(--vp-ease-standard)
+    both;
+}
+
+.vp-state-pop {
+  animation: vp-state-pop var(--vp-duration-control) var(--vp-ease-spring) both;
+}
+
+.vp-recording-pulse {
+  animation: vp-recording-pulse 1.6s var(--vp-ease-standard) infinite;
+}
+
+@keyframes vp-section-enter {
   from {
     opacity: 0;
-    transform: translateY(10px);
+    transform: translateY(8px) scale(0.995);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes vp-title-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
   }
 
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes vp-feedback-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.99);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes vp-state-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.82);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes vp-recording-pulse {
+  0%,
+  100% {
+    opacity: 0.2;
+    transform: scale(0.88);
+  }
+
+  45% {
+    opacity: 0.7;
+    transform: scale(1);
   }
 }
 

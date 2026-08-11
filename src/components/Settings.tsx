@@ -116,6 +116,14 @@ const SECTIONS = [
   ["diagnostics", "系统检查", ShieldCheck],
   ["about", "关于", Info],
 ] as const;
+const SECTION_INDICATOR_POSITION: Record<SettingsSectionId, string> = {
+  shortcut: "before:translate-y-0",
+  recognition: "before:translate-y-[44px]",
+  processing: "before:translate-y-[88px]",
+  general: "before:translate-y-[132px]",
+  diagnostics: "before:translate-y-[176px]",
+  about: "before:translate-y-[220px]",
+};
 const SECTION_DESCRIPTIONS: Record<SettingsSectionId, string> = {
   shortcut: "设置听写方式、快捷键、麦克风和悬浮窗",
   recognition: "连接豆包语音识别并管理常用词",
@@ -440,7 +448,7 @@ function SettingRow({
           {changed ? (
             <Badge
               variant="outline"
-              className="h-5 border-[#d7b879] bg-[#fff4d8] px-1.5 text-[10px] text-[#7a5100]"
+              className="vp-state-pop h-5 border-[#d7b879] bg-[#fff4d8] px-1.5 text-[10px] text-[#7a5100]"
             >
               已修改
             </Badge>
@@ -548,7 +556,7 @@ function Feedback({
         : "border-primary/20 bg-accent text-accent-foreground";
   return (
     <Alert
-      className={`px-4 py-3 text-[12px] leading-5 ${colors} ${className ?? ""}`}
+      className={`vp-feedback-enter px-4 py-3 text-[12px] leading-5 ${colors} ${className ?? ""}`}
       role={message.kind === "error" ? "alert" : "status"}
       aria-live={message.kind === "error" ? "assertive" : "polite"}
       aria-atomic="true"
@@ -1797,7 +1805,11 @@ export function Settings({
                 changed={isSettingChanged("activationMode")}
               >
                 <ToggleGroup
-                  className="grid w-full max-w-71.5 grid-cols-2"
+                  className={`relative isolate grid w-full max-w-71.5 grid-cols-2 overflow-hidden before:pointer-events-none before:absolute before:inset-y-1 before:left-1 before:z-0 before:w-[calc(50%-6px)] before:rounded-[8px] before:border before:border-border before:bg-card before:shadow-(--control-shadow) before:transition-transform before:duration-(--vp-duration-layout) before:ease-(--vp-ease-spring) before:content-[''] motion-reduce:before:transition-none ${
+                    settings.activationMode === "hold"
+                      ? "before:translate-x-[calc(100%+4px)]"
+                      : ""
+                  }`}
                   value={[settings.activationMode]}
                   onValueChange={(values) => {
                     const value = values[0] as
@@ -1815,7 +1827,7 @@ export function Settings({
                   ).map(([value, label]) => (
                     <ToggleGroupItem
                       key={value}
-                      className="h-9 w-full text-[12px]"
+                      className="vp-segment-item relative z-1 h-9 w-full text-[12px] hover:text-foreground"
                       value={value}
                     >
                       {label}
@@ -1926,7 +1938,13 @@ export function Settings({
                 changed={isSettingChanged("overlayPosition")}
               >
                 <ToggleGroup
-                  className="grid w-full max-w-102.5 grid-cols-3"
+                  className={`relative isolate grid w-full max-w-102.5 grid-cols-3 overflow-hidden before:pointer-events-none before:absolute before:inset-y-1 before:left-1 before:z-0 before:w-[calc(33.333333%-5.333px)] before:rounded-[8px] before:border before:border-border before:bg-card before:shadow-(--control-shadow) before:transition-transform before:duration-(--vp-duration-layout) before:ease-(--vp-ease-spring) before:content-[''] motion-reduce:before:transition-none ${
+                    settings.overlayPosition === "left"
+                      ? "before:translate-x-[calc(100%+4px)]"
+                      : settings.overlayPosition === "right"
+                        ? "before:translate-x-[calc(200%+8px)]"
+                        : ""
+                  }`}
                   value={[settings.overlayPosition]}
                   onValueChange={(values) => {
                     const value = values[0] as
@@ -1945,7 +1963,7 @@ export function Settings({
                   ).map(([value, label]) => (
                     <ToggleGroupItem
                       key={value}
-                      className="h-9 w-full text-[12px]"
+                      className="vp-segment-item relative z-1 h-9 w-full text-[12px] hover:text-foreground"
                       value={value}
                     >
                       {label}
@@ -1970,7 +1988,7 @@ export function Settings({
               changed={isSettingChanged("apiKey")}
             >
               <div className="w-full max-w-102.5">
-                <div className="flex h-10 items-center overflow-hidden rounded-[10px] border border-input bg-card transition-[background-color,border-color,box-shadow] duration-300 focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/20">
+                <div className="vp-motion-control flex h-10 items-center overflow-hidden rounded-[10px] border border-input bg-card transition-[background-color,border-color,box-shadow] focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/20">
                   <Input
                     className="h-10 min-w-0 flex-1 border-0 bg-transparent px-3 shadow-none focus-visible:ring-0"
                     type={showApiKey ? "text" : "password"}
@@ -2174,324 +2192,360 @@ export function Settings({
                 aria-label="启用 LLM 后处理"
               />
             </SettingRow>
-            {settings.llm.enabled ? (
-              <>
-                <SettingRow
-                  title="API 基础地址"
-                  description="填写 OpenAI 兼容服务的 API 地址。"
-                  changed={isLlmSettingChanged("baseUrl")}
+            <div
+              className={`vp-motion-layout grid transition-[grid-template-rows] motion-reduce:transition-none ${
+                settings.llm.enabled ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+              }`}
+              inert={!settings.llm.enabled}
+              aria-hidden={!settings.llm.enabled}
+            >
+              <div className="min-h-0 overflow-hidden">
+                <div
+                  className={`vp-motion-layout divide-y divide-border transition-[transform,opacity] motion-reduce:transition-none ${
+                    settings.llm.enabled
+                      ? "translate-y-0 opacity-100"
+                      : "-translate-y-2 opacity-0"
+                  }`}
                 >
-                  <div className="w-full max-w-102.5">
-                    <Input
-                      aria-label="LLM API 基础地址"
-                      className="text-[12px]"
-                      type="url"
-                      value={settings.llm.baseUrl}
-                      onChange={(event) => {
-                        updateLlmSetting("baseUrl", event.target.value);
-                        setAvailableLlmModels([]);
-                        setLlmModelsMessage(null);
-                      }}
-                      placeholder={LLM_BASE_URL_PLACEHOLDER}
-                      autoComplete="off"
-                      spellCheck={false}
-                    />
-                  </div>
-                </SettingRow>
-                <SettingRow
-                  title="API Key"
-                  description="保存在系统凭据库；本地服务不需要鉴权时可以留空。"
-                  changed={isLlmSettingChanged("apiKey")}
-                >
-                  <div className="flex h-10 w-full max-w-102.5 items-center overflow-hidden rounded-[10px] border border-input bg-card transition-[background-color,border-color,box-shadow] duration-300 focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/20">
-                    <Input
-                      aria-label="LLM API Key"
-                      className="h-10 min-w-0 flex-1 border-0 bg-transparent px-3 text-[12px] shadow-none focus-visible:ring-0"
-                      type={showLlmApiKey ? "text" : "password"}
-                      value={settings.llm.apiKey}
-                      onChange={(event) => {
-                        updateLlmSetting("apiKey", event.target.value);
-                        setAvailableLlmModels([]);
-                        setLlmModelsMessage(null);
-                      }}
-                      placeholder="可选"
-                      autoComplete="off"
-                      spellCheck={false}
-                    />
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            type="button"
-                            className="mr-1 text-muted-foreground"
-                          />
-                        }
-                        onClick={() => {
-                          setShowLlmApiKey(!showLlmApiKey);
+                  <SettingRow
+                    title="API 基础地址"
+                    description="填写 OpenAI 兼容服务的 API 地址。"
+                    changed={isLlmSettingChanged("baseUrl")}
+                  >
+                    <div className="w-full max-w-102.5">
+                      <Input
+                        aria-label="LLM API 基础地址"
+                        className="text-[12px]"
+                        type="url"
+                        value={settings.llm.baseUrl}
+                        onChange={(event) => {
+                          updateLlmSetting("baseUrl", event.target.value);
+                          setAvailableLlmModels([]);
+                          setLlmModelsMessage(null);
                         }}
-                        aria-label={
-                          showLlmApiKey
+                        placeholder={LLM_BASE_URL_PLACEHOLDER}
+                        autoComplete="off"
+                        spellCheck={false}
+                      />
+                    </div>
+                  </SettingRow>
+                  <SettingRow
+                    title="API Key"
+                    description="保存在系统凭据库；本地服务不需要鉴权时可以留空。"
+                    changed={isLlmSettingChanged("apiKey")}
+                  >
+                    <div className="vp-motion-control flex h-10 w-full max-w-102.5 items-center overflow-hidden rounded-[10px] border border-input bg-card transition-[background-color,border-color,box-shadow] focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/20">
+                      <Input
+                        aria-label="LLM API Key"
+                        className="h-10 min-w-0 flex-1 border-0 bg-transparent px-3 text-[12px] shadow-none focus-visible:ring-0"
+                        type={showLlmApiKey ? "text" : "password"}
+                        value={settings.llm.apiKey}
+                        onChange={(event) => {
+                          updateLlmSetting("apiKey", event.target.value);
+                          setAvailableLlmModels([]);
+                          setLlmModelsMessage(null);
+                        }}
+                        placeholder="可选"
+                        autoComplete="off"
+                        spellCheck={false}
+                      />
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              type="button"
+                              className="mr-1 text-muted-foreground"
+                            />
+                          }
+                          onClick={() => {
+                            setShowLlmApiKey(!showLlmApiKey);
+                          }}
+                          aria-label={
+                            showLlmApiKey
+                              ? "隐藏 LLM API Key"
+                              : "显示 LLM API Key"
+                          }
+                        >
+                          {showLlmApiKey ? (
+                            <EyeOff size={13} />
+                          ) : (
+                            <Eye size={13} />
+                          )}
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {showLlmApiKey
                             ? "隐藏 LLM API Key"
-                            : "显示 LLM API Key"
-                        }
-                      >
-                        {showLlmApiKey ? (
-                          <EyeOff size={13} />
-                        ) : (
-                          <Eye size={13} />
-                        )}
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        {showLlmApiKey
-                          ? "隐藏 LLM API Key"
-                          : "显示 LLM API Key"}
-                      </TooltipContent>
-                    </Tooltip>
-                  </div>
-                </SettingRow>
-                <SettingRow
-                  title="模型"
-                  description="填写模型名称，或从服务获取可用模型列表。"
-                  changed={isLlmSettingChanged("model")}
-                >
-                  <div className="w-full max-w-102.5">
-                    <div className="flex gap-2">
-                      <Combobox
-                        items={filteredLlmModels}
-                        filter={null}
-                        inputValue={settings.llm.model}
-                        value={settings.llm.model || null}
-                        onInputValueChange={(value) => {
-                          updateLlmSetting("model", value);
-                        }}
+                            : "显示 LLM API Key"}
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
+                  </SettingRow>
+                  <SettingRow
+                    title="模型"
+                    description="填写模型名称，或从服务获取可用模型列表。"
+                    changed={isLlmSettingChanged("model")}
+                  >
+                    <div className="w-full max-w-102.5">
+                      <div className="flex gap-2">
+                        <Combobox
+                          items={filteredLlmModels}
+                          filter={null}
+                          inputValue={settings.llm.model}
+                          value={settings.llm.model || null}
+                          onInputValueChange={(value) => {
+                            updateLlmSetting("model", value);
+                          }}
+                          onValueChange={(value) => {
+                            if (value !== null)
+                              updateLlmSetting("model", value);
+                          }}
+                        >
+                          <ComboboxInput
+                            aria-label="LLM 模型"
+                            className="min-w-0 flex-1 text-[12px]"
+                            placeholder={LLM_MODEL_PLACEHOLDER}
+                            autoComplete="off"
+                            spellCheck={false}
+                            showTrigger={availableLlmModels.length > 0}
+                          />
+                          <ComboboxContent>
+                            {availableLlmModels.length > 0 &&
+                            filteredLlmModels.length === 0 ? (
+                              <ComboboxEmpty>
+                                未在列表中找到，仍可直接使用此名称
+                              </ComboboxEmpty>
+                            ) : null}
+                            <ComboboxList>
+                              {filteredLlmModels.map((model) => (
+                                <ComboboxItem key={model} value={model}>
+                                  {model}
+                                </ComboboxItem>
+                              ))}
+                            </ComboboxList>
+                          </ComboboxContent>
+                        </Combobox>
+                        <Button
+                          variant="outline"
+                          size="lg"
+                          className="text-[11px]"
+                          type="button"
+                          onClick={() => void fetchLlmModels()}
+                          disabled={loadingLlmModels}
+                        >
+                          <RefreshCw
+                            className={
+                              loadingLlmModels ? "animate-spin" : undefined
+                            }
+                            size={11}
+                          />{" "}
+                          {loadingLlmModels ? "获取中…" : "获取模型"}
+                        </Button>
+                      </div>
+                      <Feedback message={llmModelsMessage} className="mt-2" />
+                    </div>
+                  </SettingRow>
+                  <SettingRow
+                    title="流式显示"
+                    description="边生成边在悬浮窗显示最终文本；服务不支持流式响应时请关闭。"
+                    changed={isLlmSettingChanged("streaming")}
+                  >
+                    <Switch
+                      checked={settings.llm.streaming}
+                      onCheckedChange={(checked) => {
+                        updateLlmSetting("streaming", checked);
+                      }}
+                      aria-label="启用 LLM 流式显示"
+                    />
+                  </SettingRow>
+                  <SettingRow
+                    title="请求参数"
+                    description="使用预设控制常见推理选项；其它服务参数可在高级 JSON 中配置。"
+                    changed={isLlmSettingChanged("extraParameters")}
+                    vertical
+                  >
+                    <div className="flex items-center gap-2">
+                      <Select
+                        items={llmParameterPresetOptions}
+                        value={selectedLlmParameterPreset}
                         onValueChange={(value) => {
-                          if (value !== null) updateLlmSetting("model", value);
+                          if (value === null) return;
+                          const preset = LLM_PARAMETER_PRESETS.find(
+                            ({ id }) => id === value
+                          );
+                          if (!preset) return;
+                          setEditingCustomLlmParameters(false);
+                          updateLlmSetting(
+                            "extraParameters",
+                            preset.parameters
+                          );
                         }}
                       >
-                        <ComboboxInput
-                          aria-label="LLM 模型"
-                          className="min-w-0 flex-1 text-[12px]"
-                          placeholder={LLM_MODEL_PLACEHOLDER}
-                          autoComplete="off"
-                          spellCheck={false}
-                          showTrigger={availableLlmModels.length > 0}
-                        />
-                        <ComboboxContent>
-                          {availableLlmModels.length > 0 &&
-                          filteredLlmModels.length === 0 ? (
-                            <ComboboxEmpty>
-                              未在列表中找到，仍可直接使用此名称
-                            </ComboboxEmpty>
-                          ) : null}
-                          <ComboboxList>
-                            {filteredLlmModels.map((model) => (
-                              <ComboboxItem key={model} value={model}>
-                                {model}
-                              </ComboboxItem>
-                            ))}
-                          </ComboboxList>
-                        </ComboboxContent>
-                      </Combobox>
+                        <SelectTrigger
+                          aria-label="LLM 参数预设"
+                          className="h-9 min-w-0 flex-1 text-[12px]"
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {llmParameterPresetOptions.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                       <Button
                         variant="outline"
                         size="lg"
                         className="text-[11px]"
                         type="button"
-                        onClick={() => void fetchLlmModels()}
-                        disabled={loadingLlmModels}
-                      >
-                        <RefreshCw
-                          className={
-                            loadingLlmModels ? "animate-spin" : undefined
-                          }
-                          size={11}
-                        />{" "}
-                        {loadingLlmModels ? "获取中…" : "获取模型"}
-                      </Button>
-                    </div>
-                    <Feedback message={llmModelsMessage} className="mt-2" />
-                  </div>
-                </SettingRow>
-                <SettingRow
-                  title="流式显示"
-                  description="边生成边在悬浮窗显示最终文本；服务不支持流式响应时请关闭。"
-                  changed={isLlmSettingChanged("streaming")}
-                >
-                  <Switch
-                    checked={settings.llm.streaming}
-                    onCheckedChange={(checked) => {
-                      updateLlmSetting("streaming", checked);
-                    }}
-                    aria-label="启用 LLM 流式显示"
-                  />
-                </SettingRow>
-                <SettingRow
-                  title="请求参数"
-                  description="使用预设控制常见推理选项；其它服务参数可在高级 JSON 中配置。"
-                  changed={isLlmSettingChanged("extraParameters")}
-                  vertical
-                >
-                  <div className="flex items-center gap-2">
-                    <Select
-                      items={llmParameterPresetOptions}
-                      value={selectedLlmParameterPreset}
-                      onValueChange={(value) => {
-                        if (value === null) return;
-                        const preset = LLM_PARAMETER_PRESETS.find(
-                          ({ id }) => id === value
-                        );
-                        if (!preset) return;
-                        setEditingCustomLlmParameters(false);
-                        updateLlmSetting("extraParameters", preset.parameters);
-                      }}
-                    >
-                      <SelectTrigger
-                        aria-label="LLM 参数预设"
-                        className="h-9 min-w-0 flex-1 text-[12px]"
-                      >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {llmParameterPresetOptions.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Button
-                      variant="outline"
-                      size="lg"
-                      className="text-[11px]"
-                      type="button"
-                      aria-expanded={editingCustomLlmParameters}
-                      onClick={() => {
-                        setEditingCustomLlmParameters(
-                          !editingCustomLlmParameters
-                        );
-                      }}
-                    >
-                      <Settings2 size={11} />{" "}
-                      {editingCustomLlmParameters
-                        ? "收起高级 JSON"
-                        : "高级 JSON"}
-                    </Button>
-                  </div>
-                  {selectedLlmParameterPresetDetails ? (
-                    <p className="mt-2 rounded-[10px] bg-muted/70 px-3 py-2.5 text-[10px] leading-4 text-muted-foreground">
-                      {selectedLlmParameterPresetDetails.description}
-                    </p>
-                  ) : (
-                    <p className="mt-2 rounded-[10px] bg-muted/70 px-3 py-2.5 text-[10px] leading-4 text-muted-foreground">
-                      当前使用自定义 JSON 参数。
-                    </p>
-                  )}
-                  {editingCustomLlmParameters ? (
-                    <div className="mt-2 rounded-[12px] bg-muted/55 p-3">
-                      <Textarea
-                        aria-label="LLM 高级自定义 JSON 参数"
-                        className="min-h-24 resize-y font-mono text-[11px] leading-5"
-                        value={settings.llm.extraParameters}
-                        onChange={(event) => {
-                          updateLlmSetting(
-                            "extraParameters",
-                            event.target.value
+                        aria-expanded={editingCustomLlmParameters}
+                        onClick={() => {
+                          setEditingCustomLlmParameters(
+                            !editingCustomLlmParameters
                           );
                         }}
-                        placeholder={'{\n  "parameter": "value"\n}'}
-                        maxLength={8000}
-                        rows={4}
-                        spellCheck={false}
-                      />
-                      <div className="mt-2 flex items-center justify-between gap-3">
-                        <Badge
-                          variant="outline"
-                          className={`h-5.5 min-w-0 text-[10px] ${
-                            customLlmParameterError
-                              ? "border-[#e8b7b0] bg-[#fff0ee] text-[#a33a31]"
-                              : "border-[#a9d8c4] bg-[#eaf8f1] text-[#55705f]"
+                      >
+                        <Settings2 size={11} />{" "}
+                        {editingCustomLlmParameters
+                          ? "收起高级 JSON"
+                          : "高级 JSON"}
+                      </Button>
+                    </div>
+                    {selectedLlmParameterPresetDetails ? (
+                      <p className="mt-2 rounded-[10px] bg-muted/70 px-3 py-2.5 text-[10px] leading-4 text-muted-foreground">
+                        {selectedLlmParameterPresetDetails.description}
+                      </p>
+                    ) : (
+                      <p className="mt-2 rounded-[10px] bg-muted/70 px-3 py-2.5 text-[10px] leading-4 text-muted-foreground">
+                        当前使用自定义 JSON 参数。
+                      </p>
+                    )}
+                    <div
+                      className={`vp-motion-layout grid transition-[grid-template-rows] motion-reduce:transition-none ${
+                        editingCustomLlmParameters
+                          ? "grid-rows-[1fr]"
+                          : "grid-rows-[0fr]"
+                      }`}
+                      inert={!editingCustomLlmParameters}
+                      aria-hidden={!editingCustomLlmParameters}
+                    >
+                      <div className="min-h-0 overflow-hidden">
+                        <div
+                          className={`vp-motion-layout mt-2 rounded-[12px] bg-muted/55 p-3 transition-[transform,opacity] motion-reduce:transition-none ${
+                            editingCustomLlmParameters
+                              ? "translate-y-0 opacity-100"
+                              : "-translate-y-2 opacity-0"
                           }`}
-                          role={customLlmParameterError ? "alert" : "status"}
                         >
-                          {customLlmParameterError ??
-                            (settings.llm.extraParameters.trim()
-                              ? "JSON 对象有效"
-                              : "空内容不会附加参数")}
-                        </Badge>
-                        <div className="flex shrink-0 gap-3">
-                          <Button
-                            variant="link"
-                            size="sm"
-                            className="h-auto px-0 text-[11px]"
-                            type="button"
-                            disabled={
-                              Boolean(customLlmParameterError) ||
-                              !settings.llm.extraParameters.trim()
-                            }
-                            onClick={() => {
-                              const parsed: unknown = JSON.parse(
-                                settings.llm.extraParameters
-                              );
+                          <Textarea
+                            aria-label="LLM 高级自定义 JSON 参数"
+                            className="min-h-24 resize-y font-mono text-[11px] leading-5"
+                            value={settings.llm.extraParameters}
+                            onChange={(event) => {
                               updateLlmSetting(
                                 "extraParameters",
-                                JSON.stringify(parsed, null, 2) ??
-                                  settings.llm.extraParameters
+                                event.target.value
                               );
                             }}
-                          >
-                            格式化
-                          </Button>
-                          <Button
-                            variant="link"
-                            size="sm"
-                            className="h-auto px-0 text-[11px]"
-                            type="button"
-                            onClick={() => {
-                              setEditingCustomLlmParameters(false);
-                              updateLlmSetting("extraParameters", "");
-                            }}
-                          >
-                            恢复服务默认
-                          </Button>
+                            placeholder={'{\n  "parameter": "value"\n}'}
+                            maxLength={8000}
+                            rows={4}
+                            spellCheck={false}
+                          />
+                          <div className="mt-2 flex items-center justify-between gap-3">
+                            <Badge
+                              variant="outline"
+                              className={`h-5.5 min-w-0 text-[10px] ${
+                                customLlmParameterError
+                                  ? "border-[#e8b7b0] bg-[#fff0ee] text-[#a33a31]"
+                                  : "border-[#a9d8c4] bg-[#eaf8f1] text-[#55705f]"
+                              }`}
+                              role={
+                                customLlmParameterError ? "alert" : "status"
+                              }
+                            >
+                              {customLlmParameterError ??
+                                (settings.llm.extraParameters.trim()
+                                  ? "JSON 对象有效"
+                                  : "空内容不会附加参数")}
+                            </Badge>
+                            <div className="flex shrink-0 gap-3">
+                              <Button
+                                variant="link"
+                                size="sm"
+                                className="h-auto px-0 text-[11px]"
+                                type="button"
+                                disabled={
+                                  Boolean(customLlmParameterError) ||
+                                  !settings.llm.extraParameters.trim()
+                                }
+                                onClick={() => {
+                                  const parsed: unknown = JSON.parse(
+                                    settings.llm.extraParameters
+                                  );
+                                  updateLlmSetting(
+                                    "extraParameters",
+                                    JSON.stringify(parsed, null, 2) ??
+                                      settings.llm.extraParameters
+                                  );
+                                }}
+                              >
+                                格式化
+                              </Button>
+                              <Button
+                                variant="link"
+                                size="sm"
+                                className="h-auto px-0 text-[11px]"
+                                type="button"
+                                onClick={() => {
+                                  setEditingCustomLlmParameters(false);
+                                  updateLlmSetting("extraParameters", "");
+                                }}
+                              >
+                                恢复服务默认
+                              </Button>
+                            </div>
+                          </div>
                         </div>
                       </div>
                     </div>
-                  ) : null}
-                  <p className="mt-2 text-[10px] leading-4 text-muted-foreground">
-                    预设只会修改额外请求字段，不会更改 API
-                    Key、模型或表达偏好。模型不支持相应字段时，服务可能忽略或拒绝请求。
-                  </p>
-                </SettingRow>
-                <SettingRow
-                  title="表达偏好"
-                  description="描述期望的语气和格式。VoicePaste 会尽量保留说话者身份、第一人称、原意和事实。"
-                  changed={isLlmSettingChanged("prompt")}
-                  vertical
-                >
-                  <Textarea
-                    aria-label="LLM 表达偏好"
-                    className="min-h-32 resize-y text-[12px] leading-6"
-                    value={settings.llm.prompt}
-                    onChange={(event) => {
-                      updateLlmSetting("prompt", event.target.value);
-                    }}
-                    placeholder={DEFAULT_LLM_PREFERENCE}
-                    maxLength={8000}
-                    rows={6}
-                  />
-                  <Alert
-                    className="mt-2 border-[#ead9a4] bg-[#fff8df] px-3 py-2 text-[#765b12]"
-                    role="status"
+                    <p className="mt-2 text-[10px] leading-4 text-muted-foreground">
+                      预设只会修改额外请求字段，不会更改 API
+                      Key、模型或表达偏好。模型不支持相应字段时，服务可能忽略或拒绝请求。
+                    </p>
+                  </SettingRow>
+                  <SettingRow
+                    title="表达偏好"
+                    description="描述期望的语气和格式。VoicePaste 会尽量保留说话者身份、第一人称、原意和事实。"
+                    changed={isLlmSettingChanged("prompt")}
+                    vertical
                   >
-                    <AlertDescription className="text-[10px] leading-4 text-inherit">
-                      启用后，识别文本和表达偏好会发送到你配置的第三方服务，最终输入通常会增加数秒等待。处理失败时会自动使用原始识别文本。
-                    </AlertDescription>
-                  </Alert>
-                </SettingRow>
-              </>
-            ) : null}
+                    <Textarea
+                      aria-label="LLM 表达偏好"
+                      className="min-h-32 resize-y text-[12px] leading-6"
+                      value={settings.llm.prompt}
+                      onChange={(event) => {
+                        updateLlmSetting("prompt", event.target.value);
+                      }}
+                      placeholder={DEFAULT_LLM_PREFERENCE}
+                      maxLength={8000}
+                      rows={6}
+                    />
+                    <Alert
+                      className="mt-2 border-[#ead9a4] bg-[#fff8df] px-3 py-2 text-[#765b12]"
+                      role="status"
+                    >
+                      <AlertDescription className="text-[10px] leading-4 text-inherit">
+                        启用后，识别文本和表达偏好会发送到你配置的第三方服务，最终输入通常会增加数秒等待。处理失败时会自动使用原始识别文本。
+                      </AlertDescription>
+                    </Alert>
+                  </SettingRow>
+                </div>
+              </div>
+            </div>
           </SettingsSection>
         );
       }
@@ -2738,7 +2792,7 @@ export function Settings({
       <TooltipProvider delay={400}>
         {settingsToaster}
         {hotwordConflictDialog}
-        <main className="vp-app-frame h-screen w-screen overflow-auto bg-background text-foreground">
+        <main className="vp-app-frame vp-stable-scroll h-screen w-screen overflow-auto bg-background text-foreground">
           <header className="border-b border-border bg-card px-8 py-5 max-[720px]:px-5">
             <div className="mx-auto flex max-w-260 items-center gap-8 max-[860px]:flex-col max-[860px]:items-stretch max-[860px]:gap-5">
               <div className="flex shrink-0 items-center gap-3">
@@ -2788,9 +2842,9 @@ export function Settings({
                         }}
                       >
                         <span
-                          className={`grid size-5 shrink-0 place-items-center rounded-full text-[10px] ${
+                          className={`vp-motion-control grid size-5 shrink-0 place-items-center rounded-full text-[10px] transition-[background-color,color,transform] ${
                             active
-                              ? "bg-primary text-primary-foreground"
+                              ? "scale-105 bg-primary text-primary-foreground"
                               : complete
                                 ? "bg-foreground text-background"
                                 : "bg-muted text-muted-foreground"
@@ -2803,7 +2857,7 @@ export function Settings({
                       </Button>
                       {index < ONBOARDING_STEPS.length - 1 ? (
                         <span
-                          className={`mx-2 h-px min-w-5 flex-1 ${
+                          className={`vp-motion-layout mx-2 h-px min-w-5 flex-1 transition-colors ${
                             complete ? "bg-primary/45" : "bg-border"
                           }`}
                           aria-hidden="true"
@@ -2818,7 +2872,7 @@ export function Settings({
 
           <section className="min-h-[calc(100%-81px)] px-8 py-10 max-[720px]:px-5 max-[720px]:py-7">
             <div className="mx-auto flex min-h-[calc(100vh-162px)] max-w-210 flex-col justify-center">
-              <div className="vp-enter w-full">
+              <div key={onboardingStep} className="vp-section-enter w-full">
                 {onboardingStep === 0 ? (
                   <div className="grid items-center gap-12 lg:grid-cols-[minmax(0,1.15fr)_minmax(18rem,0.85fr)]">
                     <div>
@@ -2920,7 +2974,7 @@ export function Settings({
                     >
                       豆包 API Key
                     </label>
-                    <div className="mt-2 flex h-10 items-center overflow-hidden rounded-[10px] border border-input bg-card transition-[background-color,border-color,box-shadow] duration-300 focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/20">
+                    <div className="vp-motion-control mt-2 flex h-10 items-center overflow-hidden rounded-[10px] border border-input bg-card transition-[background-color,border-color,box-shadow] focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/20">
                       <Input
                         id="onboarding-api-key"
                         className="h-10 min-w-0 flex-1 border-0 bg-transparent px-3 shadow-none focus-visible:ring-0"
@@ -3209,7 +3263,7 @@ export function Settings({
                 {onboardingStep === 4 ? (
                   <div>
                     <div
-                      className="mb-6 grid size-12 place-items-center rounded-[14px] bg-[#eaf8f1] text-[#17633f]"
+                      className="vp-state-pop mb-6 grid size-12 place-items-center rounded-[14px] bg-[#eaf8f1] text-[#17633f]"
                       aria-hidden="true"
                     >
                       <CheckCircle2 size={24} strokeWidth={1.9} />
@@ -3323,18 +3377,21 @@ export function Settings({
               </div>
             </div>
 
-            <nav className="mt-7 grid gap-1" aria-label="设置分类">
+            <nav
+              className={`relative isolate mt-7 grid gap-1 before:pointer-events-none before:absolute before:top-0 before:left-0 before:z-0 before:h-10 before:w-full before:rounded-[11px] before:bg-accent before:transition-transform before:duration-(--vp-duration-layout) before:ease-(--vp-ease-spring) before:content-[''] motion-reduce:before:transition-none ${SECTION_INDICATOR_POSITION[activeSection]}`}
+              aria-label="设置分类"
+            >
               {SECTIONS.map(([id, label, Icon]) => (
                 <Link
                   key={id}
                   activeOptions={{ exact: true }}
                   activeProps={{
-                    className: "bg-accent text-foreground",
+                    className: "text-foreground",
                   }}
-                  className="group relative flex h-10 w-full items-center gap-2.5 rounded-[11px] px-3 text-left text-[12px] font-medium transition-[background-color,color,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] focus-visible:outline-3 focus-visible:outline-offset-1 focus-visible:outline-ring active:scale-[0.98]"
+                  className="group vp-motion-control relative z-1 flex h-10 w-full items-center gap-2.5 rounded-[11px] bg-transparent px-3 text-left text-[12px] font-medium transition-[background-color,color,transform] focus-visible:outline-3 focus-visible:outline-offset-1 focus-visible:outline-ring active:scale-[0.98]"
                   inactiveProps={{
                     className:
-                      "bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground",
+                      "text-muted-foreground hover:bg-muted/65 hover:text-foreground",
                   }}
                   to={SETTINGS_PATHS[id]}
                   onClick={() => {
@@ -3344,12 +3401,17 @@ export function Settings({
                   {({ isActive }) => (
                     <>
                       <span
-                        className={`absolute inset-y-2 left-0 w-0.5 rounded-full transition-colors ${
-                          isActive ? "bg-primary" : "bg-transparent"
+                        className={`vp-motion-control absolute inset-y-2 left-0 w-0.5 origin-center rounded-full transition-[background-color,transform] ${
+                          isActive
+                            ? "scale-y-100 bg-primary"
+                            : "scale-y-0 bg-transparent"
                         }`}
                         aria-hidden="true"
                       />
                       <Icon
+                        className={`vp-motion-control transition-transform ${
+                          isActive ? "scale-105" : "scale-100"
+                        }`}
                         size={15}
                         strokeWidth={isActive ? 2 : 1.7}
                         aria-hidden="true"
@@ -3357,7 +3419,7 @@ export function Settings({
                       <span className="truncate">{label}</span>
                       {isSectionChanged(id) ? (
                         <span
-                          className="ml-auto size-1.5 rounded-full bg-primary"
+                          className="vp-state-pop ml-auto size-1.5 rounded-full bg-primary"
                           aria-label="有未保存的修改"
                         />
                       ) : null}
@@ -3380,7 +3442,7 @@ export function Settings({
 
           <div className="flex min-h-0 min-w-0 flex-col">
             <header className="flex shrink-0 items-center justify-between gap-6 border-b border-border bg-background px-9 py-7">
-              <div className="min-w-0">
+              <div key={activeSection} className="vp-title-enter min-w-0">
                 <h1 className="truncate text-[30px] leading-9 font-semibold tracking-[-0.045em] text-foreground">
                   {SECTIONS.find(([id]) => id === activeSection)?.[1] ?? "设置"}
                 </h1>
@@ -3390,25 +3452,36 @@ export function Settings({
               </div>
 
               <div className="flex shrink-0 items-center gap-2">
-                <span className="mr-1 inline-flex h-9 items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+                <span
+                  className="mr-1 inline-flex h-9 items-center gap-1.5 text-[11px] font-medium text-muted-foreground"
+                  aria-live="polite"
+                >
                   <span
-                    className={`size-1.5 rounded-full ${
+                    className={`vp-motion-control size-1.5 rounded-full transition-[background-color,transform] ${
                       hasUnsavedChanges
-                        ? "bg-primary"
-                        : "bg-muted-foreground/45"
+                        ? "scale-100 bg-primary"
+                        : "scale-90 bg-muted-foreground/45"
                     }`}
                     aria-hidden="true"
                   />
-                  {saving
-                    ? activeSection === "recognition" && cloudDirty
-                      ? "正在同步"
-                      : "正在保存"
-                    : hasUnsavedChanges
-                      ? "有未保存修改"
-                      : "已保存"}
+                  <span
+                    key={
+                      saving ? "saving" : hasUnsavedChanges ? "dirty" : "saved"
+                    }
+                    className="vp-feedback-enter"
+                  >
+                    {saving
+                      ? activeSection === "recognition" && cloudDirty
+                        ? "正在同步"
+                        : "正在保存"
+                      : hasUnsavedChanges
+                        ? "有未保存修改"
+                        : "已保存"}
+                  </span>
                 </span>
                 {activeSection === "shortcut" ? (
                   <Button
+                    className="animate-in duration-200 zoom-in-95 fade-in"
                     variant="ghost"
                     type="button"
                     onClick={(event) => {
@@ -3430,7 +3503,7 @@ export function Settings({
                       void save();
                     }}
                     disabled={saving}
-                    className="min-w-26"
+                    className="min-w-26 animate-in duration-200 zoom-in-95 fade-in"
                   >
                     <Save size={13} />{" "}
                     {saving
@@ -3444,10 +3517,13 @@ export function Settings({
             </header>
 
             <main
-              className="min-h-0 flex-1 overflow-auto scroll-smooth p-9"
+              className="vp-stable-scroll min-h-0 flex-1 overflow-auto scroll-smooth p-9"
               data-scroll-restoration-id="settings-content"
             >
-              <div className="vp-enter mx-auto max-w-225">
+              <div
+                key={activeSection}
+                className="vp-section-enter mx-auto max-w-225"
+              >
                 <Feedback
                   message={message?.kind === "error" ? message : null}
                   className="mb-6"
