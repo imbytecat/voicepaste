@@ -176,8 +176,13 @@ jobs:
           gh release download "$GITHUB_REF_NAME" --dir "$staging" \
             --pattern latest.json --pattern '*_Linux_amd64.AppImage.sig'
           signature="$(cat "$staging"/*_Linux_amd64.AppImage.sig)"
-          jq --arg sig "$signature" \
-            '(.platforms["linux-x86_64"], .platforms["linux-x86_64-appimage"]) |= (.signature = $sig)' \
+          appimage_url="$(
+            gh release view "$GITHUB_REF_NAME" --repo "$GH_REPO" --json assets \
+              --jq '.assets[] | select(.name | endswith("_Linux_amd64.AppImage")) | .apiUrl'
+          )"
+          test -n "$appimage_url"
+          jq --arg sig "$signature" --arg url "$appimage_url" \
+            '(.platforms["linux-x86_64"], .platforms["linux-x86_64-appimage"]) |= (.signature = $sig | .url = $url)' \
             "$staging/latest.json" > "$staging/latest.patched.json"
           mv "$staging/latest.patched.json" "$staging/latest.json"
           gh release upload "$GITHUB_REF_NAME" "$staging/latest.json" --clobber
