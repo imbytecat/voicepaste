@@ -6,7 +6,8 @@ use tauri::AppHandle;
 use tauri_plugin_store::StoreExt;
 
 pub const DEFAULT_SHORTCUT: &str = "CommandOrControl+Shift+Space";
-pub const DEFAULT_LLM_PREFERENCE: &str = "保持自然口语，不要过度书面化。";
+pub const DEFAULT_LLM_PREFERENCE: &str =
+    "保持说话者原意、人称和自然口语，只做必要润色，不要过度书面化。";
 const DEFAULT_LLM_BASE_URL: &str = "https://api.deepseek.com/v1";
 const DEFAULT_LLM_MODEL: &str = "deepseek-v4-flash";
 const STORE_PATH: &str = "settings.json";

@@ -134,7 +134,8 @@ export interface UpdateInfo {
   version: string;
 }
 
-export const DEFAULT_LLM_PREFERENCE = "保持自然口语，不要过度书面化。";
+export const DEFAULT_LLM_PREFERENCE =
+  "保持说话者原意、人称和自然口语，只做必要润色，不要过度书面化。";
 
 export const DEFAULT_SETTINGS: AppSettings = {
   activationMode: "hold",
