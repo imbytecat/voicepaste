@@ -3,7 +3,6 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
   Activity,
-  AudioWaveform,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
@@ -103,6 +102,8 @@ import type {
   UpdateInfo,
 } from "@/types";
 
+import appIconUrl from "../../src-tauri/icons/app-icon.svg";
+
 const DEFAULT_MICROPHONE_VALUE = "__voicepaste_system_default__";
 const CONSOLE_URL = "https://console.volcengine.com/speech/new/setting/apikeys";
 const SECTIONS = [
@@ -139,7 +140,7 @@ const HOTWORD_CHIP_CLASS = {
   error: "bg-[#fff0ee] text-[#8d261f]",
   neutral: "bg-[#f0f1f3] text-[#666a73]",
   synced: "bg-[#eaf8f1] text-[#17633f]",
-  syncing: "bg-[#efedff] text-[#5748ca]",
+  syncing: "bg-accent text-accent-foreground",
 };
 const HOTWORD_DIFF_PREVIEW = 6;
 const RESERVED_LLM_PARAMETERS = [
@@ -256,7 +257,7 @@ function ShortcutHint({ shortcut }: { shortcut: string }) {
   return (
     <kbd
       aria-label={formatShortcutLabel(shortcut)}
-      className="rounded-md border border-[#c8cdd7] bg-white px-1.5 py-1 font-sans text-[10px] leading-none font-semibold text-[#3d4454] shadow-[0_1px_0_#bfc4ce]"
+      className="rounded-lg border border-foreground/15 bg-[#fffefb] px-2 py-1.5 font-mono text-[11px] leading-none font-semibold text-foreground shadow-[0_2px_0_rgba(59,69,61,0.12)]"
     >
       {formatShortcut(shortcut)}
     </kbd>
@@ -383,14 +384,19 @@ function SettingsSection({
   children: ReactNode;
 }) {
   return (
-    <section className="mb-6" id={id}>
-      <div className="mb-3 px-1">
-        <h2 className="text-[14px] font-semibold text-[#202124]">{title}</h2>
-        <p className="mt-1 text-[11px] leading-5 text-[#62666f]">
+    <section
+      className="mb-9 grid grid-cols-[9rem_minmax(0,1fr)] gap-6 max-[1100px]:grid-cols-1 max-[1100px]:gap-3"
+      id={id}
+    >
+      <header className="pt-1">
+        <h2 className="text-[17px] leading-tight font-semibold tracking-[-0.025em] text-foreground">
+          {title}
+        </h2>
+        <p className="mt-2 max-w-40 text-[12px] leading-5 text-muted-foreground max-[1100px]:max-w-[60ch]">
           {description}
         </p>
-      </div>
-      <div className="divide-y divide-[#ececef] overflow-hidden rounded-xl border border-[#e1e2e6] bg-white">
+      </header>
+      <div className="vp-control-surface divide-y divide-foreground/[0.07] overflow-hidden rounded-[18px] bg-card ring-1 ring-foreground/8">
         {children}
       </div>
     </section>
@@ -414,30 +420,32 @@ function SettingRow({
     <div
       className={
         vertical
-          ? "px-5 py-4.5"
-          : "grid min-h-16.5 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-8 px-5 py-3.5 max-[800px]:grid-cols-1 max-[800px]:gap-y-3"
+          ? "px-6 py-5"
+          : "grid min-h-20 grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)] items-center gap-x-6 px-6 py-4.5 max-[820px]:grid-cols-1 max-[820px]:gap-y-4"
       }
     >
       <div className={vertical ? "" : "min-w-0"}>
         <div className="flex items-center gap-2">
-          <h3 className="text-[12px] font-medium text-[#2c2e33]">{title}</h3>
+          <h3 className="text-[13px] leading-5 font-semibold tracking-[-0.01em] text-foreground">
+            {title}
+          </h3>
           {changed ? (
             <Badge
               variant="outline"
-              className="h-4 border-[#e8d18a] bg-[#fff2cc] px-1.5 text-[8px] text-[#7a5100]"
+              className="h-5 border-[#d7b879] bg-[#fff4d8] px-1.5 text-[10px] text-[#7a5100]"
             >
               已修改
             </Badge>
           ) : null}
         </div>
         {description ? (
-          <p className="mt-1 text-[11px] leading-5 text-[#6f737b]">
+          <p className="mt-1.5 max-w-[58ch] text-[12px] leading-5 wrap-break-word text-muted-foreground">
             {description}
           </p>
         ) : null}
       </div>
       <div
-        className={vertical ? "mt-3" : "min-w-0 shrink-0 max-[800px]:w-full"}
+        className={vertical ? "mt-4" : "min-w-0 shrink-0 max-[820px]:w-full"}
       >
         {children}
       </div>
@@ -482,34 +490,32 @@ function PermissionRow({
   const StatusIcon = presentation.icon;
 
   return (
-    <div className="grid min-h-19 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-8 px-5 py-3.5 max-[800px]:grid-cols-1 max-[800px]:gap-y-2.5">
-      <div className="flex min-w-0 items-center gap-3">
+    <div className="grid min-h-22 grid-cols-[minmax(0,1fr)_minmax(15rem,20rem)] items-center gap-x-6 px-6 py-4.5 max-[820px]:grid-cols-1 max-[820px]:gap-y-3">
+      <div className="flex min-w-0 items-center gap-3.5">
         <div
-          className={`grid size-9 shrink-0 place-items-center rounded-[10px] ${iconClassName}`}
+          className={`grid size-10 shrink-0 place-items-center rounded-[12px] ${iconClassName}`}
           aria-hidden="true"
         >
           {icon}
         </div>
-        <h3 className="text-[12px] font-medium text-[#2c2e33]">{title}</h3>
+        <h3 className="text-[13px] font-semibold tracking-[-0.01em] text-foreground">
+          {title}
+        </h3>
       </div>
       <div
-        className="max-w-102.5 min-w-0 text-right max-[800px]:w-full max-[800px]:max-w-none max-[800px]:pl-12 max-[800px]:text-left"
+        className="min-w-0 text-right max-[820px]:w-full max-[820px]:pl-13.5 max-[820px]:text-left"
         role="status"
         aria-live="polite"
         aria-atomic="true"
       >
         <span
-          className={`inline-flex items-center gap-1.5 text-[11px] font-semibold ${presentation.className}`}
+          className={`inline-flex items-center gap-1.5 text-[12px] font-semibold ${presentation.className}`}
         >
-          <StatusIcon
-            className="size-3.5"
-            strokeWidth={2.2}
-            aria-hidden="true"
-          />
+          <StatusIcon className="size-3.5" strokeWidth={2} aria-hidden="true" />
           {presentation.label}
         </span>
         {detail ? (
-          <p className="mt-1 text-[10px] leading-5 wrap-break-word text-[#666a73]">
+          <p className="mt-1 text-[11px] leading-5 wrap-break-word text-muted-foreground">
             {detail}
           </p>
         ) : null}
@@ -528,13 +534,13 @@ function Feedback({
   if (!message) return null;
   const colors =
     message.kind === "success"
-      ? "border-[#a9d8c4] bg-[#eaf8f1] text-[#17633f]"
+      ? "border-[#a9d8c4] bg-[#edf7f1] text-[#17633f]"
       : message.kind === "error"
         ? "border-[#e8b7b0] bg-[#fff0ee] text-[#8d261f]"
-        : "border-[#c9c2f5] bg-[#f3f0ff] text-[#5142a8]";
+        : "border-primary/20 bg-accent text-accent-foreground";
   return (
     <Alert
-      className={`px-3.5 py-2.5 text-[11px] leading-5 ${colors} ${className ?? ""}`}
+      className={`px-4 py-3 text-[12px] leading-5 ${colors} ${className ?? ""}`}
       role={message.kind === "error" ? "alert" : "status"}
       aria-live={message.kind === "error" ? "assertive" : "polite"}
       aria-atomic="true"
@@ -569,16 +575,16 @@ function ServiceIssueCard({
   return (
     <Alert
       variant={warning ? "destructive" : "default"}
-      className={`px-3.5 py-3 text-[11px] leading-5 ${
+      className={`px-4 py-3.5 text-[12px] leading-5 ${
         warning
           ? "border-[#e8b7b0] bg-[#fff0ee]"
-          : "border-[#c9c2f5] bg-[#f3f0ff] text-[#5142a8]"
+          : "border-primary/20 bg-accent text-accent-foreground"
       } ${className ?? ""}`}
       aria-live="assertive"
       aria-atomic="true"
     >
-      <Info size={16} />
-      <AlertTitle className="text-[12px] font-semibold">
+      <Info size={16} strokeWidth={1.8} />
+      <AlertTitle className="text-[13px] font-semibold">
         {issue.title}
       </AlertTitle>
       <AlertDescription className="text-inherit">
@@ -592,13 +598,13 @@ function ServiceIssueCard({
           <p className="mt-1">{issue.detail}</p>
         )}
         {issue.links.length > 0 ? (
-          <div className="mt-2.5 flex flex-wrap gap-2">
+          <div className="mt-3 flex flex-wrap gap-2">
             {issue.links.map((link) => (
               <Button
                 key={link.target}
                 variant="outline"
                 size="sm"
-                className="h-7 text-[10px]"
+                className="h-8 text-[11px]"
                 type="button"
                 onClick={() => {
                   onOpenLink(link.target);
@@ -610,9 +616,11 @@ function ServiceIssueCard({
           </div>
         ) : null}
         {issue.steps.length > 0 ? (
-          <details className="mt-2.5">
-            <summary className="cursor-pointer text-[10px]">技术详情</summary>
-            <p className="mt-1 text-[10px] leading-4 wrap-break-word">
+          <details className="mt-3">
+            <summary className="cursor-pointer text-[11px] font-medium">
+              技术详情
+            </summary>
+            <p className="mt-1.5 text-[11px] leading-5 wrap-break-word">
               {issue.detail}
             </p>
           </details>
@@ -656,33 +664,33 @@ function HotwordConflictDialog({
     >
       <AlertDialogContent
         finalFocus={finalFocus}
-        className="w-[calc(100%-2.5rem)] max-w-105 gap-0 overflow-hidden p-0 shadow-[0_24px_72px_rgba(22,25,34,0.24)]"
+        className="w-[calc(100%-2.5rem)] max-w-110 gap-0 overflow-hidden p-0"
       >
-        <div className="flex items-start gap-3 p-5">
-          <AlertDialogMedia className="mb-0 size-9 shrink-0 rounded-[10px] bg-[#fff2cc] text-[#7a5100]">
-            <Info size={17} />
+        <div className="flex items-start gap-3.5 p-5.5">
+          <AlertDialogMedia className="mb-0 size-10 shrink-0 rounded-[12px] bg-[#fff0d5] text-[#7a5100]">
+            <Info size={18} />
           </AlertDialogMedia>
           <div className="min-w-0">
-            <AlertDialogTitle className="text-[14px] font-semibold text-foreground">
+            <AlertDialogTitle className="text-[15px] font-semibold tracking-[-0.015em] text-foreground">
               云端常用词已被修改
             </AlertDialogTitle>
-            <AlertDialogDescription className="mt-1.5 text-left text-[11px] leading-5 text-muted-foreground">
+            <AlertDialogDescription className="mt-2 text-left text-[12px] leading-5 text-muted-foreground">
               云端多出 {onlyCloud.length} 个词，本机多出 {onlyLocal.length}{" "}
               个词。请选择保留哪个版本。
             </AlertDialogDescription>
             {onlyCloud.length > 0 ? (
-              <p className="mt-1.5 text-[10px] text-muted-foreground">
+              <p className="mt-2 text-[11px] leading-5 text-muted-foreground">
                 云端多出：{describeHotwords(onlyCloud)}
               </p>
             ) : null}
             {onlyLocal.length > 0 ? (
-              <p className="mt-1 text-[10px] text-muted-foreground">
+              <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
                 本机多出：{describeHotwords(onlyLocal)}
               </p>
             ) : null}
           </div>
         </div>
-        <div className="flex flex-wrap justify-end gap-2 border-t border-border bg-muted/50 p-4">
+        <div className="flex flex-wrap justify-end gap-2 border-t border-foreground/8 bg-muted/60 p-4">
           <AlertDialogCancel size="lg">取消</AlertDialogCancel>
           <AlertDialogAction
             variant="outline"
@@ -1570,12 +1578,12 @@ export function Settings({
   const settingsToaster = (
     <Toaster
       position="top-right"
-      offset={{ right: 32, top: 84 }}
+      offset={{ right: 28, top: 132 }}
       duration={TRANSIENT_MESSAGE_DURATION}
       visibleToasts={1}
       expand={false}
       containerAriaLabel="设置反馈"
-      toastOptions={{ className: "font-sans text-[11px]" }}
+      toastOptions={{ className: "font-sans text-[12px]" }}
     />
   );
 
@@ -1712,7 +1720,7 @@ export function Settings({
         return (
           <SettingsSection
             id="general"
-            title="通用"
+            title="启动与悬浮窗"
             description="控制 VoicePaste 的启动方式和悬浮窗位置。"
           >
             <SettingRow
@@ -1747,7 +1755,7 @@ export function Settings({
               changed={isSettingChanged("overlayPosition")}
             >
               <ToggleGroup
-                className="grid w-102.5 grid-cols-3 gap-1 rounded-lg bg-secondary p-1 max-[800px]:w-full"
+                className="grid w-full max-w-102.5 grid-cols-3"
                 value={[settings.overlayPosition]}
                 onValueChange={(values) => {
                   const value = values[0] as
@@ -1766,7 +1774,7 @@ export function Settings({
                 ).map(([value, label]) => (
                   <ToggleGroupItem
                     key={value}
-                    className="h-7 w-full text-[11px] text-muted-foreground hover:bg-white/60 aria-pressed:bg-white aria-pressed:text-accent-foreground aria-pressed:shadow-[0_1px_3px_rgba(25,28,36,0.12)]"
+                    className="h-9 w-full text-[12px]"
                     value={value}
                   >
                     {label}
@@ -1785,12 +1793,12 @@ export function Settings({
                 className="mb-5 border-[#ead9b7] bg-[#fff8ea] px-3.5 py-2.5 text-[#6d511e]"
                 role="status"
               >
-                <AlertDescription className="flex items-center justify-between gap-4 text-[10px] text-inherit">
+                <AlertDescription className="flex items-center justify-between gap-4 text-[11px] text-inherit">
                   <span>开始听写前，需要先配置语音识别服务。</span>
                   <Button
                     variant="link"
                     size="sm"
-                    className="h-auto shrink-0 px-0 text-[10px]"
+                    className="h-auto shrink-0 px-0 text-[11px]"
                     type="button"
                     onClick={() => {
                       selectSection("recognition");
@@ -1803,8 +1811,8 @@ export function Settings({
             )}
             <SettingsSection
               id="shortcut"
-              title="语音输入"
-              description="在任意输入框按快捷键开始说话。"
+              title="快捷键与设备"
+              description="配置触发方式、全局快捷键和输入设备。"
             >
               <SettingRow
                 title="触发方式"
@@ -1812,7 +1820,7 @@ export function Settings({
                 changed={isSettingChanged("activationMode")}
               >
                 <ToggleGroup
-                  className="grid w-71.5 grid-cols-2 gap-1 rounded-lg bg-secondary p-1 max-[800px]:w-full"
+                  className="grid w-full max-w-71.5 grid-cols-2"
                   value={[settings.activationMode]}
                   onValueChange={(values) => {
                     const value = values[0] as
@@ -1830,7 +1838,7 @@ export function Settings({
                   ).map(([value, label]) => (
                     <ToggleGroupItem
                       key={value}
-                      className="h-7 w-full text-[11px] text-muted-foreground hover:bg-white/60 aria-pressed:bg-white aria-pressed:text-accent-foreground aria-pressed:shadow-[0_1px_3px_rgba(25,28,36,0.12)]"
+                      className="h-9 w-full text-[12px]"
                       value={value}
                     >
                       {label}
@@ -1848,9 +1856,9 @@ export function Settings({
                   ref={shortcutButtonRef}
                   variant="outline"
                   size="lg"
-                  className={`min-w-46 font-mono text-[10px] ${
+                  className={`min-w-46 font-mono text-[11px] ${
                     shortcutRecorder.isRecording
-                      ? "border-[#8f83e8] bg-[#f1efff] text-[#5748ca] ring-3 ring-[#7564e8]/10"
+                      ? "border-primary/55 bg-accent text-accent-foreground ring-3 ring-ring/15"
                       : ""
                   }`}
                   type="button"
@@ -1873,7 +1881,7 @@ export function Settings({
                 description="默认使用系统当前选择的输入设备。"
                 changed={isSettingChanged("microphoneId")}
               >
-                <div className="w-102.5 max-[800px]:w-full">
+                <div className="w-full max-w-102.5">
                   <div className="flex gap-2">
                     <Select
                       items={microphoneOptions}
@@ -1889,7 +1897,7 @@ export function Settings({
                       disabled={testingMicrophone}
                     >
                       <SelectTrigger
-                        className="h-9 min-w-0 flex-1 text-[12px]"
+                        className="min-w-0 flex-1"
                         aria-label="麦克风"
                       >
                         <SelectValue />
@@ -1908,7 +1916,7 @@ export function Settings({
                       type="button"
                       aria-pressed={testingMicrophone}
                       onClick={toggleMicrophoneTest}
-                      className="text-[11px]"
+                      className="text-[12px]"
                     >
                       <Mic size={12} />{" "}
                       {testingMicrophone ? "停止测试" : "开始测试"}
@@ -1938,18 +1946,18 @@ export function Settings({
           <>
             <SettingsSection
               id="recognition"
-              title="识别与词汇"
-              description="配置识别服务，并提高人名和专业词汇的准确率。"
+              title="语音识别"
+              description="连接识别服务，并提高人名和专业词汇的准确率。"
             >
               <SettingRow
                 title="豆包 API Key"
                 description="从火山引擎控制台获取，用于语音识别和云端常用词同步。"
                 changed={isSettingChanged("apiKey")}
               >
-                <div className="w-102.5 max-[800px]:w-90">
-                  <div className="flex h-9 items-center overflow-hidden rounded-lg border border-input bg-white transition focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/30">
+                <div className="w-full max-w-102.5">
+                  <div className="flex h-10 items-center overflow-hidden rounded-[10px] border border-input bg-card transition-[background-color,border-color,box-shadow] duration-300 focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/20">
                     <Input
-                      className="h-9 min-w-0 flex-1 border-0 bg-transparent px-3 text-[12px] shadow-none focus-visible:ring-0"
+                      className="h-10 min-w-0 flex-1 border-0 bg-transparent px-3 shadow-none focus-visible:ring-0"
                       type={showApiKey ? "text" : "password"}
                       value={settings.apiKey}
                       onChange={(event) => {
@@ -1990,7 +1998,7 @@ export function Settings({
                     <Button
                       variant="link"
                       size="sm"
-                      className="h-auto px-0 text-[10px]"
+                      className="h-auto px-0 text-[11px]"
                       type="button"
                       onClick={() => void openConsole()}
                     >
@@ -1999,7 +2007,7 @@ export function Settings({
                     <Button
                       variant="outline"
                       size="sm"
-                      className="h-7 text-[10px]"
+                      className="h-8 text-[11px]"
                       type="button"
                       onClick={() => void testDoubao()}
                       disabled={testingDoubao || !settings.apiKey.trim()}
@@ -2046,22 +2054,22 @@ export function Settings({
               >
                 <div className="mb-2.5 flex items-center gap-2">
                   <Badge
-                    className={`h-5 px-2 text-[9px] ${HOTWORD_CHIP_CLASS[hotwordChipState.tone]}`}
+                    className={`h-5.5 px-2 text-[10px] ${HOTWORD_CHIP_CLASS[hotwordChipState.tone]}`}
                     role="status"
                     aria-live="polite"
                   >
                     {hotwordChipState.label}
                   </Badge>
-                  <span className="text-[9px] text-[#666a73]">
+                  <span className="text-[10px] text-muted-foreground">
                     本机 {localHotwords.length} · 云端 {cloudHotwords.length}
                   </span>
-                  <span className="text-[9px] text-[#666a73]">
+                  <span className="text-[10px] text-muted-foreground">
                     上限 {hotwordStatus.limit}
                   </span>
                   <Button
                     variant="link"
                     size="sm"
-                    className="ml-auto h-auto px-0 text-[10px]"
+                    className="ml-auto h-auto px-0 text-[11px]"
                     type="button"
                     onClick={() => void refreshHotwords()}
                     disabled={checkingHotwords}
@@ -2071,7 +2079,7 @@ export function Settings({
                   <Button
                     variant="link"
                     size="sm"
-                    className="h-auto px-0 text-[10px]"
+                    className="h-auto px-0 text-[11px]"
                     type="button"
                     onClick={clearHotwords}
                     disabled={!settings.hotwordsEnabled || !hotwordsText.trim()}
@@ -2089,7 +2097,7 @@ export function Settings({
                   placeholder={"VoicePaste\nTauri\nTanStack"}
                   rows={6}
                 />
-                <p className="mt-2 text-[9px] leading-4 text-[#666a73]">
+                <p className="mt-2 text-[10px] leading-4 text-muted-foreground">
                   每行一个词，不支持词内空格；词表会保存在火山引擎。听写仍保持实时流式返回。
                 </p>
               </SettingRow>
@@ -2107,7 +2115,7 @@ export function Settings({
                   <ul className="mb-2.5 flex flex-col gap-1">
                     {hotwordStatus.foreignTables.map((table) => (
                       <li
-                        className="text-[10px] leading-5 text-[#6f737b]"
+                        className="text-[11px] leading-5 text-muted-foreground"
                         key={table.name}
                       >
                         {table.name}（{table.wordCount} 词）
@@ -2118,7 +2126,7 @@ export function Settings({
                     <Button
                       variant="outline"
                       size="lg"
-                      className="text-[10px]"
+                      className="text-[11px]"
                       type="button"
                       onClick={() => void openConsole()}
                     >
@@ -2131,7 +2139,7 @@ export function Settings({
 
             <SettingsSection
               id="llm-postprocessing"
-              title="LLM 后处理"
+              title="文本后处理"
               description="使用 OpenAI 兼容服务校对或改写识别文本，并可流式预览结果。"
             >
               <SettingRow
@@ -2154,10 +2162,10 @@ export function Settings({
                     description="默认使用 DeepSeek 官方服务，也可填写其他 OpenAI 兼容服务地址。"
                     changed={isLlmSettingChanged("baseUrl")}
                   >
-                    <div className="w-102.5 max-[800px]:w-90">
+                    <div className="w-full max-w-102.5">
                       <Input
                         aria-label="LLM API 基础地址"
-                        className="h-9 text-[11px]"
+                        className="text-[12px]"
                         type="url"
                         value={settings.llm.baseUrl}
                         onChange={(event) => {
@@ -2176,10 +2184,10 @@ export function Settings({
                     description="保存在系统凭据库；本地服务不需要鉴权时可以留空。"
                     changed={isLlmSettingChanged("apiKey")}
                   >
-                    <div className="flex h-9 w-102.5 items-center overflow-hidden rounded-lg border border-input bg-white transition focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/30 max-[800px]:w-90">
+                    <div className="flex h-10 w-full max-w-102.5 items-center overflow-hidden rounded-[10px] border border-input bg-card transition-[background-color,border-color,box-shadow] duration-300 focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/20">
                       <Input
                         aria-label="LLM API Key"
-                        className="h-9 min-w-0 flex-1 border-0 bg-transparent px-3 text-[11px] shadow-none focus-visible:ring-0"
+                        className="h-10 min-w-0 flex-1 border-0 bg-transparent px-3 text-[12px] shadow-none focus-visible:ring-0"
                         type={showLlmApiKey ? "text" : "password"}
                         value={settings.llm.apiKey}
                         onChange={(event) => {
@@ -2229,7 +2237,7 @@ export function Settings({
                     description="默认使用 DeepSeek V4 Flash，也可手动填写或获取其他模型。"
                     changed={isLlmSettingChanged("model")}
                   >
-                    <div className="w-102.5 max-[800px]:w-90">
+                    <div className="w-full max-w-102.5">
                       <div className="flex gap-2">
                         <Combobox
                           items={filteredLlmModels}
@@ -2246,7 +2254,7 @@ export function Settings({
                         >
                           <ComboboxInput
                             aria-label="LLM 模型"
-                            className="h-9 min-w-0 flex-1 text-[11px]"
+                            className="min-w-0 flex-1 text-[12px]"
                             placeholder={DEFAULT_SETTINGS.llm.model}
                             autoComplete="off"
                             spellCheck={false}
@@ -2271,7 +2279,7 @@ export function Settings({
                         <Button
                           variant="outline"
                           size="lg"
-                          className="text-[10px]"
+                          className="text-[11px]"
                           type="button"
                           onClick={() => void fetchLlmModels()}
                           disabled={loadingLlmModels}
@@ -2341,7 +2349,7 @@ export function Settings({
                       <Button
                         variant="outline"
                         size="lg"
-                        className="text-[10px]"
+                        className="text-[11px]"
                         type="button"
                         aria-expanded={editingCustomLlmParameters}
                         onClick={() => {
@@ -2357,16 +2365,16 @@ export function Settings({
                       </Button>
                     </div>
                     {selectedLlmParameterPresetDetails ? (
-                      <p className="mt-2 rounded-lg border border-[#e1e2e6] bg-[#f7f7f8] px-3 py-2 text-[9px] leading-4 text-[#62666f]">
+                      <p className="mt-2 rounded-[10px] bg-muted/70 px-3 py-2.5 text-[10px] leading-4 text-muted-foreground">
                         {selectedLlmParameterPresetDetails.description}
                       </p>
                     ) : (
-                      <p className="mt-2 rounded-lg border border-[#e1e2e6] bg-[#f7f7f8] px-3 py-2 text-[9px] leading-4 text-[#62666f]">
+                      <p className="mt-2 rounded-[10px] bg-muted/70 px-3 py-2.5 text-[10px] leading-4 text-muted-foreground">
                         当前使用自定义 JSON 参数。
                       </p>
                     )}
                     {editingCustomLlmParameters ? (
-                      <div className="mt-2 rounded-lg border border-[#e1e2e6] bg-[#fafafa] p-2.5">
+                      <div className="mt-2 rounded-[12px] bg-muted/55 p-3">
                         <Textarea
                           aria-label="LLM 高级自定义 JSON 参数"
                           className="min-h-24 resize-y font-mono text-[11px] leading-5"
@@ -2385,7 +2393,7 @@ export function Settings({
                         <div className="mt-2 flex items-center justify-between gap-3">
                           <Badge
                             variant="outline"
-                            className={`h-5 min-w-0 text-[9px] ${
+                            className={`h-5.5 min-w-0 text-[10px] ${
                               customLlmParameterError
                                 ? "border-[#e8b7b0] bg-[#fff0ee] text-[#a33a31]"
                                 : "border-[#a9d8c4] bg-[#eaf8f1] text-[#55705f]"
@@ -2401,7 +2409,7 @@ export function Settings({
                             <Button
                               variant="link"
                               size="sm"
-                              className="h-auto px-0 text-[10px]"
+                              className="h-auto px-0 text-[11px]"
                               type="button"
                               disabled={
                                 Boolean(customLlmParameterError) ||
@@ -2423,7 +2431,7 @@ export function Settings({
                             <Button
                               variant="link"
                               size="sm"
-                              className="h-auto px-0 text-[10px]"
+                              className="h-auto px-0 text-[11px]"
                               type="button"
                               onClick={() => {
                                 setEditingCustomLlmParameters(false);
@@ -2436,7 +2444,7 @@ export function Settings({
                         </div>
                       </div>
                     ) : null}
-                    <p className="mt-2 text-[9px] leading-4 text-[#666a73]">
+                    <p className="mt-2 text-[10px] leading-4 text-muted-foreground">
                       预设只会修改额外请求字段，不会更改 API
                       Key、模型或表达偏好。模型不支持相应字段时，服务可能忽略或拒绝请求。
                     </p>
@@ -2462,7 +2470,7 @@ export function Settings({
                       className="mt-2 border-[#ead9a4] bg-[#fff8df] px-3 py-2 text-[#765b12]"
                       role="status"
                     >
-                      <AlertDescription className="text-[9px] leading-4 text-inherit">
+                      <AlertDescription className="text-[10px] leading-4 text-inherit">
                         启用后，识别文本和表达偏好会发送到你配置的第三方服务，最终输入通常会增加数秒等待。处理失败时会自动使用原始识别文本。
                       </AlertDescription>
                     </Alert>
@@ -2477,13 +2485,13 @@ export function Settings({
         return (
           <SettingsSection
             id="diagnostics"
-            title="权限与状态"
-            description="用于确认系统权限和输入能力是否正常。"
+            title="输入链路检查"
+            description="确认系统权限、麦克风和自动粘贴是否正常。"
           >
             <PermissionRow
               title="全局快捷键"
               icon={<Command size={17} strokeWidth={2.1} />}
-              iconClassName="bg-[#eeecff] text-[#5748ca]"
+              iconClassName="bg-accent text-accent-foreground"
               state={shortcutPermissionState}
               detail={shortcutPermissionDetail}
             />
@@ -2505,7 +2513,7 @@ export function Settings({
               <Button
                 variant="outline"
                 size="lg"
-                className="text-[10px]"
+                className="text-[11px]"
                 type="button"
                 onClick={() => {
                   setMessage(null);
@@ -2518,7 +2526,7 @@ export function Settings({
                 <Button
                   variant="outline"
                   size="lg"
-                  className="border-[#cfc9f6] bg-[#f3f1ff] text-[10px] text-[#5748ca]"
+                  className="border-primary/25 bg-accent text-[11px] text-accent-foreground"
                   type="button"
                   onClick={() => {
                     void (async () => {
@@ -2578,7 +2586,7 @@ export function Settings({
                   <Button
                     variant="outline"
                     size="lg"
-                    className="text-[10px]"
+                    className="text-[11px]"
                     type="button"
                     onClick={() => void checkForUpdate(true)}
                     disabled={checkingUpdate}
@@ -2605,7 +2613,7 @@ export function Settings({
                 <Button
                   variant="outline"
                   size="lg"
-                  className="text-[10px]"
+                  className="text-[11px]"
                   type="button"
                   onClick={() => void runAboutAction("open_log_dir")}
                 >
@@ -2619,7 +2627,7 @@ export function Settings({
                 <Button
                   variant="outline"
                   size="lg"
-                  className="text-[10px]"
+                  className="text-[11px]"
                   type="button"
                   onClick={() =>
                     void runAboutAction("copy_diagnostics", "诊断信息已复制")
@@ -2665,7 +2673,7 @@ export function Settings({
                   <Button
                     variant="link"
                     size="sm"
-                    className="h-auto px-0 text-[10px]"
+                    className="h-auto px-0 text-[11px]"
                     type="button"
                     onClick={() => void openProductLink(target)}
                   >
@@ -2686,8 +2694,19 @@ export function Settings({
     return (
       <>
         {settingsToaster}
-        <main className="grid h-screen w-screen place-items-center bg-[#f5f6f8] text-[12px] text-[#656d7d]">
-          正在读取设置…
+        <main className="vp-app-frame grid h-screen w-screen place-items-center p-8 text-foreground">
+          <div className="w-full max-w-150 animate-pulse">
+            <div className="h-4 w-24 rounded bg-foreground/10" />
+            <div className="mt-3 h-8 w-48 rounded-lg bg-foreground/12" />
+            <div className="mt-8 space-y-2 rounded-[18px] bg-card/70 p-5 ring-1 ring-foreground/8">
+              <div className="h-14 rounded-xl bg-foreground/5.5" />
+              <div className="h-14 rounded-xl bg-foreground/5.5" />
+              <div className="h-14 rounded-xl bg-foreground/5.5" />
+            </div>
+            <p className="mt-5 text-[12px] text-muted-foreground">
+              正在读取设置…
+            </p>
+          </div>
         </main>
       </>
     );
@@ -2705,26 +2724,27 @@ export function Settings({
       <TooltipProvider delay={400}>
         {settingsToaster}
         {hotwordConflictDialog}
-        <main className="grid h-screen w-screen grid-cols-[220px_minmax(0,1fr)] overflow-hidden bg-[#f6f7f9] text-[#202124] max-[720px]:grid-cols-1">
-          <aside className="flex flex-col border-r border-[#e4e5e8] bg-[#fbfbfc] px-6 py-7 max-[720px]:hidden">
+        <main className="vp-app-frame grid h-screen w-screen grid-cols-[248px_minmax(0,1fr)] overflow-hidden text-foreground max-[720px]:grid-cols-1">
+          <aside className="flex flex-col bg-foreground p-7 text-background max-[720px]:hidden">
             <div className="flex items-center gap-3">
-              <div
-                className="grid size-9 place-items-center rounded-[11px] bg-[#6558e8] text-white shadow-[0_4px_12px_rgba(101,88,232,0.22)]"
+              <img
+                src={appIconUrl}
+                alt=""
                 aria-hidden="true"
-              >
-                <AudioWaveform size={19} strokeWidth={2.4} />
-              </div>
+                className="size-10 rounded-[13px] shadow-[0_8px_24px_rgba(0,0,0,0.18)]"
+                draggable={false}
+              />
               <div>
-                <strong className="block text-[14px] font-semibold tracking-[-0.01em]">
+                <strong className="block text-[14px] font-semibold tracking-[-0.02em]">
                   VoicePaste
                 </strong>
-                <small className="mt-0.5 block text-[9px] text-[#696d75]">
+                <small className="mt-0.5 block text-[10px] text-background/55">
                   首次设置
                 </small>
               </div>
             </div>
 
-            <ol className="mt-10 grid gap-1" aria-label="首次设置进度">
+            <ol className="mt-12 grid gap-1.5" aria-label="首次设置进度">
               {ONBOARDING_STEPS.map((label, index) => {
                 const active = onboardingStep === index;
                 const complete = onboardingStep > index;
@@ -2732,27 +2752,27 @@ export function Settings({
                   <li key={label}>
                     <Button
                       variant="ghost"
-                      className={`h-10 w-full justify-start gap-3 px-2.5 text-left text-[11px] ${
+                      className={`h-11 w-full justify-start gap-3 px-3 text-left text-[12px] ${
                         active
-                          ? "bg-[#efedff] text-[#5748ca]"
+                          ? "bg-white/10 text-white"
                           : complete
-                            ? "text-[#444851]"
-                            : "text-[#9699a0]"
+                            ? "text-white/72"
+                            : "text-white/34"
                       }`}
                       type="button"
                       aria-current={active ? "step" : undefined}
-                      disabled={!complete}
+                      disabled={!complete && !active}
                       onClick={() => {
                         goToOnboardingStep(index);
                       }}
                     >
                       <span
-                        className={`grid size-5 shrink-0 place-items-center rounded-full border text-[9px] ${
+                        className={`grid size-5.5 shrink-0 place-items-center rounded-full border text-[10px] ${
                           active
-                            ? "border-[#6558e8] bg-[#6558e8] text-white"
+                            ? "border-primary bg-primary text-primary-foreground"
                             : complete
-                              ? "border-[#a9d8c4] bg-[#eaf8f1] text-[#17633f]"
-                              : "border-[#d8dae0] bg-white text-[#8b8f97]"
+                              ? "border-white/25 bg-white/10 text-white/75"
+                              : "border-white/12 bg-transparent text-white/35"
                         }`}
                         aria-hidden="true"
                       >
@@ -2765,48 +2785,50 @@ export function Settings({
               })}
             </ol>
 
-            <p className="mt-auto text-[9px] leading-4 text-[#666a73]">
-              所有设置均可在完成后随时修改。
+            <p className="mt-auto max-w-40 text-[10px] leading-4 text-background/60">
+              每一步都可确认设备和服务是否可用。
             </p>
           </aside>
 
           <section className="min-w-0 overflow-auto px-10 py-8 max-[720px]:px-5 max-[720px]:py-6">
             <div className="mx-auto flex min-h-full max-w-155 flex-col justify-center">
               <div className="mb-7 hidden items-center gap-2.5 max-[720px]:flex">
-                <div
-                  className="grid size-8 place-items-center rounded-[10px] bg-[#6558e8] text-white"
+                <img
+                  src={appIconUrl}
+                  alt=""
                   aria-hidden="true"
-                >
-                  <AudioWaveform size={17} />
-                </div>
+                  className="size-9 rounded-[12px]"
+                  draggable={false}
+                />
                 <strong className="text-[13px] font-semibold">
                   VoicePaste
                 </strong>
-                <span className="ml-auto text-[10px] text-[#777b84]">
+                <span className="ml-auto font-mono text-[11px] text-muted-foreground tabular-nums">
                   {onboardingStep + 1} / {ONBOARDING_STEPS.length}
                 </span>
               </div>
 
-              <div className="rounded-2xl border border-[#e1e2e6] bg-white px-8 py-7 shadow-[0_12px_36px_rgba(31,35,48,0.07)] max-[720px]:px-5">
+              <div className="vp-control-surface vp-enter rounded-[22px] bg-card px-9 py-8 ring-1 ring-foreground/8 max-[720px]:px-5">
                 {onboardingStep === 0 ? (
                   <div>
-                    <div
-                      className="mb-6 grid size-12 place-items-center rounded-[14px] bg-[#efedff] text-[#6558e8]"
+                    <img
+                      src={appIconUrl}
+                      alt=""
                       aria-hidden="true"
-                    >
-                      <AudioWaveform size={24} strokeWidth={2.2} />
-                    </div>
-                    <p className="text-[10px] font-medium tracking-[0.12em] text-[#6558e8]">
+                      className="mb-7 size-12 rounded-[14px]"
+                      draggable={false}
+                    />
+                    <p className="text-[11px] font-semibold tracking-[0.08em] text-primary">
                       欢迎使用
                     </p>
                     <h1
                       ref={onboardingHeadingRef}
-                      className="mt-2 text-[25px] font-semibold tracking-[-0.03em] text-[#202124] outline-none"
+                      className="mt-2 text-[32px] leading-9 font-semibold tracking-[-0.045em] text-balance text-foreground outline-none"
                       tabIndex={-1}
                     >
                       用说话代替打字
                     </h1>
-                    <p className="mt-3 max-w-125 text-[12px] leading-6 text-[#62666f]">
+                    <p className="mt-4 max-w-125 text-[13px] leading-6 text-pretty text-muted-foreground">
                       VoicePaste
                       可在任意输入框中听写，并将识别结果输入到当前光标位置。接下来完成识别服务、快捷键和麦克风设置。
                     </p>
@@ -2827,31 +2849,31 @@ export function Settings({
 
                 {onboardingStep === 1 ? (
                   <div>
-                    <p className="text-[10px] font-medium tracking-[0.12em] text-[#6558e8]">
+                    <p className="text-[11px] font-semibold tracking-[0.08em] text-primary">
                       第 1 步
                     </p>
                     <h1
                       ref={onboardingHeadingRef}
-                      className="mt-2 text-[22px] font-semibold tracking-[-0.02em] outline-none"
+                      className="mt-2 text-[27px] leading-8 font-semibold tracking-[-0.04em] outline-none"
                       tabIndex={-1}
                     >
                       配置语音识别服务
                     </h1>
-                    <p className="mt-2 text-[11px] leading-5 text-[#6f737b]">
+                    <p className="mt-3 text-[13px] leading-6 text-pretty text-muted-foreground">
                       使用你自己的火山引擎 API
                       Key。凭据将安全保存在系统凭据库中，用于语音识别和常用词同步。
                     </p>
 
                     <label
-                      className="mt-6 block text-[11px] font-medium text-[#34373d]"
+                      className="mt-7 block text-[12px] font-semibold text-foreground"
                       htmlFor="onboarding-api-key"
                     >
                       豆包 API Key
                     </label>
-                    <div className="mt-2 flex h-10 items-center overflow-hidden rounded-lg border border-input bg-white transition focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/30">
+                    <div className="mt-2 flex h-10 items-center overflow-hidden rounded-[10px] border border-input bg-card transition-[background-color,border-color,box-shadow] duration-300 focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/20">
                       <Input
                         id="onboarding-api-key"
-                        className="h-10 min-w-0 flex-1 border-0 bg-transparent px-3 text-[12px] shadow-none focus-visible:ring-0"
+                        className="h-10 min-w-0 flex-1 border-0 bg-transparent px-3 shadow-none focus-visible:ring-0"
                         type={showApiKey ? "text" : "password"}
                         value={settings.apiKey}
                         onChange={(event) => {
@@ -2896,7 +2918,7 @@ export function Settings({
                       <Button
                         variant="link"
                         size="sm"
-                        className="h-auto px-0 text-[10px]"
+                        className="h-auto px-0 text-[11px]"
                         type="button"
                         onClick={() => void openConsole()}
                       >
@@ -2905,7 +2927,7 @@ export function Settings({
                       <Button
                         variant="outline"
                         size="lg"
-                        className="text-[10px]"
+                        className="text-[11px]"
                         type="button"
                         onClick={() => void testDoubao(setOnboardingMessage)}
                         disabled={testingDoubao || !settings.apiKey.trim()}
@@ -2932,7 +2954,7 @@ export function Settings({
                       <Button
                         variant="outline"
                         size="lg"
-                        className="text-[10px]"
+                        className="text-[11px]"
                         type="button"
                         onClick={() => {
                           goToOnboardingStep(0);
@@ -2956,27 +2978,27 @@ export function Settings({
 
                 {onboardingStep === 2 ? (
                   <div>
-                    <p className="text-[10px] font-medium tracking-[0.12em] text-[#6558e8]">
+                    <p className="text-[11px] font-semibold tracking-[0.08em] text-primary">
                       第 2 步
                     </p>
                     <h1
                       ref={onboardingHeadingRef}
-                      className="mt-2 text-[22px] font-semibold tracking-[-0.02em] outline-none"
+                      className="mt-2 text-[27px] leading-8 font-semibold tracking-[-0.04em] outline-none"
                       tabIndex={-1}
                     >
                       录制全局快捷键
                     </h1>
-                    <p className="mt-2 text-[11px] leading-5 text-[#6f737b]">
+                    <p className="mt-3 text-[13px] leading-6 text-muted-foreground">
                       点击下方按钮，再按下包含修饰键的组合键。
                     </p>
 
-                    <div className="mt-7 rounded-xl border border-[#e1e2e6] bg-[#f8f8fa] p-5">
+                    <div className="mt-7 rounded-[14px] bg-muted/60 p-5 ring-1 ring-foreground/7">
                       <div className="flex items-center justify-between gap-5">
                         <div>
-                          <p className="text-[11px] font-medium text-[#34373d]">
+                          <p className="text-[12px] font-semibold text-foreground">
                             开始听写
                           </p>
-                          <p className="mt-1 text-[10px] leading-5 text-[#777b84]">
+                          <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
                             可在任何应用的输入框中使用
                           </p>
                         </div>
@@ -2984,9 +3006,9 @@ export function Settings({
                           ref={shortcutButtonRef}
                           variant="outline"
                           size="lg"
-                          className={`min-w-47.5 font-mono text-[10px] ${
+                          className={`min-w-47.5 font-mono text-[11px] ${
                             shortcutRecorder.isRecording
-                              ? "border-[#8f83e8] bg-[#f1efff] text-[#5748ca] ring-3 ring-[#7564e8]/10"
+                              ? "border-primary/55 bg-accent text-accent-foreground ring-3 ring-ring/15"
                               : ""
                           }`}
                           type="button"
@@ -3009,7 +3031,7 @@ export function Settings({
                       <Button
                         variant="outline"
                         size="lg"
-                        className="text-[10px]"
+                        className="text-[11px]"
                         type="button"
                         onClick={() => {
                           goToOnboardingStep(1);
@@ -3036,22 +3058,22 @@ export function Settings({
 
                 {onboardingStep === 3 ? (
                   <div>
-                    <p className="text-[10px] font-medium tracking-[0.12em] text-[#6558e8]">
+                    <p className="text-[11px] font-semibold tracking-[0.08em] text-primary">
                       第 3 步
                     </p>
                     <h1
                       ref={onboardingHeadingRef}
-                      className="mt-2 text-[22px] font-semibold tracking-[-0.02em] outline-none"
+                      className="mt-2 text-[27px] leading-8 font-semibold tracking-[-0.04em] outline-none"
                       tabIndex={-1}
                     >
                       选择麦克风
                     </h1>
-                    <p className="mt-2 text-[11px] leading-5 text-[#6f737b]">
+                    <p className="mt-3 text-[13px] leading-6 text-pretty text-muted-foreground">
                       系统默认麦克风通常即可；测试时说一句话确认音量响应。
                     </p>
 
                     <label
-                      className="mt-6 block text-[11px] font-medium text-[#34373d]"
+                      className="mt-7 block text-[12px] font-semibold text-foreground"
                       htmlFor="onboarding-microphone"
                     >
                       输入设备
@@ -3074,7 +3096,7 @@ export function Settings({
                       >
                         <SelectTrigger
                           id="onboarding-microphone"
-                          className="h-9 min-w-0 flex-1 text-[12px]"
+                          className="min-w-0 flex-1"
                         >
                           <SelectValue />
                         </SelectTrigger>
@@ -3089,7 +3111,7 @@ export function Settings({
                       <Button
                         variant="outline"
                         size="lg"
-                        className="text-[10px]"
+                        className="text-[11px]"
                         type="button"
                         aria-pressed={testingMicrophone}
                         onClick={toggleMicrophoneTest}
@@ -3111,7 +3133,7 @@ export function Settings({
                       <Button
                         variant="outline"
                         size="lg"
-                        className="text-[10px]"
+                        className="text-[11px]"
                         type="button"
                         onClick={() => {
                           goToOnboardingStep(2);
@@ -3137,43 +3159,43 @@ export function Settings({
                 {onboardingStep === 4 ? (
                   <div>
                     <div
-                      className="mb-5 grid size-12 place-items-center rounded-full bg-[#eaf8f1] text-[#17633f]"
+                      className="mb-6 grid size-12 place-items-center rounded-[14px] bg-[#eaf8f1] text-[#17633f]"
                       aria-hidden="true"
                     >
-                      <CheckCircle2 size={25} strokeWidth={2.1} />
+                      <CheckCircle2 size={24} strokeWidth={1.9} />
                     </div>
-                    <p className="text-[10px] font-medium tracking-[0.12em] text-[#6558e8]">
+                    <p className="text-[11px] font-semibold tracking-[0.08em] text-primary">
                       设置完成
                     </p>
                     <h1
                       ref={onboardingHeadingRef}
-                      className="mt-2 text-[22px] font-semibold tracking-[-0.02em] outline-none"
+                      className="mt-2 text-[27px] leading-8 font-semibold tracking-[-0.04em] outline-none"
                       tabIndex={-1}
                     >
                       VoicePaste 已准备就绪
                     </h1>
-                    <p className="mt-2 text-[11px] leading-5 text-[#6f737b]">
+                    <p className="mt-3 text-[13px] leading-6 text-muted-foreground">
                       确认以下设置，完成后可立即使用快捷键开始听写。
                     </p>
 
-                    <dl className="mt-6 divide-y divide-[#ececef] overflow-hidden rounded-xl border border-[#e1e2e6] bg-[#fbfbfc] text-[11px]">
-                      <div className="flex items-center justify-between gap-5 px-4 py-3">
-                        <dt className="text-[#777b84]">识别服务</dt>
+                    <dl className="mt-7 divide-y divide-foreground/7 overflow-hidden rounded-[14px] bg-muted/55 text-[12px] ring-1 ring-foreground/7">
+                      <div className="flex items-center justify-between gap-5 px-4 py-3.5">
+                        <dt className="text-muted-foreground">识别服务</dt>
                         <dd>
                           <Badge className="bg-[#eaf8f1] text-[#17633f]">
                             语音识别和常用词已验证
                           </Badge>
                         </dd>
                       </div>
-                      <div className="flex items-center justify-between gap-5 px-4 py-3">
-                        <dt className="text-[#777b84]">快捷键</dt>
+                      <div className="flex items-center justify-between gap-5 px-4 py-3.5">
+                        <dt className="text-muted-foreground">快捷键</dt>
                         <dd>
                           <ShortcutHint shortcut={settings.shortcut} />
                         </dd>
                       </div>
-                      <div className="flex items-center justify-between gap-5 px-4 py-3">
-                        <dt className="text-[#777b84]">麦克风</dt>
-                        <dd className="max-w-xs truncate font-medium text-[#34373d]">
+                      <div className="flex items-center justify-between gap-5 px-4 py-3.5">
+                        <dt className="text-muted-foreground">麦克风</dt>
+                        <dd className="max-w-xs truncate font-semibold text-foreground">
                           {selectedMicrophone}
                         </dd>
                       </div>
@@ -3192,7 +3214,7 @@ export function Settings({
                       <Button
                         variant="outline"
                         size="lg"
-                        className="text-[10px]"
+                        className="text-[11px]"
                         type="button"
                         onClick={() => {
                           goToOnboardingStep(3);
@@ -3231,37 +3253,38 @@ export function Settings({
       <TooltipProvider delay={400}>
         {settingsToaster}
         {hotwordConflictDialog}
-        <div className="grid h-screen w-screen grid-cols-[188px_minmax(0,1fr)] overflow-hidden bg-[#f6f7f9] text-[#202124]">
-          <aside className="flex flex-col border-r border-[#e4e5e8] bg-[#fbfbfc] px-3.5 py-4">
-            <div className="flex items-center gap-2.5 px-2.5 py-2">
-              <div
-                className="grid size-8 place-items-center rounded-[10px] bg-[#6558e8] text-white shadow-[0_4px_12px_rgba(101,88,232,0.22)]"
+        <div className="vp-app-frame grid h-screen w-screen grid-cols-[184px_minmax(0,1fr)] overflow-hidden text-foreground">
+          <aside className="flex min-h-0 flex-col border-r border-foreground/10 bg-[#f7f8f4] px-3.5 py-4">
+            <div className="flex items-center gap-3 px-2 py-1.5">
+              <img
+                src={appIconUrl}
+                alt=""
                 aria-hidden="true"
-              >
-                <AudioWaveform size={17} strokeWidth={2.4} />
-              </div>
-              <div>
-                <strong className="block text-[13px] font-semibold tracking-[-0.01em]">
+                className="size-9 shrink-0 rounded-[12px] shadow-[0_7px_18px_rgba(33,40,35,0.14)]"
+                draggable={false}
+              />
+              <div className="min-w-0">
+                <strong className="block truncate text-[13px] font-semibold tracking-[-0.02em]">
                   VoicePaste
                 </strong>
-                <small className="mt-0.5 block text-[9px] text-[#696d75]">
+                <span className="mt-0.5 block text-[10px] text-muted-foreground">
                   设置
-                </small>
+                </span>
               </div>
             </div>
 
-            <nav className="mt-5 grid gap-1" aria-label="设置分类">
+            <nav className="mt-7 grid gap-1" aria-label="设置分类">
               {SECTIONS.map(([id, label, Icon]) => (
                 <Link
                   key={id}
                   activeOptions={{ exact: true }}
                   activeProps={{
-                    className: "bg-[#efedff] text-[#5748ca]",
+                    className: "bg-[#e7e9e4] text-foreground",
                   }}
-                  className="flex h-9 w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 text-left text-[11px] font-medium transition focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#7564e8]"
+                  className="group relative flex h-10 w-full items-center gap-2.5 rounded-[11px] px-3 text-left text-[12px] font-medium transition-[background-color,color,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] focus-visible:outline-3 focus-visible:outline-offset-1 focus-visible:outline-ring active:scale-[0.98]"
                   inactiveProps={{
                     className:
-                      "bg-transparent text-[#666a73] hover:bg-[#f0f1f3] hover:text-[#282b31]",
+                      "bg-transparent text-muted-foreground hover:bg-[#eceee9] hover:text-foreground",
                   }}
                   to={SETTINGS_PATHS[id]}
                   onClick={() => {
@@ -3270,12 +3293,23 @@ export function Settings({
                 >
                   {({ isActive }) => (
                     <>
-                      <Icon size={14} strokeWidth={isActive ? 2.2 : 1.8} />
-                      {label}
+                      <span
+                        className={`absolute inset-y-2 left-0 w-0.5 rounded-full transition-colors ${
+                          isActive ? "bg-primary" : "bg-transparent"
+                        }`}
+                        aria-hidden="true"
+                      />
+                      <Icon
+                        size={15}
+                        strokeWidth={isActive ? 2 : 1.7}
+                        aria-hidden="true"
+                      />
+                      <span className="truncate">{label}</span>
                       {isSectionChanged(id) ? (
-                        <Badge className="ml-auto h-4 bg-[#fff2cc] px-1.5 text-[8px] text-[#7a5100]">
-                          未保存
-                        </Badge>
+                        <span
+                          className="ml-auto size-1.5 rounded-full bg-[#b87723]"
+                          aria-label="有未保存的修改"
+                        />
                       ) : null}
                     </>
                   )}
@@ -3283,32 +3317,32 @@ export function Settings({
               ))}
             </nav>
 
-            <p className="mt-auto px-3 pb-1 text-[9px] leading-4 text-[#696d75]">
-              关闭窗口后继续在系统托盘运行
-            </p>
+            <div className="mt-auto px-2 pb-1">
+              <div className="flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground">
+                <CheckCircle2 size={12} strokeWidth={1.8} />
+                {hasUnsavedChanges ? "有未保存修改" : "设置已保存"}
+              </div>
+              <p className="mt-2 text-[10px] leading-4 text-muted-foreground">
+                关闭窗口后继续在系统托盘运行
+              </p>
+            </div>
           </aside>
 
           <div className="flex min-h-0 min-w-0 flex-col">
-            <header className="flex h-18 shrink-0 items-center justify-between border-b border-[#e4e5e8] bg-white px-8">
-              <div>
-                <div className="flex items-center gap-2">
-                  <h1 className="text-[18px] font-semibold tracking-[-0.02em] text-[#202124]">
-                    设置
-                  </h1>
-                  {hasUnsavedChanges ? (
-                    <Badge className="h-5 bg-[#fff2cc] px-2 text-[9px] text-[#7a5100]">
-                      有未保存的修改
-                    </Badge>
-                  ) : null}
-                </div>
-                <p className="mt-1 text-[10px] text-[#6f737b]">
+            <header className="flex shrink-0 items-center justify-between gap-6 border-b border-foreground/10 bg-[#f7f8f4] px-7 py-5">
+              <div className="min-w-0">
+                <h1 className="truncate text-[28px] leading-8 font-semibold tracking-[-0.045em] text-foreground">
+                  {SECTIONS.find(([id]) => id === activeSection)?.[1] ?? "设置"}
+                </h1>
+                <p className="mt-1.5 truncate text-[12px] text-muted-foreground">
                   {SECTION_DESCRIPTIONS[activeSection]}
                 </p>
               </div>
-              <div className="flex gap-2">
+
+              <div className="flex shrink-0 items-center gap-2">
                 {activeSection === "shortcut" ? (
                   <Button
-                    variant="outline"
+                    variant="ghost"
                     type="button"
                     onClick={(event) => {
                       hotwordConflictReturnFocusRef.current =
@@ -3316,9 +3350,8 @@ export function Settings({
                       void resetVoiceInput();
                     }}
                     disabled={saving}
-                    className="text-[10px]"
                   >
-                    <RotateCcw size={11} /> 恢复默认并保存
+                    <RotateCcw size={13} /> 恢复默认
                   </Button>
                 ) : null}
                 {hasUnsavedChanges ? (
@@ -3330,9 +3363,9 @@ export function Settings({
                       void save();
                     }}
                     disabled={saving}
-                    className="min-w-22 text-[10px]"
+                    className="min-w-26"
                   >
-                    <Save size={11} />{" "}
+                    <Save size={13} />{" "}
                     {saving
                       ? activeSection === "recognition" && cloudDirty
                         ? "同步中…"
@@ -3340,24 +3373,21 @@ export function Settings({
                       : "保存更改"}
                   </Button>
                 ) : (
-                  <Badge
-                    variant="secondary"
-                    className="h-8 min-w-22 rounded-lg px-3 text-[10px] text-[#62666f]"
-                  >
-                    <CheckCircle2 size={11} /> 已保存
-                  </Badge>
+                  <span className="inline-flex h-9 min-w-24 items-center justify-end gap-1.5 text-[11px] font-medium text-muted-foreground">
+                    <CheckCircle2 size={13} strokeWidth={1.8} /> 已保存
+                  </span>
                 )}
               </div>
             </header>
 
             <main
-              className="min-h-0 flex-1 overflow-auto scroll-smooth px-8 py-6"
+              className="min-h-0 flex-1 overflow-auto scroll-smooth px-6 py-7"
               data-scroll-restoration-id="settings-content"
             >
-              <div className="mx-auto max-w-180">
+              <div className="vp-enter mx-auto max-w-190">
                 <Feedback
                   message={message?.kind === "error" ? message : null}
-                  className="mb-5"
+                  className="mb-6"
                 />
 
                 <fieldset

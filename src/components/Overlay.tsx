@@ -285,54 +285,55 @@ export function Overlay() {
       : phase === "finishing"
         ? "正在生成最终文本…"
         : text || (phase === "recording" ? "请开始说话…" : "按快捷键开始听写");
-  const orbColor =
+  const indicatorClass =
     phase === "success"
-      ? "from-[#6ee7b7] to-[#087a4b] shadow-[0_6px_18px_rgba(22,163,106,0.28)]"
+      ? "bg-[#2f7b5d] text-[#f5fff9]"
       : phase === "error"
-        ? "from-[#fda4af] to-[#b62038] shadow-[0_6px_18px_rgba(229,72,93,0.28)]"
-        : "from-[#a99aff] to-[#4f3dbe] shadow-[0_6px_18px_rgba(103,84,223,0.34)]";
+        ? "bg-[#a93a2e] text-white"
+        : phase === "recording"
+          ? "bg-[#2f7665] text-[#f7fffb]"
+          : "bg-white/8 text-white";
   const statusColor =
     phase === "success"
-      ? "text-[#86efac]"
+      ? "text-[#8ed6b5]"
       : phase === "error"
-        ? "text-[#fda4af]"
-        : "text-[#b8afff]";
+        ? "text-[#f2a49c]"
+        : phase === "recording"
+          ? "text-[#83c7b6]"
+          : "text-[#9ba49d]";
 
   return (
-    <main className="grid h-screen w-screen place-items-center overflow-hidden bg-transparent p-1 select-none">
-      <div className="grid size-full animate-in grid-cols-[40px_minmax(0,1fr)_74px] items-center gap-2.5 rounded-3xl border border-white/13 bg-[linear-gradient(110deg,rgba(27,29,38,0.96),rgba(11,12,17,0.97))] py-2 pr-3.5 pl-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] duration-200 zoom-in-95 fade-in slide-in-from-bottom-2">
+    <main className="grid size-full place-items-center overflow-hidden bg-transparent p-1 select-none">
+      <div className="grid size-full animate-in grid-cols-[42px_minmax(0,1fr)_82px] items-center gap-3 rounded-[20px] border border-white/10 bg-[#171a18] py-2 pr-3.5 pl-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.055),0_16px_44px_rgba(16,24,19,0.28)] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] zoom-in-95 fade-in slide-in-from-bottom-2">
         <div
-          className={`relative grid size-10 place-items-center rounded-full bg-linear-to-br ${orbColor}`}
+          className={`relative grid size-10 place-items-center rounded-[13px] transition-[background-color,color,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${indicatorClass}`}
           aria-hidden="true"
         >
           {phase === "starting" ||
           phase === "finishing" ||
           phase === "processing" ? (
-            <LoaderCircle
-              className="size-5 animate-spin text-white"
-              strokeWidth={2.2}
-            />
+            <LoaderCircle className="size-5 animate-spin" strokeWidth={1.9} />
           ) : phase === "success" ? (
-            <Check className="size-5.5 text-white" strokeWidth={2.5} />
+            <Check className="size-5 text-current" strokeWidth={2.1} />
           ) : phase === "error" ? (
-            <TriangleAlert className="size-5 text-white" strokeWidth={2.3} />
+            <TriangleAlert className="size-5 text-current" strokeWidth={2} />
           ) : (
-            <Mic className="size-5 text-white" strokeWidth={2.3} />
+            <Mic className="size-5 text-current" strokeWidth={1.9} />
           )}
           {phase === "recording" ? (
-            <span className="absolute -inset-0.5 animate-ping rounded-full border border-[#a78bfa]/45" />
+            <span className="absolute -inset-1 rounded-[16px] border border-[#69aa99]/35" />
           ) : null}
         </div>
 
         <div className="min-w-0" aria-live="polite">
           <div className="mb-0.5 flex items-center gap-2 overflow-hidden whitespace-nowrap">
             <span
-              className={`shrink-0 text-[9px] font-bold tracking-[0.08em] ${statusColor}`}
+              className={`shrink-0 text-[10px] font-semibold tracking-[0.025em] ${statusColor}`}
             >
               {status}
             </span>
             {phase === "recording" ? (
-              <small className="truncate text-[9px] text-[#858da1]">
+              <small className="truncate text-[10px] text-[#747f77]">
                 {activationModeRef.current === "hold"
                   ? "松开完成"
                   : "再次按下完成"}
@@ -341,7 +342,7 @@ export function Overlay() {
           </div>
           <p
             ref={previewRef}
-            className={`m-0 overflow-hidden text-[12.5px] leading-[1.3] font-medium tracking-[-0.01em] whitespace-nowrap ${phase === "error" ? "text-[#fecaca]" : phase === "success" ? "text-[#bbf7d0]" : "text-[#f3f4f8]"}`}
+            className={`m-0 overflow-hidden text-[13px] leading-[1.3] font-medium tracking-[-0.012em] whitespace-nowrap ${phase === "error" ? "text-[#ffd2cd]" : phase === "success" ? "text-[#c6f3dc]" : "text-[#f0f3ef]"}`}
             title={displayText}
           >
             {displayText}
@@ -349,16 +350,17 @@ export function Overlay() {
         </div>
 
         <div
-          className={`flex h-8 items-center justify-end gap-1 transition-opacity duration-150 ${phase === "success" || phase === "error" ? "opacity-0" : "opacity-80"}`}
+          className={`flex h-8 items-center justify-end gap-1 transition-opacity duration-200 ${phase === "success" || phase === "error" ? "opacity-0" : "opacity-90"}`}
           aria-hidden="true"
         >
           {WAVE_WEIGHTS.map((weight, index) => (
             <span
-              className={`max-h-8 min-h-1 w-0.5 rounded-full bg-linear-to-t from-[#7161df] to-[#c4b9ff] transition-[height,opacity] duration-75 ${phase === "finishing" || phase === "processing" ? "animate-[pulse_900ms_ease-in-out_infinite]" : ""}`}
+              className={`max-h-8 min-h-1 w-0.5 rounded-full bg-[#62a894] transition-[height,opacity] duration-100 ${phase === "finishing" || phase === "processing" ? "animate-[pulse_900ms_cubic-bezier(0.22,1,0.36,1)_infinite]" : ""}`}
               key={`${weight}-${index}`}
               style={{
                 animationDelay: `${index * -90}ms`,
                 height: `${6 + Math.max(level, phase === "recording" ? 0.1 : 0) * weight * 24}px`,
+                opacity: phase === "recording" ? 1 : 0.52,
               }}
             />
           ))}

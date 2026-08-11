@@ -30,7 +30,7 @@ function ToggleGroup({
       data-size={size}
       orientation={orientation}
       className={cn(
-        "group/toggle-group flex w-fit items-center gap-1 rounded-lg data-vertical:flex-col data-vertical:items-stretch",
+        "group/toggle-group flex w-fit items-center gap-1 rounded-[11px] bg-secondary/80 p-1 shadow-[inset_0_1px_2px_rgba(45,55,47,0.08)] data-vertical:flex-col data-vertical:items-stretch",
         className
       )}
       {...props}
@@ -64,8 +64,7 @@ function ToggleGroupItem({
           variant: resolvedVariant,
           size: resolvedSize,
         }),
-        className,
-        "text-xs"
+        className
       )}
       {...props}
     >

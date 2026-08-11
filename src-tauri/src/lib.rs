@@ -1269,7 +1269,10 @@ fn setup_app(app: &mut tauri::App) -> Result<(), String> {
         .tray_status
         .lock()
         .map_err(|_| "托盘状态已损坏，请重启应用".to_owned())? = Some(status);
-    let mut tray = TrayIconBuilder::new()
+    let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png"))
+        .map_err(|error| format!("加载托盘图标失败：{error}"))?;
+    let tray = TrayIconBuilder::new()
+        .icon(tray_icon)
         .menu(&menu)
         .tooltip("VoicePaste")
         .show_menu_on_left_click(false)
@@ -1294,13 +1297,8 @@ fn setup_app(app: &mut tauri::App) -> Result<(), String> {
                 show_settings(tray.app_handle());
             }
         });
-    if let Some(icon) = app.default_window_icon() {
-        tray = tray.icon(icon.clone());
-    }
     #[cfg(target_os = "macos")]
-    {
-        tray = tray.icon_as_template(true);
-    }
+    let tray = tray.icon_as_template(true);
     tray.build(app)
         .map_err(|error| format!("创建系统托盘失败：{error}"))?;
 

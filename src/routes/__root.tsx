@@ -7,19 +7,24 @@ export const Route = createRootRoute({
 
 function NotFoundPage() {
   return (
-    <main className="grid h-screen w-screen place-items-center bg-[#f6f7f9] px-6 text-[#202124]">
-      <div className="max-w-sm text-center">
-        <h1 className="text-lg font-semibold">页面不存在</h1>
-        <p className="mt-2 text-xs leading-5 text-[#6f737b]">
+    <main className="vp-app-frame grid min-h-dvh w-screen place-items-center px-6 text-foreground">
+      <section className="vp-enter w-full max-w-sm rounded-[20px] bg-card p-8 ring-1 ring-foreground/8">
+        <p className="font-mono text-[11px] font-semibold tracking-[0.08em] text-primary">
+          404
+        </p>
+        <h1 className="mt-3 text-[28px] leading-8 font-semibold tracking-[-0.045em]">
+          页面不存在
+        </h1>
+        <p className="mt-3 text-[13px] leading-6 text-muted-foreground">
           当前链接无效或页面已移动。
         </p>
         <Link
-          className="mt-5 inline-flex h-9 items-center justify-center rounded-lg bg-[#6558e8] px-4 text-xs font-medium text-white transition hover:bg-[#584bcf] focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8]"
+          className="mt-6 inline-flex h-10 items-center justify-center rounded-[10px] bg-primary px-4 text-[12px] font-semibold text-primary-foreground shadow-[0_7px_18px_rgba(39,96,82,0.16)] transition-[transform,background-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] hover:-translate-y-0.5 hover:bg-[#286758] focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring active:scale-[0.98]"
           to="/settings/general"
         >
           返回设置
         </Link>
-      </div>
+      </section>
     </main>
   );
 }
