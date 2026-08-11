@@ -64,7 +64,8 @@ function ToggleGroupItem({
           variant: resolvedVariant,
           size: resolvedSize,
         }),
-        className
+        className,
+        "text-xs"
       )}
       {...props}
     >

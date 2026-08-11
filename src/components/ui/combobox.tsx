@@ -23,7 +23,7 @@ function ComboboxInput({
     >
       <ComboboxPrimitive.Input
         render={<Input disabled={disabled} />}
-        className="h-full pr-8 text-[11px]"
+        className="h-full pr-8 text-xs"
         {...props}
       />
       {showTrigger ? (
@@ -102,7 +102,7 @@ function ComboboxItem({
     <ComboboxPrimitive.Item
       data-slot="combobox-item"
       className={cn(
-        "relative flex w-full cursor-default items-center gap-2 rounded-md py-1.5 pr-8 pl-2 text-[11px] outline-hidden select-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50",
+        "relative flex w-full cursor-default items-center gap-2 rounded-md py-1.5 pr-8 pl-2 text-xs outline-hidden select-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50",
         className
       )}
       {...props}
@@ -125,7 +125,7 @@ function ComboboxEmpty({ className, ...props }: ComponentProps<"div">) {
       data-slot="combobox-empty"
       role="status"
       className={cn(
-        "flex w-full justify-center px-2 py-3 text-center text-[11px] text-muted-foreground",
+        "flex w-full justify-center px-2 py-3 text-center text-xs text-muted-foreground",
         className
       )}
       {...props}

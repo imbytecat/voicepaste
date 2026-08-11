@@ -7,6 +7,8 @@ use tauri_plugin_store::StoreExt;
 
 pub const DEFAULT_SHORTCUT: &str = "CommandOrControl+Shift+Space";
 pub const DEFAULT_LLM_PREFERENCE: &str = "保持自然口语，不要过度书面化。";
+const DEFAULT_LLM_BASE_URL: &str = "https://api.deepseek.com/v1";
+const DEFAULT_LLM_MODEL: &str = "deepseek-v4-flash";
 const STORE_PATH: &str = "settings.json";
 const STORE_KEY: &str = "voicepaste";
 const KEYRING_SERVICE: &str = "com.imbytecat.voicepaste";
@@ -16,8 +18,8 @@ const LLM_KEYRING_ACCOUNT: &str = "llm-api-key";
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ActivationMode {
-    #[default]
     Toggle,
+    #[default]
     Hold,
 }
 
@@ -45,11 +47,11 @@ impl Default for LlmSettings {
     fn default() -> Self {
         Self {
             enabled: false,
-            base_url: String::new(),
+            base_url: DEFAULT_LLM_BASE_URL.to_owned(),
             api_key: String::new(),
-            model: String::new(),
+            model: DEFAULT_LLM_MODEL.to_owned(),
             prompt: DEFAULT_LLM_PREFERENCE.to_owned(),
-            streaming: false,
+            streaming: true,
             extra_parameters: String::new(),
         }
     }
@@ -103,10 +105,10 @@ impl Default for PersistedLlmSettings {
     fn default() -> Self {
         Self {
             enabled: false,
-            base_url: String::new(),
-            model: String::new(),
+            base_url: DEFAULT_LLM_BASE_URL.to_owned(),
+            model: DEFAULT_LLM_MODEL.to_owned(),
             prompt: DEFAULT_LLM_PREFERENCE.to_owned(),
-            streaming: false,
+            streaming: true,
             extra_parameters: String::new(),
         }
     }
@@ -290,12 +292,15 @@ mod tests {
     fn persisted_defaults_match_product_defaults() {
         let persisted = PersistedSettings::default();
         assert_eq!(persisted.shortcut, DEFAULT_SHORTCUT);
+        assert!(matches!(persisted.activation_mode, ActivationMode::Hold));
         assert!(persisted.hotwords_enabled);
         assert!(persisted.open_settings_on_startup);
         assert!(persisted.hotword_binding.is_none());
         assert!(!persisted.llm.enabled);
+        assert_eq!(persisted.llm.base_url, DEFAULT_LLM_BASE_URL);
+        assert_eq!(persisted.llm.model, DEFAULT_LLM_MODEL);
         assert_eq!(persisted.llm.prompt, DEFAULT_LLM_PREFERENCE);
-        assert!(!persisted.llm.streaming);
+        assert!(persisted.llm.streaming);
         assert!(persisted.llm.extra_parameters.is_empty());
     }
 

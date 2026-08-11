@@ -137,17 +137,17 @@ export interface UpdateInfo {
 export const DEFAULT_LLM_PREFERENCE = "保持自然口语，不要过度书面化。";
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  activationMode: "toggle",
+  activationMode: "hold",
   apiKey: "",
   hotwords: [],
   hotwordsEnabled: true,
   llm: {
     apiKey: "",
-    baseUrl: "",
+    baseUrl: "https://api.deepseek.com/v1",
     enabled: false,
-    model: "",
+    model: "deepseek-v4-flash",
     prompt: DEFAULT_LLM_PREFERENCE,
-    streaming: false,
+    streaming: true,
     extraParameters: "",
   },
   launchAtStartup: false,

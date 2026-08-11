@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  ClipboardPaste,
   Command,
   Copy,
   Download,
@@ -22,6 +23,7 @@ import {
   Settings2,
   ShieldCheck,
   Sparkles,
+  TriangleAlert,
 } from "lucide-react";
 import {
   createContext,
@@ -438,6 +440,79 @@ function SettingRow({
         className={vertical ? "mt-3" : "min-w-0 shrink-0 max-[800px]:w-full"}
       >
         {children}
+      </div>
+    </div>
+  );
+}
+
+const PERMISSION_STATUS_PRESENTATION = {
+  granted: {
+    className: "text-[#17633f]",
+    icon: CheckCircle2,
+    label: "已授权",
+  },
+  preview: {
+    className: "text-[#666a73]",
+    icon: Info,
+    label: "预览模式",
+  },
+  unavailable: {
+    className: "text-[#765b12]",
+    icon: TriangleAlert,
+    label: "待处理",
+  },
+} as const;
+
+type PermissionStatusState = keyof typeof PERMISSION_STATUS_PRESENTATION;
+
+function PermissionRow({
+  detail,
+  icon,
+  iconClassName,
+  state,
+  title,
+}: {
+  detail?: string;
+  icon: ReactNode;
+  iconClassName: string;
+  state: PermissionStatusState;
+  title: string;
+}) {
+  const presentation = PERMISSION_STATUS_PRESENTATION[state];
+  const StatusIcon = presentation.icon;
+
+  return (
+    <div className="grid min-h-19 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-8 px-5 py-3.5 max-[800px]:grid-cols-1 max-[800px]:gap-y-2.5">
+      <div className="flex min-w-0 items-center gap-3">
+        <div
+          className={`grid size-9 shrink-0 place-items-center rounded-[10px] ${iconClassName}`}
+          aria-hidden="true"
+        >
+          {icon}
+        </div>
+        <h3 className="text-[12px] font-medium text-[#2c2e33]">{title}</h3>
+      </div>
+      <div
+        className="max-w-102.5 min-w-0 text-right max-[800px]:w-full max-[800px]:max-w-none max-[800px]:pl-12 max-[800px]:text-left"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        <span
+          className={`inline-flex items-center gap-1.5 text-[11px] font-semibold ${presentation.className}`}
+        >
+          <StatusIcon
+            className="size-3.5"
+            strokeWidth={2.2}
+            aria-hidden="true"
+          />
+          {presentation.label}
+        </span>
+        {detail ? (
+          <p className="mt-1 text-[10px] leading-5 wrap-break-word text-[#666a73]">
+            {detail}
+          </p>
+        ) : null}
       </div>
     </div>
   );
@@ -1504,10 +1579,36 @@ export function Settings({
     />
   );
 
-  const microphoneStatus =
-    microphones.length > 0
-      ? `原生采集可用（${microphones.length} 个设备）`
-      : "未检测到麦克风";
+  const diagnosticsPreview = diagnostics === null;
+  const shortcutPermissionState = diagnosticsPreview
+    ? "preview"
+    : diagnostics.shortcutStatus === "全局快捷键已启用"
+      ? "granted"
+      : "unavailable";
+  const microphonePermissionState = diagnosticsPreview
+    ? "preview"
+    : microphones.length > 0
+      ? "granted"
+      : "unavailable";
+  const inputPermissionState = diagnosticsPreview
+    ? "preview"
+    : diagnostics.inputReady
+      ? "granted"
+      : "unavailable";
+  const shortcutPermissionDetail =
+    shortcutPermissionState === "granted"
+      ? undefined
+      : (diagnostics?.shortcutStatus ?? "浏览器预览不注册快捷键");
+  const microphonePermissionDetail =
+    microphonePermissionState === "granted"
+      ? undefined
+      : diagnosticsPreview
+        ? "浏览器预览不检查麦克风权限"
+        : "未检测到麦克风";
+  const inputPermissionDetail =
+    inputPermissionState === "granted"
+      ? undefined
+      : (diagnostics?.inputStatus ?? "浏览器预览不检查自动粘贴");
   const microphoneOptions = [
     { label: "系统默认麦克风", value: DEFAULT_MICROPHONE_VALUE },
     ...microphones.map((device) => ({
@@ -2050,7 +2151,7 @@ export function Settings({
                 <>
                   <SettingRow
                     title="API 基础地址"
-                    description="填写服务提供方给出的 OpenAI 兼容地址。"
+                    description="默认使用 DeepSeek 官方服务，也可填写其他 OpenAI 兼容服务地址。"
                     changed={isLlmSettingChanged("baseUrl")}
                   >
                     <div className="w-102.5 max-[800px]:w-90">
@@ -2064,18 +2165,10 @@ export function Settings({
                           setAvailableLlmModels([]);
                           setLlmModelsMessage(null);
                         }}
-                        placeholder="https://api.openai.com/v1"
+                        placeholder={DEFAULT_SETTINGS.llm.baseUrl}
                         autoComplete="off"
                         spellCheck={false}
                       />
-                      <div className="mt-2 flex flex-wrap gap-1.5 text-[9px] text-[#62666f]">
-                        <span className="rounded-md bg-[#f0f1f3] px-2 py-1">
-                          聊天请求 <code>/chat/completions</code>
-                        </span>
-                        <span className="rounded-md bg-[#f0f1f3] px-2 py-1">
-                          模型列表 <code>/models</code>
-                        </span>
-                      </div>
                     </div>
                   </SettingRow>
                   <SettingRow
@@ -2133,7 +2226,7 @@ export function Settings({
                   </SettingRow>
                   <SettingRow
                     title="模型"
-                    description="可手动填写，也可从服务的 /models 接口获取。"
+                    description="默认使用 DeepSeek V4 Flash，也可手动填写或获取其他模型。"
                     changed={isLlmSettingChanged("model")}
                   >
                     <div className="w-102.5 max-[800px]:w-90">
@@ -2142,11 +2235,7 @@ export function Settings({
                           items={filteredLlmModels}
                           filter={null}
                           inputValue={settings.llm.model}
-                          value={
-                            availableLlmModels.includes(settings.llm.model)
-                              ? settings.llm.model
-                              : null
-                          }
+                          value={settings.llm.model || null}
                           onInputValueChange={(value) => {
                             updateLlmSetting("model", value);
                           }}
@@ -2158,7 +2247,7 @@ export function Settings({
                           <ComboboxInput
                             aria-label="LLM 模型"
                             className="h-9 min-w-0 flex-1 text-[11px]"
-                            placeholder="gpt-4.1-mini"
+                            placeholder={DEFAULT_SETTINGS.llm.model}
                             autoComplete="off"
                             spellCheck={false}
                             showTrigger={availableLlmModels.length > 0}
@@ -2166,7 +2255,9 @@ export function Settings({
                           <ComboboxContent>
                             {availableLlmModels.length > 0 &&
                             filteredLlmModels.length === 0 ? (
-                              <ComboboxEmpty>没有匹配的模型</ComboboxEmpty>
+                              <ComboboxEmpty>
+                                未在列表中找到，仍可直接使用此名称
+                              </ComboboxEmpty>
                             ) : null}
                             <ComboboxList>
                               {filteredLlmModels.map((model) => (
@@ -2389,21 +2480,27 @@ export function Settings({
             title="权限与状态"
             description="用于确认系统权限和输入能力是否正常。"
           >
-            <SettingRow title="全局快捷键">
-              <span className="max-w-102.5 text-right text-[10px] leading-5 text-[#666a73]">
-                {diagnostics?.shortcutStatus ?? "浏览器预览不注册快捷键"}
-              </span>
-            </SettingRow>
-            <SettingRow title="麦克风">
-              <span className="max-w-102.5 text-right text-[10px] leading-5 text-[#666a73]">
-                {microphoneStatus}
-              </span>
-            </SettingRow>
-            <SettingRow title="自动粘贴">
-              <span className="max-w-102.5 text-right text-[10px] leading-5 text-[#666a73]">
-                {diagnostics?.inputStatus ?? "浏览器预览不检查自动粘贴"}
-              </span>
-            </SettingRow>
+            <PermissionRow
+              title="全局快捷键"
+              icon={<Command size={17} strokeWidth={2.1} />}
+              iconClassName="bg-[#eeecff] text-[#5748ca]"
+              state={shortcutPermissionState}
+              detail={shortcutPermissionDetail}
+            />
+            <PermissionRow
+              title="麦克风"
+              icon={<Mic size={17} strokeWidth={2.1} />}
+              iconClassName="bg-[#e8f3ff] text-[#2878c7]"
+              state={microphonePermissionState}
+              detail={microphonePermissionDetail}
+            />
+            <PermissionRow
+              title="自动粘贴"
+              icon={<ClipboardPaste size={17} strokeWidth={2.1} />}
+              iconClassName="bg-[#eaf8f1] text-[#21885b]"
+              state={inputPermissionState}
+              detail={inputPermissionDetail}
+            />
             <div className="flex justify-end gap-2 px-5 py-3">
               <Button
                 variant="outline"
