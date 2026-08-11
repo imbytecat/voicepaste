@@ -200,22 +200,15 @@ pub async fn sync(
     let table_id = state.table.as_ref().map(|table| table.id.clone());
     let action = match (decision, table_id.as_deref()) {
         (Plan::Delete, Some(id)) => {
-            delete_table(&client, api_key, required_app_id(&state)?, id).await?;
+            delete_table(&client, api_key, state.app_id.as_ref(), id).await?;
             SyncAction::Deleted
         }
         (Plan::Update, Some(id)) => {
-            update_table(
-                &client,
-                api_key,
-                required_app_id(&state)?,
-                id,
-                desired_words,
-            )
-            .await?;
+            update_table(&client, api_key, state.app_id.as_ref(), id, desired_words).await?;
             SyncAction::Updated
         }
         (Plan::Create, _) => {
-            create_table(&client, api_key, required_app_id(&state)?, desired_words).await?;
+            create_table(&client, api_key, state.app_id.as_ref(), desired_words).await?;
             SyncAction::Created
         }
         _ => {
@@ -389,17 +382,10 @@ async fn load_with_client(
     })
 }
 
-fn required_app_id(state: &CloudState) -> Result<&Value, String> {
-    state
-        .app_id
-        .as_ref()
-        .ok_or_else(|| "豆包常用词响应缺少 AppID，无法同步".to_owned())
-}
-
 async fn create_table(
     client: &Client,
     api_key: &str,
-    app_id: &Value,
+    app_id: Option<&Value>,
     words: &[String],
 ) -> Result<(), String> {
     let form = create_form(app_id, words)?;
@@ -407,11 +393,15 @@ async fn create_table(
     Ok(())
 }
 
-fn create_form(app_id: &Value, words: &[String]) -> Result<Form, String> {
-    Ok(Form::new()
+fn create_form(app_id: Option<&Value>, words: &[String]) -> Result<Form, String> {
+    let form = Form::new()
         .text("Action", "CreateBoostingTable")
-        .text("Version", VERSION)
-        .text("AppID", scalar(app_id))
+        .text("Version", VERSION);
+    let form = match app_id {
+        Some(app_id) => form.text("AppID", scalar(app_id)),
+        None => form,
+    };
+    Ok(form
         .text("BoostingTableName", TABLE_NAME)
         .part("File", word_file(words)?))
 }
@@ -419,7 +409,7 @@ fn create_form(app_id: &Value, words: &[String]) -> Result<Form, String> {
 async fn update_table(
     client: &Client,
     api_key: &str,
-    app_id: &Value,
+    app_id: Option<&Value>,
     table_id: &str,
     words: &[String],
 ) -> Result<(), String> {
@@ -428,11 +418,15 @@ async fn update_table(
     Ok(())
 }
 
-fn update_form(app_id: &Value, table_id: &str, words: &[String]) -> Result<Form, String> {
-    Ok(Form::new()
+fn update_form(app_id: Option<&Value>, table_id: &str, words: &[String]) -> Result<Form, String> {
+    let form = Form::new()
         .text("Action", "UpdateBoostingTable")
-        .text("Version", VERSION)
-        .text("AppID", scalar(app_id))
+        .text("Version", VERSION);
+    let form = match app_id {
+        Some(app_id) => form.text("AppID", scalar(app_id)),
+        None => form,
+    };
+    Ok(form
         .text("BoostingTableID", table_id.to_owned())
         .part("File", word_file(words)?))
 }
@@ -440,7 +434,7 @@ fn update_form(app_id: &Value, table_id: &str, words: &[String]) -> Result<Form,
 async fn delete_table(
     client: &Client,
     api_key: &str,
-    app_id: &Value,
+    app_id: Option<&Value>,
     table_id: &str,
 ) -> Result<(), String> {
     request_json(
@@ -453,13 +447,16 @@ async fn delete_table(
     Ok(())
 }
 
-fn delete_body(app_id: &Value, table_id: &str) -> Value {
-    json!({
+fn delete_body(app_id: Option<&Value>, table_id: &str) -> Value {
+    let mut body = json!({
         "Action": "DeleteBoostingTable",
         "Version": VERSION,
-        "AppID": app_id,
         "BoostingTableID": table_id,
-    })
+    });
+    if let Some(app_id) = app_id {
+        body["AppID"] = app_id.clone();
+    }
+    body
 }
 
 fn word_file(words: &[String]) -> Result<Part, String> {
@@ -690,20 +687,28 @@ mod tests {
     }
 
     #[test]
-    fn writes_app_id_to_hotword_mutations() {
-        let app_id = json!(12345);
+    fn handles_optional_app_id_in_hotword_mutations() {
+        let app_id = json!("12345");
         let words = words(&["VoicePaste"]);
 
         for form in [
-            create_form(&app_id, &words).unwrap(),
-            update_form(&app_id, "table-id", &words).unwrap(),
+            create_form(Some(&app_id), &words).unwrap(),
+            update_form(Some(&app_id), "table-id", &words).unwrap(),
         ] {
-            assert!(
-                multipart_text(form).contains("name=\"AppID\"\r\n\r\n12345\r\n"),
-                "multipart mutation must include AppID"
-            );
+            assert!(multipart_text(form).contains("name=\"AppID\"\r\n\r\n12345\r\n"));
         }
-        assert_eq!(delete_body(&app_id, "table-id")["AppID"], json!(12345));
+        assert_eq!(
+            delete_body(Some(&app_id), "table-id")["AppID"],
+            json!("12345")
+        );
+
+        for form in [
+            create_form(None, &words).unwrap(),
+            update_form(None, "table-id", &words).unwrap(),
+        ] {
+            assert!(!multipart_text(form).contains("name=\"AppID\""));
+        }
+        assert!(delete_body(None, "table-id").get("AppID").is_none());
     }
 
     #[test]

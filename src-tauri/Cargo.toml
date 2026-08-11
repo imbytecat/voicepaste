@@ -1,6 +1,6 @@
 [package]
 name = "voicepaste"
-version = "1.4.0"
+version = "1.4.1"
 description = "跨平台便捷语音输入工具"
 authors = ["imbytecat"]
 license = "MIT"
