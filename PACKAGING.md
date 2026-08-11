@@ -127,7 +127,7 @@ NixOS 本地环境不能可靠生成 AppImage；本地只运行检查与原生�
 1. 合并普通功能或修复 PR。`Release Please` workflow 会创建或更新 `chore(release): <version>` Release PR。
 2. 审核 Release PR 中的版本和 `CHANGELOG.md`。该 PR 会同时更新根目录 `version.txt`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock` 与 `.release-please-manifest.json`；不要手动修改其中任一版本。Release PR 由内置 `GITHUB_TOKEN` 创建，其 `pull_request` checks 会进入待批准状态；仓库维护者批准运行后再合并。
 3. 确认 Release PR 的 CI 通过后合并。Release Please 随即创建 `v<version>` tag 和 GitHub Release 草稿。
-4. 同一 workflow 直接调用可复用的 `Release` workflow，构建 Linux、macOS、Windows 产物并上传到草稿。这样不依赖由 `GITHUB_TOKEN` 创建 tag 后再次触发 workflow。
+4. 同一 workflow 调用可复用的 `Release` workflow，构建 Linux、macOS、Windows 产物并上传到草稿。Actions 页面会同时显示父级 **Release Please** 与被调用的 **Release**，但三平台构建只执行一次；这样也不依赖由 `GITHUB_TOKEN` 创建 tag 后再次触发 workflow。
 5. 按下方清单验证安装包、updater 签名和核心功能，再手动公开 Release。任一平台失败或产物不完整时不要公开。
 
 需要提前验证打包链路时，在 Actions 中手动运行 **Release** workflow。手动运行只上传三平台测试 artifacts，不创建 tag 或 GitHub Release。

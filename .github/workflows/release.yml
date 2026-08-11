@@ -67,6 +67,13 @@ jobs:
           key: cargo-src-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('src-tauri/Cargo.lock') }}
           restore-keys: |
             cargo-src-v1-${{ runner.os }}-${{ runner.arch }}-
+      - name: Cache Cargo target
+        uses: actions/cache@v6
+        with:
+          path: src-tauri/target/
+          key: cargo-target-release-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mise.toml') }}-${{ hashFiles('src-tauri/Cargo.lock', 'src-tauri/Cargo.toml') }}
+          restore-keys: |
+            cargo-target-release-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mise.toml') }}-
 
       - run: pnpm install --frozen-lockfile
 

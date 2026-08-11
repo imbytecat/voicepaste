@@ -22,6 +22,14 @@ run = "pnpm tauri build"
 description = "检查前端、Rust、测试与 Clippy"
 run = "pnpm check && cargo test --manifest-path src-tauri/Cargo.toml && cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings"
 
+[tasks.pre-commit]
+description = "提交前运行完整项目检查"
+run = "mise run check"
+
+[tasks."hooks:install"]
+description = "安装仓库 Git hooks"
+run = "mise generate git-pre-commit --write --task=pre-commit"
+
 [tasks.fix]
 description = "自动修复前端与 Rust 格式"
 run = "pnpm fix && cargo fmt --manifest-path src-tauri/Cargo.toml"

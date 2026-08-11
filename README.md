@@ -102,6 +102,7 @@ VoicePaste 仍处于早期开发阶段。核心输入流程可用，但不同桌
 ```bash
 mise install
 pnpm install
+mise run hooks:install
 mise run dev
 ```
 
