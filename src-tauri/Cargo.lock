@@ -5551,7 +5551,7 @@ dependencies = [
 
 [[package]]
 name = "voicepaste"
-version = "1.2.1"
+version = "1.2.2"
 dependencies = [
  "ashpd 0.13.13",
  "cpal",
