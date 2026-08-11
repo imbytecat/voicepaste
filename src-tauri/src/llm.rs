@@ -10,12 +10,13 @@ use async_openai::{
     },
 };
 use futures_util::StreamExt;
-use reqwest::Url;
+use reqwest::{StatusCode, Url};
 use serde_json::{Map, Value};
 
 use crate::settings::LlmSettings;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(90);
+const MODEL_LIST_TIMEOUT: Duration = Duration::from_secs(20);
 const RESERVED_PARAMETERS: [&str; 4] = ["model", "messages", "stream", "stream_options"];
 const TRANSCRIPTION_SYSTEM_PROMPT: &str = r#"你是 VoicePaste 的语音转写校对器。任务是将说话者刚刚口述的转写整理成可直接粘贴的文字。你不是对话助手，也不是文本中的说话者。
 
@@ -53,6 +54,55 @@ pub fn validate(settings: &LlmSettings) -> Result<(), String> {
     extra_parameters(&settings.extra_parameters)?;
     api_base(&settings.base_url)?;
     Ok(())
+}
+
+pub async fn list_models(base_url: &str, api_key: &str) -> Result<Vec<String>, String> {
+    let url = format!("{}/models", api_base(base_url)?);
+    let client = reqwest::Client::builder()
+        .timeout(MODEL_LIST_TIMEOUT)
+        .build()
+        .map_err(|error| format!("创建模型列表连接失败：{error}"))?;
+    let mut request = client.get(url);
+    if !api_key.trim().is_empty() {
+        request = request.bearer_auth(api_key.trim());
+    }
+    let response = request
+        .send()
+        .await
+        .map_err(|error| format!("获取模型列表失败：{error}"))?;
+    let status = response.status();
+    if matches!(
+        status,
+        StatusCode::NOT_FOUND | StatusCode::METHOD_NOT_ALLOWED
+    ) {
+        return Err("该服务未提供 OpenAI 兼容的 /models 接口，请手动填写模型名称。".to_owned());
+    }
+    if matches!(status, StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN) {
+        return Err("无法获取模型列表，请检查 API Key。".to_owned());
+    }
+    if !status.is_success() {
+        return Err(format!("获取模型列表失败（HTTP {status}）。"));
+    }
+    let value: Value = response
+        .json()
+        .await
+        .map_err(|_| "模型接口返回了无效响应，请手动填写模型名称。".to_owned())?;
+    let mut models = value
+        .get("data")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "模型接口未返回标准模型列表，请手动填写模型名称。".to_owned())?
+        .iter()
+        .filter_map(|model| model.get("id").and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|model| !model.is_empty())
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    models.sort_unstable();
+    models.dedup();
+    if models.is_empty() {
+        return Err("模型接口未返回可用模型，请手动填写模型名称。".to_owned());
+    }
+    Ok(models)
 }
 
 pub async fn postprocess(
@@ -212,7 +262,7 @@ mod tests {
                         .strip_prefix("content-length: ")
                         .and_then(|length| length.parse::<usize>().ok())
                 })
-                .unwrap();
+                .unwrap_or_default();
             if request.len() >= headers_end + 4 + content_length {
                 return String::from_utf8(request).unwrap();
             }
@@ -241,6 +291,70 @@ mod tests {
             validate(&settings).unwrap_err(),
             "自定义 JSON 参数不能覆盖 stream"
         );
+    }
+    #[test]
+    fn lists_models_from_openai_compatible_endpoint() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let request = read_request(&mut stream);
+            let body =
+                r#"{"object":"list","data":[{"id":"model-b"},{"id":"model-a"},{"id":"model-a"}]}"#;
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            )
+            .unwrap();
+            request
+        });
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        assert_eq!(
+            runtime
+                .block_on(list_models(
+                    &format!("http://{address}/v1/chat/completions"),
+                    "local-key",
+                ))
+                .unwrap(),
+            ["model-a", "model-b"]
+        );
+        let request = server.join().unwrap();
+        assert!(request.starts_with("GET /v1/models HTTP/1.1\r\n"));
+        assert!(request.contains("\r\nauthorization: Bearer local-key\r\n"));
+    }
+
+    #[test]
+    fn explains_missing_model_endpoint() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            read_request(&mut stream);
+            write!(
+                stream,
+                "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            )
+            .unwrap();
+        });
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        assert_eq!(
+            runtime
+                .block_on(list_models(&format!("http://{address}/v1"), ""))
+                .unwrap_err(),
+            "该服务未提供 OpenAI 兼容的 /models 接口，请手动填写模型名称。"
+        );
+        server.join().unwrap();
     }
 
     #[test]

@@ -80,15 +80,15 @@ const SECTIONS = [
   ["about", "关于", Info],
 ] as const;
 const SECTION_DESCRIPTIONS: Record<SettingsSectionId, string> = {
-  about: "查看版本、发布和支持信息",
+  about: "查看版本、更新和支持信息",
   diagnostics: "检查系统权限与输入状态",
   general: "管理启动行为和悬浮窗位置",
-  recognition: "配置识别服务和常用词",
+  recognition: "配置语音识别、常用词和文本处理",
   shortcut: "调整快捷键、触发方式和麦克风",
 };
 const ONBOARDING_STEPS = [
   "欢迎",
-  "豆包服务",
+  "识别服务",
   "快捷键",
   "麦克风",
   "完成",
@@ -395,7 +395,7 @@ function SettingRow({
           ) : null}
         </div>
         {description ? (
-          <p className="mt-1 text-[10px] leading-5 text-[#6f737b]">
+          <p className="mt-1 text-[11px] leading-5 text-[#6f737b]">
             {description}
           </p>
         ) : null}
@@ -687,6 +687,9 @@ export function Settings({
   const [showLlmApiKey, setShowLlmApiKey] = useState(false);
   const [editingCustomLlmParameters, setEditingCustomLlmParameters] =
     useState(false);
+  const [availableLlmModels, setAvailableLlmModels] = useState<string[]>([]);
+  const [loadingLlmModels, setLoadingLlmModels] = useState(false);
+  const [llmModelsMessage, setLlmModelsMessage] = useState<Message>(null);
   const [onboardingStep, setOnboardingStep] = useState(0);
   const [verifiedApiKey, setVerifiedApiKey] = useState("");
   const [microphones, setMicrophones] = useState<MicrophoneDevice[]>([]);
@@ -1224,7 +1227,7 @@ export function Settings({
           savedHotwordsTextRef.current
         )
       );
-      showMessage({ kind: "success", text: "已恢复并保存“语音输入”默认值" });
+      showMessage({ kind: "success", text: "已恢复并保存“语音输入”默认设置" });
       await refreshDiagnostics();
     } catch (error) {
       showMessage({
@@ -1373,14 +1376,14 @@ export function Settings({
     if (!apiKey) {
       setOnboardingMessage({
         kind: "error",
-        text: "请返回豆包服务步骤填写并测试 API Key。",
+        text: "请返回识别服务步骤填写并测试 API Key。",
       });
       return;
     }
     if (verifiedApiKey !== apiKey) {
       setOnboardingMessage({
         kind: "error",
-        text: "API Key 已修改，请返回豆包服务步骤重新测试。",
+        text: "API Key 已修改，请返回识别服务步骤重新测试。",
       });
       return;
     }
@@ -1423,6 +1426,38 @@ export function Settings({
           settingsRef.current.llm.apiKey
         )
       );
+    }
+  };
+  const fetchLlmModels = async () => {
+    const { apiKey, baseUrl } = settingsRef.current.llm;
+    setLlmModelsMessage(null);
+    if (!baseUrl.trim()) {
+      setLlmModelsMessage({
+        kind: "error",
+        text: "请先填写 API 基础地址。",
+      });
+      return;
+    }
+    setLoadingLlmModels(true);
+    try {
+      if (!isTauri()) throw new Error("获取模型仅在 VoicePaste 桌面版中可用");
+      const models = await invoke<string[]>("list_llm_models", {
+        apiKey,
+        baseUrl,
+      });
+      setAvailableLlmModels(models);
+      setLlmModelsMessage({
+        kind: "success",
+        text: `已获取 ${models.length} 个模型，可在输入框中选择或继续手动填写。`,
+      });
+    } catch (error) {
+      setAvailableLlmModels([]);
+      setLlmModelsMessage({
+        kind: "error",
+        text: safeError(error, apiKey),
+      });
+    } finally {
+      setLoadingLlmModels(false);
     }
   };
 
@@ -1494,9 +1529,7 @@ export function Settings({
   const detectedLlmParameterPreset = detectLlmParameterPreset(
     settings.llm.extraParameters
   );
-  const selectedLlmParameterPreset = editingCustomLlmParameters
-    ? CUSTOM_LLM_PARAMETER_PRESET
-    : detectedLlmParameterPreset;
+  const selectedLlmParameterPreset = detectedLlmParameterPreset;
   const selectedLlmParameterPresetDetails = LLM_PARAMETER_PRESETS.find(
     (preset) => preset.id === selectedLlmParameterPreset
   );
@@ -1652,7 +1685,7 @@ export function Settings({
                     selectSection("recognition");
                   }}
                 >
-                  去配置
+                  前往配置
                 </button>
               </div>
             )}
@@ -1702,7 +1735,7 @@ export function Settings({
 
               <SettingRow
                 title="全局快捷键"
-                description="按下组合键，或使用 F13–F20 单键。"
+                description="点击右侧快捷键，然后按下新的按键或组合键；也支持 F13–F20 单键。"
                 changed={isSettingChanged("shortcut")}
               >
                 <button
@@ -1720,7 +1753,7 @@ export function Settings({
                   onBlur={shortcutRecorder.cancelRecording}
                 >
                   {shortcutRecorder.isRecording ? (
-                    "请按按键或组合键…"
+                    "请按新的按键或组合键…"
                   ) : (
                     <ShortcutHint shortcut={settings.shortcut} />
                   )}
@@ -1892,10 +1925,10 @@ export function Settings({
                   >
                     {hotwordChipState.label}
                   </span>
-                  <span className="text-[9px] text-[#777b84]">
+                  <span className="text-[9px] text-[#666a73]">
                     本机 {localHotwords.length} · 云端 {cloudHotwords.length}
                   </span>
-                  <span className="text-[9px] text-[#777b84]">
+                  <span className="text-[9px] text-[#666a73]">
                     上限 {hotwordStatus.limit}
                   </span>
                   <button
@@ -1904,7 +1937,7 @@ export function Settings({
                     onClick={() => void refreshHotwords()}
                     disabled={checkingHotwords}
                   >
-                    {checkingHotwords ? "校验中…" : "重新校验"}
+                    {checkingHotwords ? "检查中…" : "重新检查"}
                   </button>
                   <button
                     className={TEXT_BUTTON_CLASS}
@@ -1925,7 +1958,7 @@ export function Settings({
                   placeholder={"VoicePaste\nTauri\nTanStack"}
                   rows={6}
                 />
-                <p className="mt-2 text-[9px] leading-4 text-[#777b84]">
+                <p className="mt-2 text-[9px] leading-4 text-[#666a73]">
                   每行一个词，不支持词内空格；词表会保存在火山引擎。听写仍保持实时流式返回。
                 </p>
               </SettingRow>
@@ -1966,11 +1999,11 @@ export function Settings({
             <SettingsSection
               id="llm-postprocessing"
               title="LLM 后处理"
-              description="使用固定保真规则校对识别文本；可流式预览结果，并附加服务商支持的请求参数。"
+              description="使用 OpenAI 兼容服务校对或改写识别文本，并可流式预览结果。"
             >
               <SettingRow
                 title="启用 LLM 后处理"
-                description="识别完成后再请求一次 LLM；会显著增加最终文本的等待时间。"
+                description="识别完成后将文本发送到已配置的 LLM 服务；通常会增加数秒等待时间。"
                 changed={isLlmSettingChanged("enabled")}
               >
                 <Toggle
@@ -1984,40 +2017,34 @@ export function Settings({
               {settings.llm.enabled ? (
                 <>
                   <SettingRow
-                    title="API 地址"
-                    description="填写 OpenAI 兼容 API 的基础地址；VoicePaste 会请求 /chat/completions。"
+                    title="API 基础地址"
+                    description="填写服务提供方给出的 OpenAI 兼容地址。"
                     changed={isLlmSettingChanged("baseUrl")}
                   >
-                    <input
-                      aria-label="LLM API 地址"
-                      className="h-9 w-102.5 rounded-lg border border-[#d7d9de] bg-white px-3 text-[11px] text-[#202124] transition outline-none focus:border-[#7564e8] focus:ring-3 focus:ring-[#7564e8]/10 max-[800px]:w-90"
-                      type="url"
-                      value={settings.llm.baseUrl}
-                      onChange={(event) => {
-                        updateLlmSetting("baseUrl", event.target.value);
-                      }}
-                      placeholder="https://api.openai.com/v1"
-                      autoComplete="off"
-                      spellCheck={false}
-                    />
-                  </SettingRow>
-                  <SettingRow
-                    title="模型"
-                    description="填写服务提供方支持的模型名称。"
-                    changed={isLlmSettingChanged("model")}
-                  >
-                    <input
-                      aria-label="LLM 模型"
-                      className="h-9 w-102.5 rounded-lg border border-[#d7d9de] bg-white px-3 text-[11px] text-[#202124] transition outline-none focus:border-[#7564e8] focus:ring-3 focus:ring-[#7564e8]/10 max-[800px]:w-90"
-                      type="text"
-                      value={settings.llm.model}
-                      onChange={(event) => {
-                        updateLlmSetting("model", event.target.value);
-                      }}
-                      placeholder="gpt-4.1-mini"
-                      autoComplete="off"
-                      spellCheck={false}
-                    />
+                    <div className="w-102.5 max-[800px]:w-90">
+                      <input
+                        aria-label="LLM API 基础地址"
+                        className="h-9 w-full rounded-lg border border-[#d7d9de] bg-white px-3 text-[11px] text-[#202124] transition outline-none focus:border-[#7564e8] focus:ring-3 focus:ring-[#7564e8]/10"
+                        type="url"
+                        value={settings.llm.baseUrl}
+                        onChange={(event) => {
+                          updateLlmSetting("baseUrl", event.target.value);
+                          setAvailableLlmModels([]);
+                          setLlmModelsMessage(null);
+                        }}
+                        placeholder="https://api.openai.com/v1"
+                        autoComplete="off"
+                        spellCheck={false}
+                      />
+                      <div className="mt-2 flex flex-wrap gap-1.5 text-[9px] text-[#62666f]">
+                        <span className="rounded-md bg-[#f0f1f3] px-2 py-1">
+                          聊天请求 <code>/chat/completions</code>
+                        </span>
+                        <span className="rounded-md bg-[#f0f1f3] px-2 py-1">
+                          模型列表 <code>/models</code>
+                        </span>
+                      </div>
+                    </div>
                   </SettingRow>
                   <SettingRow
                     title="API Key"
@@ -2032,6 +2059,8 @@ export function Settings({
                         value={settings.llm.apiKey}
                         onChange={(event) => {
                           updateLlmSetting("apiKey", event.target.value);
+                          setAvailableLlmModels([]);
+                          setLlmModelsMessage(null);
                         }}
                         placeholder="可选"
                         autoComplete="off"
@@ -2063,6 +2092,57 @@ export function Settings({
                     </div>
                   </SettingRow>
                   <SettingRow
+                    title="模型"
+                    description="可手动填写，也可从服务的 /models 接口获取。"
+                    changed={isLlmSettingChanged("model")}
+                  >
+                    <div className="w-102.5 max-[800px]:w-90">
+                      <div className="flex gap-2">
+                        <input
+                          aria-label="LLM 模型"
+                          className={INPUT_CLASS}
+                          type="text"
+                          value={settings.llm.model}
+                          onChange={(event) => {
+                            updateLlmSetting("model", event.target.value);
+                          }}
+                          placeholder="gpt-4.1-mini"
+                          autoComplete="off"
+                          spellCheck={false}
+                          list={
+                            availableLlmModels.length > 0
+                              ? "llm-model-options"
+                              : undefined
+                          }
+                        />
+                        <button
+                          className={SECONDARY_BUTTON_CLASS}
+                          type="button"
+                          onClick={() => void fetchLlmModels()}
+                          disabled={loadingLlmModels}
+                        >
+                          <RefreshCw
+                            className={
+                              loadingLlmModels ? "animate-spin" : undefined
+                            }
+                            size={11}
+                          />{" "}
+                          {loadingLlmModels ? "获取中…" : "获取模型"}
+                        </button>
+                      </div>
+                      {availableLlmModels.length > 0 ? (
+                        <datalist id="llm-model-options">
+                          {availableLlmModels.map((model) => (
+                            <option key={model} value={model}>
+                              {model}
+                            </option>
+                          ))}
+                        </datalist>
+                      ) : null}
+                      <Feedback message={llmModelsMessage} className="mt-2" />
+                    </div>
+                  </SettingRow>
+                  <SettingRow
                     title="流式显示"
                     description="边生成边在悬浮窗显示最终文本；服务不支持流式响应时请关闭。"
                     changed={isLlmSettingChanged("streaming")}
@@ -2077,45 +2157,65 @@ export function Settings({
                   </SettingRow>
                   <SettingRow
                     title="请求参数"
-                    description="常见需求直接选择预设；只有服务要求其它字段时才编辑高级 JSON。"
+                    description="使用预设控制常见推理选项；其它服务参数可在高级 JSON 中配置。"
                     changed={isLlmSettingChanged("extraParameters")}
                     vertical
                   >
-                    <select
-                      aria-label="LLM 请求参数预设"
-                      className={INPUT_CLASS}
-                      value={selectedLlmParameterPreset}
-                      onChange={(event) => {
-                        if (
-                          event.target.value === CUSTOM_LLM_PARAMETER_PRESET
-                        ) {
-                          setEditingCustomLlmParameters(true);
-                          return;
-                        }
-                        const preset = LLM_PARAMETER_PRESETS.find(
-                          ({ id }) => id === event.target.value
-                        );
-                        if (!preset) return;
-                        setEditingCustomLlmParameters(false);
-                        updateLlmSetting("extraParameters", preset.parameters);
-                      }}
-                    >
-                      {LLM_PARAMETER_PRESETS.map((preset) => (
-                        <option key={preset.id} value={preset.id}>
-                          {preset.label}
-                        </option>
-                      ))}
-                      <option value={CUSTOM_LLM_PARAMETER_PRESET}>
-                        高级自定义 JSON…
-                      </option>
-                    </select>
+                    <div className="flex items-center gap-2">
+                      <select
+                        aria-label="LLM 参数预设"
+                        className={INPUT_CLASS}
+                        value={selectedLlmParameterPreset}
+                        onChange={(event) => {
+                          const preset = LLM_PARAMETER_PRESETS.find(
+                            ({ id }) => id === event.target.value
+                          );
+                          if (!preset) return;
+                          setEditingCustomLlmParameters(false);
+                          updateLlmSetting(
+                            "extraParameters",
+                            preset.parameters
+                          );
+                        }}
+                      >
+                        {selectedLlmParameterPreset ===
+                        CUSTOM_LLM_PARAMETER_PRESET ? (
+                          <option value={CUSTOM_LLM_PARAMETER_PRESET}>
+                            自定义 JSON
+                          </option>
+                        ) : null}
+                        {LLM_PARAMETER_PRESETS.map((preset) => (
+                          <option key={preset.id} value={preset.id}>
+                            {preset.label}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        className={SECONDARY_BUTTON_CLASS}
+                        type="button"
+                        aria-expanded={editingCustomLlmParameters}
+                        onClick={() => {
+                          setEditingCustomLlmParameters(
+                            !editingCustomLlmParameters
+                          );
+                        }}
+                      >
+                        <Settings2 size={11} />{" "}
+                        {editingCustomLlmParameters
+                          ? "收起高级 JSON"
+                          : "高级 JSON"}
+                      </button>
+                    </div>
                     {selectedLlmParameterPresetDetails ? (
                       <p className="mt-2 rounded-lg border border-[#e1e2e6] bg-[#f7f7f8] px-3 py-2 text-[9px] leading-4 text-[#62666f]">
                         {selectedLlmParameterPresetDetails.description}
                       </p>
-                    ) : null}
-                    {selectedLlmParameterPreset ===
-                    CUSTOM_LLM_PARAMETER_PRESET ? (
+                    ) : (
+                      <p className="mt-2 rounded-lg border border-[#e1e2e6] bg-[#f7f7f8] px-3 py-2 text-[9px] leading-4 text-[#62666f]">
+                        当前使用自定义 JSON 参数。
+                      </p>
+                    )}
+                    {editingCustomLlmParameters ? (
                       <div className="mt-2 rounded-lg border border-[#e1e2e6] bg-[#fafafa] p-2.5">
                         <textarea
                           aria-label="LLM 高级自定义 JSON 参数"
@@ -2175,19 +2275,20 @@ export function Settings({
                                 updateLlmSetting("extraParameters", "");
                               }}
                             >
-                              清空并使用默认
+                              恢复服务默认
                             </button>
                           </div>
                         </div>
                       </div>
                     ) : null}
-                    <p className="mt-2 text-[9px] leading-4 text-[#777b84]">
-                      预设只填充对应服务的官方请求字段；模型不支持时可能忽略或拒绝。不要在此填写密钥。
+                    <p className="mt-2 text-[9px] leading-4 text-[#666a73]">
+                      预设只会修改额外请求字段，不会更改 API
+                      Key、模型或表达偏好。模型不支持相应字段时，服务可能忽略或拒绝请求。
                     </p>
                   </SettingRow>
                   <SettingRow
                     title="表达偏好"
-                    description="只描述你的语气和格式偏好；固定校对规则仍会保留说话者身份、第一人称、原意和事实。"
+                    description="描述期望的语气和格式。VoicePaste 会尽量保留说话者身份、第一人称、原意和事实。"
                     changed={isLlmSettingChanged("prompt")}
                     vertical
                   >
@@ -2203,7 +2304,7 @@ export function Settings({
                       rows={6}
                     />
                     <p className="mt-2 rounded-lg border border-[#ead9a4] bg-[#fff8df] px-3 py-2 text-[9px] leading-4 text-[#765b12]">
-                      启用后，识别文本和表达偏好会发送到你配置的第三方服务，最终输入通常会增加数秒等待。请求失败时自动使用原始识别文本。
+                      启用后，识别文本和表达偏好会发送到你配置的第三方服务，最终输入通常会增加数秒等待。处理失败时会自动使用原始识别文本。
                     </p>
                   </SettingRow>
                 </>
@@ -2217,7 +2318,7 @@ export function Settings({
           <SettingsSection
             id="diagnostics"
             title="权限与状态"
-            description="仅在功能不可用时需要查看。"
+            description="用于确认系统权限和输入能力是否正常。"
           >
             <SettingRow title="全局快捷键">
               <span className="max-w-102.5 text-right text-[10px] leading-5 text-[#666a73]">
@@ -2243,7 +2344,7 @@ export function Settings({
                   void refreshDiagnostics();
                 }}
               >
-                <RefreshCw size={11} /> 刷新
+                <RefreshCw size={11} /> 重新检查
               </button>
               {diagnostics && !diagnostics.inputReady ? (
                 <button
@@ -2280,15 +2381,15 @@ export function Settings({
           <>
             <SettingsSection
               id="about-version"
-              title="关于 VoicePaste"
-              description="版本信息和正式发布。"
+              title="版本与更新"
+              description="查看当前版本并检查软件更新。"
             >
               <SettingRow
                 title={versionTitle}
                 description={
                   updateInfo
                     ? `发现新版本 ${updateInfo.version}，可直接下载并安装。`
-                    : "启动后自动检查 GitHub Releases，也可手动检查。"
+                    : "VoicePaste 会在启动时自动检查更新，也可随时手动检查。"
                 }
               >
                 {updateInfo ? (
@@ -2327,7 +2428,7 @@ export function Settings({
             >
               <SettingRow
                 title="日志目录"
-                description={diagnostics?.logDir ?? "应用日志目录"}
+                description={diagnostics?.logDir ?? "日志保存位置"}
               >
                 <button
                   className={SECONDARY_BUTTON_CLASS}
@@ -2355,16 +2456,31 @@ export function Settings({
 
             <SettingsSection
               id="about-links"
-              title="产品链接"
-              description="了解项目、获取帮助或查看隐私说明。"
+              title="项目与支持"
+              description="访问项目主页、问题反馈和隐私说明。"
             >
               {(
                 [
-                  ["homepage", "主页", "了解 VoicePaste 和最新动态"],
-                  ["help", "帮助与反馈", "查看使用帮助并反馈问题"],
-                  ["privacy", "隐私说明", "了解数据处理和凭据存储方式"],
+                  [
+                    "homepage",
+                    "项目主页",
+                    "了解 VoicePaste 和最新动态",
+                    "打开项目主页",
+                  ],
+                  [
+                    "help",
+                    "帮助与反馈",
+                    "查看使用帮助并反馈问题",
+                    "打开帮助与反馈",
+                  ],
+                  [
+                    "privacy",
+                    "隐私说明",
+                    "了解数据处理和凭据存储方式",
+                    "查看隐私说明",
+                  ],
                 ] as const
-              ).map(([target, label, description]) => (
+              ).map(([target, label, description, action]) => (
                 <SettingRow
                   key={target}
                   title={label}
@@ -2375,7 +2491,7 @@ export function Settings({
                     type="button"
                     onClick={() => void openProductLink(target)}
                   >
-                    打开 <ExternalLink size={10} />
+                    {action} <ExternalLink size={10} />
                   </button>
                 </SettingRow>
               ))}
@@ -2470,8 +2586,8 @@ export function Settings({
               })}
             </ol>
 
-            <p className="mt-auto text-[9px] leading-4 text-[#777b84]">
-              约 2 分钟完成，之后可随时在设置中修改。
+            <p className="mt-auto text-[9px] leading-4 text-[#666a73]">
+              所有设置均可在完成后随时修改。
             </p>
           </aside>
 
@@ -2513,7 +2629,7 @@ export function Settings({
                     </h1>
                     <p className="mt-3 max-w-125 text-[12px] leading-6 text-[#62666f]">
                       VoicePaste
-                      在任意输入框中听写，并把识别结果直接输入到光标位置。接下来完成服务、快捷键和麦克风设置。
+                      可在任意输入框中听写，并将识别结果输入到当前光标位置。接下来完成识别服务、快捷键和麦克风设置。
                     </p>
                     <Feedback message={onboardingMessage} className="mt-5" />
                     <div className="mt-7 flex justify-end">
@@ -2540,11 +2656,11 @@ export function Settings({
                       className="mt-2 text-[22px] font-semibold tracking-[-0.02em] outline-none"
                       tabIndex={-1}
                     >
-                      连接豆包语音识别
+                      配置语音识别服务
                     </h1>
                     <p className="mt-2 text-[11px] leading-5 text-[#6f737b]">
-                      API Key
-                      由系统凭据存储保管，并用于验证语音识别和云端常用词同步。
+                      使用你自己的火山引擎 API
+                      Key。凭据将安全保存在系统凭据库中，用于语音识别和常用词同步。
                     </p>
 
                     <label
@@ -2830,9 +2946,9 @@ export function Settings({
 
                     <dl className="mt-6 divide-y divide-[#ececef] overflow-hidden rounded-xl border border-[#e1e2e6] bg-[#fbfbfc] text-[11px]">
                       <div className="flex items-center justify-between gap-5 px-4 py-3">
-                        <dt className="text-[#777b84]">豆包服务</dt>
+                        <dt className="text-[#777b84]">识别服务</dt>
                         <dd className="font-medium text-[#17633f]">
-                          识别和词库已验证
+                          语音识别和常用词已验证
                         </dd>
                       </div>
                       <div className="flex items-center justify-between gap-5 px-4 py-3">
@@ -2976,24 +3092,28 @@ export function Settings({
                   onClick={() => void resetVoiceInput()}
                   disabled={saving}
                 >
-                  <RotateCcw size={11} /> 恢复并保存默认
+                  <RotateCcw size={11} /> 恢复默认并保存
                 </button>
               ) : null}
-              <button
-                className="flex h-8 min-w-22 cursor-pointer items-center justify-center gap-1.5 rounded-lg border-0 bg-[#6558e8] px-3 text-[10px] font-medium text-white transition hover:bg-[#584bcf] focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8] disabled:cursor-wait disabled:opacity-55"
-                type="button"
-                onClick={() => void save()}
-                disabled={saving || !hasUnsavedChanges}
-              >
-                <Save size={11} />{" "}
-                {saving
-                  ? activeSection === "recognition" && cloudDirty
-                    ? "同步中…"
-                    : "保存中…"
-                  : hasUnsavedChanges
-                    ? "保存更改"
-                    : "已保存"}
-              </button>
+              {hasUnsavedChanges ? (
+                <button
+                  className="flex h-8 min-w-22 cursor-pointer items-center justify-center gap-1.5 rounded-lg border-0 bg-[#6558e8] px-3 text-[10px] font-medium text-white transition hover:bg-[#584bcf] focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[#7564e8] disabled:cursor-wait disabled:opacity-55"
+                  type="button"
+                  onClick={() => void save()}
+                  disabled={saving}
+                >
+                  <Save size={11} />{" "}
+                  {saving
+                    ? activeSection === "recognition" && cloudDirty
+                      ? "同步中…"
+                      : "保存中…"
+                    : "保存更改"}
+                </button>
+              ) : (
+                <span className="flex h-8 min-w-22 items-center justify-center gap-1.5 rounded-lg bg-[#eeeff2] px-3 text-[10px] font-medium text-[#62666f]">
+                  <CheckCircle2 size={11} /> 已保存
+                </span>
+              )}
             </div>
           </header>
 

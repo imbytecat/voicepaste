@@ -60,7 +60,7 @@ export function hotwordChip(input: {
 } {
   if (input.syncing) return { label: "正在同步", tone: "syncing" };
   if (input.failed) return { label: "同步失败", tone: "error" };
-  if (input.state === "unknown") return { label: "校验中…", tone: "neutral" };
+  if (input.state === "unknown") return { label: "检查中…", tone: "neutral" };
   const { onlyCloud, onlyLocal } = hotwordDiff(input.local, input.cloud);
   if (onlyCloud.length > 0 || onlyLocal.length > 0)
     return { label: "待同步", tone: "dirty" };
@@ -70,7 +70,7 @@ export function hotwordChip(input: {
       tone: "neutral",
     };
   if (input.cloud.length === 0 && input.local.length === 0)
-    return { label: "未使用", tone: "neutral" };
+    return { label: "尚未添加", tone: "neutral" };
   return { label: "已同步", tone: "synced" };
 }
 

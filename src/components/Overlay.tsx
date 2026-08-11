@@ -193,7 +193,7 @@ export function Overlay() {
           return;
         }
         if (payload.kind === "processing") {
-          setText(payload.text ?? payload.message ?? "正在进行 LLM 后处理…");
+          setText(payload.text ?? payload.message ?? "正在处理识别文本…");
           updatePhase("processing");
           return;
         }
@@ -271,7 +271,7 @@ export function Overlay() {
       : phase === "finishing"
         ? "正在整理"
         : phase === "processing"
-          ? "LLM 处理中"
+          ? "文本处理中"
           : phase === "starting"
             ? "正在连接"
             : phase === "success"
@@ -281,7 +281,7 @@ export function Overlay() {
                 : "VoicePaste";
   const displayText =
     phase === "processing"
-      ? text || "正在等待 LLM 返回…"
+      ? text || "正在等待文本处理结果…"
       : phase === "finishing"
         ? "正在生成最终文本…"
         : text || (phase === "recording" ? "请开始说话…" : "按快捷键开始听写");

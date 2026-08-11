@@ -629,7 +629,7 @@ async fn start_recognition(
                         &session_id,
                         json!({
                             "kind": "processing",
-                            "message": "正在进行 LLM 后处理，输入会比平时更慢…"
+                            "message": "正在处理识别文本，输入会比平时稍慢…"
                         }),
                     );
                     match llm::postprocess(&llm_settings, &text, |processed| {
@@ -641,8 +641,8 @@ async fn start_recognition(
                     })
                     .await
                     {
-                        Ok(processed) => (processed, "LLM 后处理完成，已输入"),
-                        Err(_) => (text, "LLM 后处理失败，已输入原始识别结果"),
+                        Ok(processed) => (processed, "文本处理完成，已输入"),
+                        Err(_) => (text, "文本处理失败，已输入原始识别结果"),
                     }
                 } else {
                     (text, "已输入")
@@ -857,6 +857,15 @@ async fn test_doubao(
         hotword_count: snapshot.words.len(),
         hotword_limit: snapshot.limit,
     })
+}
+#[tauri::command]
+async fn list_llm_models(
+    window: WebviewWindow,
+    base_url: String,
+    api_key: String,
+) -> Result<Vec<String>, String> {
+    require_window(&window, "settings")?;
+    llm::list_models(&base_url, &api_key).await
 }
 
 #[tauri::command]
@@ -1367,6 +1376,7 @@ pub fn run() {
             hide_overlay,
             overlay_ready,
             test_doubao,
+            list_llm_models,
             system_diagnostics,
             retry_input_access,
             open_api_key_console,

@@ -35,7 +35,7 @@ void test("hotwordChip resolves states by priority", () => {
     tone: "error",
   });
   assert.deepEqual(hotwordChip({ ...base, local: [], state: "unknown" }), {
-    label: "校验中…",
+    label: "检查中…",
     tone: "neutral",
   });
   assert.deepEqual(hotwordChip({ ...base, local: [], state: "disabled" }), {
@@ -47,7 +47,7 @@ void test("hotwordChip resolves states by priority", () => {
     tone: "neutral",
   });
   assert.deepEqual(hotwordChip({ ...base, cloud: [], local: [] }), {
-    label: "未使用",
+    label: "尚未添加",
     tone: "neutral",
   });
   assert.deepEqual(hotwordChip(base), { label: "已同步", tone: "synced" });
