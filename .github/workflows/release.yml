@@ -185,7 +185,7 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_REPO: ${{ github.repository }}
     steps:
-      - name: Finalize updater manifest and release notes
+      - name: Finalize updater manifest
         shell: bash
         run: |
           set -euo pipefail
@@ -229,21 +229,4 @@ jobs:
           ' "$staging/latest.json" >/dev/null
           gh release upload "$RELEASE_TAG" "$staging/latest.json" --clobber
 
-          notes="$staging/release-notes.md"
-          gh release view "$RELEASE_TAG" --repo "$GH_REPO" --json body --jq .body > "$notes"
-          if ! grep -qx '## 下载指南' "$notes"; then
-            cat >> "$notes" <<'EOF'
-
-          ## 下载指南
-
-          - Windows 10/11 x64：下载 `VoicePaste-*-windows-x64-setup.exe`。
-          - Apple Silicon Mac：下载 `VoicePaste-*-darwin-aarch64.dmg`。
-          - Debian / Ubuntu x64：下载 `VoicePaste-*-linux-amd64.deb`。
-          - Fedora / RHEL x64：下载 `VoicePaste-*-linux-x86_64.rpm`。
-          - 其他 x64 Linux：下载 `VoicePaste-*-linux-amd64.AppImage`。
-
-          `latest.json`、`.sig` 和 `.app.tar.gz` 用于应用内更新，普通用户无需手动下载。
-          EOF
-          fi
-          gh release edit "$RELEASE_TAG" --repo "$GH_REPO" --notes-file "$notes"
           jq -r '.platforms | keys[]' "$staging/latest.json"
