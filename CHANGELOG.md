@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.1](https://github.com/imbytecat/voicepaste/compare/v1.5.0...v1.5.1) (2026-10-01)
+
+
+### 修复
+
+* **deps:** 升级依赖并修复 Nix 图形环境兼容性 ([5aad40c](https://github.com/imbytecat/voicepaste/commit/5aad40c0e09b8d276e4c8c1c559a3c6042b81908))
+
 ## [1.5.0](https://github.com/imbytecat/voicepaste/compare/v1.4.3...v1.5.0) (2026-08-11)
 
 
