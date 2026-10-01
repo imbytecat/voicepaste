@@ -1,7 +1,7 @@
 [tools]
-node = "26.7.0"
-pnpm = "11.20.0"
-rust = { version = "1.97.1", components = ["clippy", "rustfmt"] }
+node = "26.10.0"
+pnpm = "11.28.2"
+rust = { version = "1.98.1", components = ["clippy", "rustfmt"] }
 
 [tasks.dev]
 description = "启动 Tauri 开发模式"

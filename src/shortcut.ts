@@ -23,7 +23,7 @@ export function shortcutValidationError(shortcut: string): string | null {
   const parsed = parseHotkey(shortcut);
   if (
     parsed.modifiers.length > 0 ||
-    PORTABLE_SINGLE_KEY_PATTERN.test(parsed.key)
+    PORTABLE_SINGLE_KEY_PATTERN.test(parsed.key ?? "")
   )
     return null;
   return PORTABLE_SINGLE_KEY_ERROR;
@@ -37,11 +37,11 @@ export function useShortcutRecorder({
   onInvalid: (message: string) => void;
 }) {
   return useTanStackHotkeyRecorder({
+    recordBy: "key",
+    onClear: () => {
+      onInvalid("全局快捷键不能为空");
+    },
     onRecord: (hotkey) => {
-      if (!hotkey) {
-        onInvalid("全局快捷键不能为空");
-        return;
-      }
       const error = shortcutValidationError(hotkey);
       if (error) {
         onInvalid(error);

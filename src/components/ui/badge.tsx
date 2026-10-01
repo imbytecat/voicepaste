@@ -15,11 +15,11 @@ const badgeVariants = cva(
         secondary:
           "border-border/80 bg-secondary text-secondary-foreground [a]:hover:bg-accent [a]:hover:text-accent-foreground",
         destructive:
-          "border-destructive/20 bg-destructive/10 text-destructive focus-visible:ring-destructive/20 dark:bg-destructive/20 focus-visible:dark:ring-destructive/40 [a]:hover:bg-destructive/20",
+          "border-destructive/20 bg-destructive/10 text-destructive focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:focus-visible:ring-destructive/40 [a]:hover:bg-destructive/20",
         outline:
           "border-border bg-card text-foreground [a]:hover:bg-accent [a]:hover:text-accent-foreground",
         ghost:
-          "hover:bg-accent hover:text-accent-foreground hover:dark:bg-accent",
+          "hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent",
         link: "text-primary underline-offset-4 hover:text-primary/75 hover:underline",
       },
     },

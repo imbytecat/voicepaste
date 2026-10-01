@@ -50,7 +50,11 @@ export default defineConfig({
     "react/exhaustive-deps": "off",
     "react/function-component-definition": "off",
     "react/jsx-handler-names": "off",
-    "react/react-compiler": "off",
+    // React Compiler is not enabled; preserve the previous react-compiler opt-out.
+    "react/exhaustive-effect-dependencies": "off",
+    "react/refs": "off",
+    "react/set-state-in-effect": "off",
+    "react/todo": "off",
     "react/rules-of-hooks": "off",
     "sort-keys": "off",
     "tailwindcss/consistent-variant-order": "error",
