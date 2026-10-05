@@ -196,3 +196,13 @@ NixOS 本地环境不能可靠生成 AppImage；本地只运行检查与原生�
 - [macOS ARM64 DMG/更新归档](https://github.com/imbytecat/voicepaste/actions/runs/37309747428)：DMG 只读挂载、复制安装及卸载通过；两种 `.app` 都通过 `codesign --verify --deep --strict`，实际启动截图完整，临时应用与挂载清理完成。`spctl` 为 rejected/3，符合当前 ad-hoc、无公证策略；没有改 Gatekeeper 或删除 quarantine 来制造通过，不能声称普通用户无需首次放行。
 - [Ubuntu DEB / Fedora 44 RPM](https://github.com/imbytecat/voicepaste/actions/runs/37310290124)：在对应包管理环境正常解析依赖并安装，实际可见设置窗口完整，随后卸载，包与二进制均移除；没有使用 `--nodeps` 或忽略包管理器错误。Fedora 使用默认隔离容器，此结果不等于所有完整桌面与 WebKit/Glycin 沙箱场景已验收。
 - Linux AppImage 已在 FHS 包装环境实际启动、进入识别服务并通过账号连接测试；在确认采集流属于仅含合成音频的 monitor 后，实际操作开始/结束试说，界面返回“今天下午三点开会，请把会议纪要发给我。”。不采集物理麦克风、不运行 LLM、不做预览外粘贴；之后的正式快捷键粘贴测试发现并修复了上述输入路由问题。
+
+### 最终候选：`af69fd0`
+
+此候选包含 X11/libei 路由修复，替代以上旧包：
+
+- 本地完整 `mise run check` 通过：9 项前端测试、53 项 Rust 测试、前端构建、Clippy；[main CI](https://github.com/imbytecat/voicepaste/actions/runs/37323234611) 与 [Release PR CI](https://github.com/imbytecat/voicepaste/actions/runs/37323299955) 四项均成功。
+- [重新构建三平台包](https://github.com/imbytecat/voicepaste/actions/runs/37324268894) 全部成功。重新下载并独立检查 7 个包及 6 个 updater 签名，全部通过；不是复用旧包结果。Linux artifact 完整 SHA-256 与 GitHub digest 一致，DEB/RPM 本地包 hash 与独立安装 runner 一致。
+- 新 [Windows NSIS/MSI](https://github.com/imbytecat/voicepaste/actions/runs/37326950340) 实际安装、可见启动及卸载均通过；新 [macOS DMG/更新归档](https://github.com/imbytecat/voicepaste/actions/runs/37327532966) 独立安装、arm64/严格签名校验、可见启动及清理均通过；新 [Ubuntu DEB/Fedora RPM](https://github.com/imbytecat/voicepaste/actions/runs/37326755532) 正常依赖安装、可见启动及卸载均通过。截图已逐平台读取，前述环境、Gatekeeper 与目录优先级限制仍适用。
+- 新 AppImage SHA-256 为 `276d80a3ff0d13997fe40c38fed9505895a326e21cd14214c8690a98cd714c88`。从该已验签文件实际启动后，分别执行按住快捷键和切换录音两种模式；采集流确认绑定合成 monitor，经真实账号 ASR 后，独立 GTK 输入框都实际收到“今天下午 3 点开会，请把会议纪要发给我。”，输入框进程正常提交退出。物理麦克风未采集，未运行 LLM；测试音频节点及进程已清理。
+- 验收支持当前已实现功能进入正常发布流程，不代表豆包完整云词库 CRUD 已接入，也不代表所有平台权限/沙箱、SmartScreen/Gatekeeper 首次交互或正式 updater 在线升级已穷尽验证。没有合并 Release PR、创建正式 tag 或公开 Release；测试工件仍使用 main 的版本号，正式版本由 Release Please 管理。
