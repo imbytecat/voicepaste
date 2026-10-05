@@ -171,3 +171,11 @@ NixOS 本地环境不能可靠生成 AppImage；本地只运行检查与原生�
 - [ ] 切换与按住模式均可完成听写，最终文本进入原输入位置。
 - [ ] 关闭设置窗口后仍在托盘运行；托盘可打开设置、检查更新、退出。
 - [ ] 从当前公开版本的“关于”页检查更新；可下载、验证、安装新版本并重启。
+
+## 2026-10-05 补验记录
+
+- 源码提交 `7be5bfd` 的 [main CI](https://github.com/imbytecat/voicepaste/actions/runs/37297340412) 四项全部通过：前端、Linux、macOS、Windows；Windows 51 项 Rust 测试真实运行，应用与测试 EXE 的 Common Controls v6 清单均校验成功。`windows-startup` artifact 截图已实际检查，显示完整首次设置页面，不是单实例辅助窗口或空 WebView。
+- [Release PR CI](https://github.com/imbytecat/voicepaste/actions/runs/37297386722) 已批准执行，四项全部通过；没有关闭检查或以批准代替执行结果。
+- 同一源码的[三平台手动 Release 构建](https://github.com/imbytecat/voicepaste/actions/runs/37297381254) 全部成功，包括 AppImage 去除宿主 Wayland 库后的重打包与重新签名。未创建 tag 或公开 Release。
+- 已下载全部测试 artifacts：Linux DEB/RPM/AppImage、macOS DMG/`.app.tar.gz`、Windows NSIS/MSI，共 7 个包，通过 7-Zip 完整性检查。使用仓库 updater 公钥和标准 `minisign` 独立验证全部 6 个更新签名（Linux 3、macOS 1、Windows 2），均通过；没有接触签名私钥。
+- 这里验证的是构建、包完整性、更新签名和上述原生启动路径；不是各系统所有安装/卸载场景，也不是已发布 `latest.json` 的端到端升级。正式发布前仍按清单验证，不把本次手动构建说成已完成公开发布。
