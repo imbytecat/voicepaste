@@ -214,3 +214,11 @@ NixOS 本地环境不能可靠生成 AppImage；本地只运行检查与原生�
 重新启动更新后的程序发现真实回归：旧版本无 schema version 的设置被 2.0.0 拒绝，setup hook panic，退出码 101。2.0.0 已撤回草稿，不能把该版本说成升级验收通过。Xvfb 生命周期随旧程序退出，自动重启未获有效观察；手动重启用于发现上述设置回归，不作为自动重启成功证据。
 
 修复将公开 1.5.0 设置一次性迁入火山渠道，保留快捷键、麦克风、词表绑定和 LLM 设置；首次写入前保存 `settings.pre-v3.json`，不覆盖不同的既存备份。凭据先复制到新命名空间再提交设置，原凭据保留供回退；不是运行时旧凭据别名。真实应用启动已确认 version 3、火山渠道、原文件备份与可见设置窗口；完整三平台修复版在线升级仍须补验。
+
+修复版 **2.0.1** 已通过 [Release PR #22 检查](https://github.com/imbytecat/voicepaste/actions/runs/37342918990) 和[三平台正式构建](https://github.com/imbytecat/voicepaste/actions/runs/37343688563)，并公开发布。升级验证使用公开 1.5.0 自身的更新界面，不是直接安装新包：
+
+- Linux：独立 DBus/凭据库与 Xvfb 保持跨重启存活，实际点击关于、安装 2.0.1 和确认；AppImage 被替换为 `144142393247abef35fca6d1c1993d7bda7639d049bf41f32ef30d8b81092670`，与 GitHub digest 一致。进程从 3113891 自动变为 3115287，原生窗口 PID 匹配，新关于页 OCR 确认 2.0.1，设置 version 3 和原文件备份均存在。隔离桌面的 KDE portal/libei 工作线程另报 EIS 错误，此项不作为快捷键或粘贴补验。
+- [Windows 原生升级](https://github.com/imbytecat/voicepaste/actions/runs/37344943291)：旧 NSIS 安装后，通过 UI Automation 点击真实更新按钮和原生确认框；新 EXE ProductVersion 为 2.0.1，新进程启动且设置迁移为 version 3。首轮探针过早检查迁移而失败，已改为等待实际迁移完成，不吞掉失败。
+- [macOS ARM64 原生升级](https://github.com/imbytecat/voicepaste/actions/runs/37346262473)：公开旧 `.app` 从关于页经系统 Vision 识别控件并点击下载/安装确认；bundle 变为 2.0.1，设置迁移至 version 3，`codesign --verify --deep --strict` 通过。此前辅助功能控件名称探针未找到关于按钮；视觉定位后通过，没有关闭 Gatekeeper 或删 quarantine。
+
+上述验证完成了公开旧版到修复版的升级与设置迁移；2.0.0 保持撤回，不重写其失败结论。macOS 探针未独立记录重启 PID，因此不能将 bundle 更新及设置迁移扩大成完整进程身份审计。
