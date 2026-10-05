@@ -104,6 +104,14 @@ Tauri 的 GTK3 依赖链仍使用 `glib 0.18`。`src-tauri/vendor/glib-0.18.5` �
 
 `src-tauri/build.rs` 在 Windows MSVC 上通过链接器为所有链接目标嵌入同一 Common Controls v6 依赖，关闭 Tauri 的重复清单生成，但保留图标和版本资源；其他目标不变。CI 除完整测试外，还提取库测试和应用 EXE 的嵌入清单，并用 Tauri 构建的内嵌前端启动应用、截图检查可见设置窗口；单实例辅助窗口和浮层不计入启动成功，防止只修好测试而误报应用界面。
 
+### Linux 输入后端与显示会话
+
+`Enigo 0.6.1` 会建立所有已编译后端并向所有成功连接发送按键；原实现无条件优先 libei 门户，可能让 X11 窗口的识别结果被发送到门户所属的另一个桌面。真实 X11 按住说话实验已观察到独立输入窗口未收到文字，而日志显示仅启用 libei、X11 被禁用；不能将录音和预览成功当成自动粘贴成功。
+
+`src-tauri/src/paste.rs` 现在尊重明确的 `XDG_SESSION_TYPE=x11`，只向当前 `DISPLAY` 注入；Wayland 会话保留门户优先与已有回退策略，但直接 Wayland/X11 回退不会再次启用 libei。`src-tauri/vendor/enigo-0.6.1` 保留 crates.io 原包和 MIT 许可证，仅增加默认开启的 `libei_enabled` 运行期开关及构造器条件，补足上游只能通过编译 feature 控制 libei 的限制。上游提供等价运行期后端选择后，应移除此本地补丁。
+
+修复后的本地优化构建已经在真实 X11 上分别验证按住、切换两种快捷键模式：定向采集仅含合成语音的 PulseAudio monitor，经真实 ASR 后，独立 GTK 输入框均收到“今天下午 3 点开会，请把会议纪要发给我。”。没有用 `xdotool type` 或直接写入输入框制造结果；Wayland/GDK 设置和合成源只作用于测试进程，虚拟音频节点已清理。
+
 ## 未签名平台提示
 
 - macOS 使用 `bundle.macOS.signingIdentity = "-"` 做 Apple Silicon 必需的 ad-hoc 签名，不代表已验证开发者身份，也不包含公证票据。用户可能需要右键应用并选择“打开”，或在“隐私与安全性”中允许打开。
@@ -172,10 +180,19 @@ NixOS 本地环境不能可靠生成 AppImage；本地只运行检查与原生�
 - [ ] 关闭设置窗口后仍在托盘运行；托盘可打开设置、检查更新、退出。
 - [ ] 从当前公开版本的“关于”页检查更新；可下载、验证、安装新版本并重启。
 
-## 2026-10-05 补验记录
+## 2026-10-05 分阶段验收记录
+
+以下 `7be5bfd` 旧包记录保留安装、签名及诊断证据；该包后来暴露了上述跨显示输入路由问题，**不作为修复后的发布候选**。最终候选必须包含输入修复并重新通过构建和检查。
 
 - 源码提交 `7be5bfd` 的 [main CI](https://github.com/imbytecat/voicepaste/actions/runs/37297340412) 四项全部通过：前端、Linux、macOS、Windows；Windows 51 项 Rust 测试真实运行，应用与测试 EXE 的 Common Controls v6 清单均校验成功。`windows-startup` artifact 截图已实际检查，显示完整首次设置页面，不是单实例辅助窗口或空 WebView。
 - [Release PR CI](https://github.com/imbytecat/voicepaste/actions/runs/37297386722) 已批准执行，四项全部通过；没有关闭检查或以批准代替执行结果。
 - 同一源码的[三平台手动 Release 构建](https://github.com/imbytecat/voicepaste/actions/runs/37297381254) 全部成功，包括 AppImage 去除宿主 Wayland 库后的重打包与重新签名。未创建 tag 或公开 Release。
 - 已下载全部测试 artifacts：Linux DEB/RPM/AppImage、macOS DMG/`.app.tar.gz`、Windows NSIS/MSI，共 7 个包，通过 7-Zip 完整性检查。使用仓库 updater 公钥和标准 `minisign` 独立验证全部 6 个更新签名（Linux 3、macOS 1、Windows 2），均通过；没有接触签名私钥。
 - 这里验证的是构建、包完整性、更新签名和上述原生启动路径；不是各系统所有安装/卸载场景，也不是已发布 `latest.json` 的端到端升级。正式发布前仍按清单验证，不把本次手动构建说成已完成公开发布。
+
+### 已构建包的真实安装与运行补验
+
+- [Windows NSIS/MSI](https://github.com/imbytecat/voicepaste/actions/runs/37304942932)：分别实际安装、从安装目录打开完整设置窗口、卸载，退出码均 0，无重启，安装目录与应用文件均清理。MSI 会沿用 NSIS 保留的历史安装目录，未将显式 `INSTALLDIR` 优先级误报为通过。
+- [macOS ARM64 DMG/更新归档](https://github.com/imbytecat/voicepaste/actions/runs/37309747428)：DMG 只读挂载、复制安装及卸载通过；两种 `.app` 都通过 `codesign --verify --deep --strict`，实际启动截图完整，临时应用与挂载清理完成。`spctl` 为 rejected/3，符合当前 ad-hoc、无公证策略；没有改 Gatekeeper 或删除 quarantine 来制造通过，不能声称普通用户无需首次放行。
+- [Ubuntu DEB / Fedora 44 RPM](https://github.com/imbytecat/voicepaste/actions/runs/37310290124)：在对应包管理环境正常解析依赖并安装，实际可见设置窗口完整，随后卸载，包与二进制均移除；没有使用 `--nodeps` 或忽略包管理器错误。Fedora 使用默认隔离容器，此结果不等于所有完整桌面与 WebKit/Glycin 沙箱场景已验收。
+- Linux AppImage 已在 FHS 包装环境实际启动、进入识别服务并通过账号连接测试；在确认采集流属于仅含合成音频的 monitor 后，实际操作开始/结束试说，界面返回“今天下午三点开会，请把会议纪要发给我。”。不采集物理麦克风、不运行 LLM、不做预览外粘贴；之后的正式快捷键粘贴测试发现并修复了上述输入路由问题。

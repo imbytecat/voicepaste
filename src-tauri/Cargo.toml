@@ -80,3 +80,5 @@ tauri-plugin-autostart = "2"
 [patch.crates-io]
 # RUSTSEC-2024-0429: GTK3 requires 0.18; upstream two-line fix, see PACKAGING.md.
 glib = { path = "vendor/glib-0.18.5" }
+# Keep X11 input on its DISPLAY; Enigo 0.6 has no runtime libei opt-out upstream.
+enigo = { path = "vendor/enigo-0.6.1" }

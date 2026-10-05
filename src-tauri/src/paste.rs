@@ -84,7 +84,7 @@ pub async fn paste(
     app.clipboard()
         .write_text(&text)
         .map_err(|error| format!("写入剪贴板失败：{error}"))?;
-    if needs_overlay_hide() {
+    if is_wayland_session() {
         app.get_webview_window("overlay")
             .ok_or_else(|| "找不到悬浮窗".to_owned())?
             .hide()
@@ -120,8 +120,23 @@ fn create_input_session() -> Result<Enigo, String> {
         .unwrap_or_else(|_| Err("自动粘贴授权已取消，请在设置中重试".to_owned()))
 }
 
-fn needs_overlay_hide() -> bool {
-    cfg!(target_os = "linux") && std::env::var_os("WAYLAND_DISPLAY").is_some()
+fn is_wayland_session() -> bool {
+    cfg!(target_os = "linux")
+        && wayland_session(
+            std::env::var_os("XDG_SESSION_TYPE").as_deref(),
+            std::env::var_os("WAYLAND_DISPLAY").as_deref(),
+        )
+}
+
+fn wayland_session(
+    session_type: Option<&std::ffi::OsStr>,
+    wayland_display: Option<&std::ffi::OsStr>,
+) -> bool {
+    match session_type.and_then(std::ffi::OsStr::to_str) {
+        Some("x11") => false,
+        Some("wayland") => true,
+        _ => wayland_display.is_some_and(|display| !display.is_empty()),
+    }
 }
 
 fn simulate_paste(enigo: &mut Enigo) -> Result<(), String> {
@@ -153,18 +168,19 @@ fn create_enigo() -> Result<Enigo, String> {
 fn create_enigo() -> Result<Enigo, String> {
     const DISABLED_DISPLAY: &str = "voicepaste-disabled-display";
 
-    let portal_settings = Settings {
-        x11_display: Some(DISABLED_DISPLAY.to_owned()),
-        wayland_display: Some(DISABLED_DISPLAY.to_owned()),
-        ..Settings::default()
-    };
-    if let Ok(enigo) = Enigo::new(&portal_settings) {
-        return Ok(enigo);
-    }
+    if is_wayland_session() {
+        let portal_settings = Settings {
+            x11_display: Some(DISABLED_DISPLAY.to_owned()),
+            wayland_display: Some(DISABLED_DISPLAY.to_owned()),
+            ..Settings::default()
+        };
+        if let Ok(enigo) = Enigo::new(&portal_settings) {
+            return Ok(enigo);
+        }
 
-    if std::env::var_os("WAYLAND_DISPLAY").is_some() {
         let wayland_settings = Settings {
             x11_display: Some(DISABLED_DISPLAY.to_owned()),
+            libei_enabled: false,
             ..Settings::default()
         };
         if let Ok(enigo) = Enigo::new(&wayland_settings) {
@@ -174,6 +190,7 @@ fn create_enigo() -> Result<Enigo, String> {
 
     let x11_settings = Settings {
         wayland_display: Some(DISABLED_DISPLAY.to_owned()),
+        libei_enabled: false,
         ..Settings::default()
     };
     Enigo::new(&x11_settings).map_err(|error| format!("连接系统输入服务失败：{error}"))
@@ -182,6 +199,21 @@ fn create_enigo() -> Result<Enigo, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn explicit_x11_session_never_uses_a_wayland_portal() {
+        use std::ffi::OsStr;
+
+        assert!(!wayland_session(Some(OsStr::new("x11")), None));
+        assert!(!wayland_session(
+            Some(OsStr::new("x11")),
+            Some(OsStr::new("wayland-0"))
+        ));
+        assert!(wayland_session(Some(OsStr::new("wayland")), None));
+        assert!(wayland_session(None, Some(OsStr::new("wayland-0"))));
+        assert!(!wayland_session(None, Some(OsStr::new(""))));
+        assert!(!wayland_session(None, None));
+    }
 
     #[test]
     fn input_status_reflects_cached_initialization() {
