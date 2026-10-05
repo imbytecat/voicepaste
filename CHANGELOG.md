@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.1](https://github.com/imbytecat/voicepaste/compare/v2.0.0...v2.0.1) (2026-10-05)
+
+
+### 修复
+
+* **settings:** 保留旧设置并修复公开版本升级启动失败 ([be62389](https://github.com/imbytecat/voicepaste/commit/be623898747cf1d5900c6f8a5424f58786aaf023))
+
 ## [2.0.0](https://github.com/imbytecat/voicepaste/compare/v1.5.0...v2.0.0) (2026-10-05)
 
 
