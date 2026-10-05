@@ -76,3 +76,7 @@ tao = "=0.37.0"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-autostart = "2"
+
+[patch.crates-io]
+# RUSTSEC-2024-0429: GTK3 requires 0.18; upstream two-line fix, see PACKAGING.md.
+glib = { path = "vendor/glib-0.18.5" }

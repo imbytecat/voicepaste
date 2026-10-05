@@ -90,6 +90,14 @@ Node.js、pnpm 与 Rust 版本统一定义在 `mise.toml`。本地与 GitHub Act
 mise install
 ```
 
+### GLib 0.18 内存安全补丁
+
+Tauri 的 GTK3 依赖链仍使用 `glib 0.18`。`src-tauri/vendor/glib-0.18.5` 来自 crates.io 原始源码包，保留上游许可证；唯一源码修改是回补 [gtk-rs-core#1343](https://github.com/gtk-rs/gtk-rs-core/pull/1343) 的两行修复：`VariantStrIter::impl_get` 将可被 C 函数写入的指针声明为 `mut`，并传入 `&mut p`，消除 [RUSTSEC-2024-0429](https://rustsec.org/advisories/RUSTSEC-2024-0429.html) 中的未定义行为。
+
+`Cargo.toml` 的 `[patch.crates-io]` 让 GTK/WebKit 依赖统一使用这份源码，不关闭安全检查，也不伪造已发布版本号。依赖扫描器可能仍按 `0.18.5` 报告告警；扫描状态不等于补丁是否生效。等兼容 GTK3 的已修复版本发布，或 Tauri 完成依赖升级后，移除补丁和 vendored 源码。不要将项目格式化规则应用到第三方源码。
+
+2026-10-05 验证：独立 `cargo run --release` 探针通过正向/反向/混合迭代、UTF-8、空字符串及耗尽检查；`mise run check` 通过前端构建、9 项前端测试、52 项 Rust 测试与 Clippy。使用补丁重新构建原生程序，在隔离 Linux/X11 环境实际显示首次设置窗口并点击进入识别服务步骤。保留上游原有编译警告，不为消除噪声扩大源码补丁。
+
 ## 未签名平台提示
 
 - macOS 使用 `bundle.macOS.signingIdentity = "-"` 做 Apple Silicon 必需的 ad-hoc 签名，不代表已验证开发者身份，也不包含公证票据。用户可能需要右键应用并选择“打开”，或在“隐私与安全性”中允许打开。

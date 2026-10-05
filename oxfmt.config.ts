@@ -7,6 +7,7 @@ export default defineConfig({
     ...(ultracite.ignorePatterns ?? []),
     ".agents/**",
     "src-tauri/target/**",
+    "src-tauri/vendor/**",
     // Release Please owns this file; formatting it would fail every release PR.
     "CHANGELOG.md",
   ],
