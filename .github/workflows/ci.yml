@@ -77,4 +77,9 @@ jobs:
           restore-keys: |
             cargo-target-ci-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mise.toml') }}-
       - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
+      - name: Diagnose Windows loader failure
+        if: failure() && runner.os == 'Windows'
+        timeout-minutes: 3
+        shell: pwsh
+        run: ./tools/windows-loader-diagnostic.ps1
       - run: cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
