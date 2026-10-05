@@ -102,9 +102,21 @@ ASR 的 `extra.context` 是 Base64 的聊天/位置/输入场景信息，不是�
 4. 空 GET 使用服务端真实签发的 `x-tt-e-t` 票据、新随机 12 字节 nonce 的 Base64 `x-tt-e-p`，保留 `x-tt-e-b=1`，不发送内部 `e-k`，不虚构 `e-h` 或 `e-d`。
 5. 原版本端点返回 **HTTP 200、业务码 0、有效 `last_version_seq`**。全量 pull 使用 `start_version_seq=0`，返回 **HTTP 200、业务码 0、`data_type=full` 和下载地址**。两次响应均为未加密 JSON；响应解密分支尚未获得实际加密响应验证。
 6. 从返回的 HTTPS `lf11-ime-pts-sign.doubaocdn.com` 地址下载成功，未向 CDN 发送账号 Cookie、令牌或握手票据。真实文件通过头部/区间/节点排序、MD5、UTF-16 与属性布局检查，解析出 **573 条记录、544 个不同词文本**。不同发音或属性可对应相同文本，不能按文本去重后回写完整词库。
+7. 补验完整稳定快照链：版本查询 → 全量 pull → 下载与完整校验 → 再查版本及当前账号，前后版本和账号均一致。本次读取为 **585 条记录、555 个不同词文本**，较前次增加，说明其他客户端确实会更新云库；探针仍为零云端写入，不能用前一次快照盲目全量覆盖。
 
 整个探针没有词库云端写入；未输出词文本、UID、DID、签名 URL、令牌或密钥。该证据证明这条请求的 403 根因为缺失实际传输握手，但不证明任意其他拒绝也有相同原因，不证明安全 CRUD、并发控制或识别增强已完成。产品账号状态和配置未被探针替换。
 
 ## 8. 火山实际闭环补验
 
 随后已找到用户自己的有效火山凭据，独立调用真实 Rust 词表客户端完成临时词表创建、更新、回读、带该词表的真实 ASR 最终结果、删除及清理确认。原有 4 个词保持不变。验证不依赖 mock，也没有在产品中重新接入旧凭据别名；不能再把“缺少有效 Key”列为当前阻塞。带词表识别成功不等于已量化对照准确率提升。
+
+## 9. macOS 新增、撤销与删除边界补查
+
+对当前 macOS 1.0.1 / 1000103 的 `DoubaoIme`、`DoubaoImeSettings`、`OimeEngine` 继续追踪实际 producer/consumer，26 项离线指令与元数据断言通过，未执行任何云写入：
+
+- app 撤销输入 → `ImeEngine rollback` → `Engine::Rollback` → `UsrDict::Rollback`（`OimeEngine 0x1a131c`）只恢复最近一次本地学习的旧频次、伪时间和 flags，不接收任意云记录 ID。首次新增回滚后频次为 0；实际上传 callback `0x32566c` 直接省略频次 0，因而“新增并同步后再撤销输入”不是云删除协议。
+- 内部 task 43 `ForceToCommit`（`0x1d3544`）可通过官方 `SysDict::Zhuyin` 生成音节，并以频次 1、本地伪时间加 1、当前时间和来源 flags 学习新词；同时会更新 bigram/history。没有证明这是可供 Linux 直接调用的设置编辑接口，也不能把下载的云 side metadata 当成本地生成器状态。
+- 实际上传只构造 oneof100 用户词及 side 元数据；101–103 的已发现构造者是 protobuf 复制、合并、解析和 New thunk，不是已发现的删除 producer。同步任务 generation 的消费方是 `IsCurrentTaskLocked`，用于排除本地过期回调，不是云端 reset epoch。
+- macOS ASR 的真实 `getASRUserWords` → `AsrGetUserWord`（`0x1d0468`）枚举本地学习词，经频次、模型分数、长度和 500 UTF-16 单元上限筛选后交给 `ASRContext.HotwordContext`；它不枚举下载的云 side 记录。不能宣称拉到的全部云词已参与识别。
+
+该缺口不是缺账号，也不是等待用户补一次登录。当前客户端的正向执行链仍未给出个人云词逐条删除、删除确认或并发提交契约；[官方隐私政策](https://lf3-cdn-tos.draftstatic.com/obj/ies-hotsoon-draft/wave_ime/ime_privacy_policy.html)说明整库清空入口，也没有提供上述操作级保证。不能将“未找到可安全调用的删除协议”夸大成“服务永远没有删除接口”；同样不能在确实存在其他写入者的真实词库上猜测墓碑、空 FULL 或用旧快照覆盖来试验撤销。

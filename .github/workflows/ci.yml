@@ -48,7 +48,7 @@ jobs:
           sudo apt-get install -y cmake libasound2-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev libxkbcommon-dev
       - uses: jdx/mise-action@v4
         with:
-          install_args: rust
+          install_args: ${{ runner.os == 'Windows' && 'node pnpm rust' || 'rust' }}
       - name: Validate release version
         if: runner.os == 'Linux'
         shell: bash
@@ -82,7 +82,9 @@ jobs:
         timeout-minutes: 5
         shell: pwsh
         run: |
-          cargo build --locked --manifest-path src-tauri/Cargo.toml --bin voicepaste
+          pnpm install --frozen-lockfile
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm tauri build --debug --no-bundle
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $mt = Get-ChildItem "${env:ProgramFiles(x86)}/Windows Kits/10/bin/*/x64/mt.exe" |
             Sort-Object FullName -Descending | Select-Object -First 1
