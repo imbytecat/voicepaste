@@ -6,7 +6,7 @@ VoicePaste 是完全开源的免费项目。当前发布不使用付费 Apple De
 - Windows 安装包不做 Authenticode 签名；
 - 应用使用 Tauri updater 从 GitHub Releases 检查并安装更新；更新包使用独立密钥签名。
 
-版本准备由 `.github/workflows/release-please.yml` 管理；它维护 Release PR、版本号、CHANGELOG、tag 与 GitHub Release 草稿。`.github/workflows/release.yml` 是可复用的三平台构建工作流，也可通过 `workflow_dispatch` 手动生成测试产物。
+版本准备由 `.github/workflows/release-please.yml` 管理；它维护 Release PR、版本号、CHANGELOG、tag 与 GitHub Release 草稿。`.github/workflows/release.yml` 是可复用的三平台构建工作流，也可通过 `workflow_dispatch` 手动生成测试产物；手动构建固定触发时的提交 SHA，避免构建期间 main 推进导致三平台使用不同源码。
 
 ## 正式产物
 
@@ -102,7 +102,7 @@ Tauri 的 GTK3 依赖链仍使用 `glib 0.18`。`src-tauri/vendor/glib-0.18.5` �
 
 `rfd` 的原生对话框需要 Common Controls v6 的 `TaskDialogIndirect`。默认 Tauri 资源只链接到应用二进制，库测试缺少激活清单时会装载 comctl32 v5.82，在测试入口前以 `STATUS_ENTRYPOINT_NOT_FOUND (0xc0000139)` 退出。已通过 [Windows CI 加载器实录](https://github.com/imbytecat/voicepaste/actions/runs/37294329039) 定位到具体缺失符号，不是 Opus、CRT 或缓存故障。
 
-`src-tauri/build.rs` 在 Windows MSVC 上通过链接器为所有链接目标嵌入同一 Common Controls v6 依赖，关闭 Tauri 的重复清单生成，但保留图标和版本资源；其他目标不变。CI 除完整测试外，还提取库测试和正式应用 EXE 的嵌入清单，并实际启动应用检查原生窗口，防止只修好测试而破坏应用启动。
+`src-tauri/build.rs` 在 Windows MSVC 上通过链接器为所有链接目标嵌入同一 Common Controls v6 依赖，关闭 Tauri 的重复清单生成，但保留图标和版本资源；其他目标不变。CI 除完整测试外，还提取库测试和应用 EXE 的嵌入清单，并用 Tauri 构建的内嵌前端启动应用、截图检查可见设置窗口；单实例辅助窗口和浮层不计入启动成功，防止只修好测试而误报应用界面。
 
 ## 未签名平台提示
 
