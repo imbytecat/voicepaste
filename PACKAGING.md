@@ -98,6 +98,12 @@ Tauri 的 GTK3 依赖链仍使用 `glib 0.18`。`src-tauri/vendor/glib-0.18.5` �
 
 2026-10-05 验证：独立 `cargo run --release` 探针通过正向/反向/混合迭代、UTF-8、空字符串及耗尽检查；`mise run check` 通过前端构建、9 项前端测试、52 项 Rust 测试与 Clippy。使用补丁重新构建原生程序，在隔离 Linux/X11 环境实际显示首次设置窗口并点击进入识别服务步骤。保留上游原有编译警告，不为消除噪声扩大源码补丁。
 
+### Windows 测试与应用清单
+
+`rfd` 的原生对话框需要 Common Controls v6 的 `TaskDialogIndirect`。默认 Tauri 资源只链接到应用二进制，库测试缺少激活清单时会装载 comctl32 v5.82，在测试入口前以 `STATUS_ENTRYPOINT_NOT_FOUND (0xc0000139)` 退出。已通过 [Windows CI 加载器实录](https://github.com/imbytecat/voicepaste/actions/runs/37294329039) 定位到具体缺失符号，不是 Opus、CRT 或缓存故障。
+
+`src-tauri/build.rs` 在 Windows MSVC 上通过链接器为所有链接目标嵌入同一 Common Controls v6 依赖，关闭 Tauri 的重复清单生成，但保留图标和版本资源；其他目标不变。CI 除完整测试外，还提取库测试和正式应用 EXE 的嵌入清单，并实际启动应用检查原生窗口，防止只修好测试而破坏应用启动。
+
 ## 未签名平台提示
 
 - macOS 使用 `bundle.macOS.signingIdentity = "-"` 做 Apple Silicon 必需的 ad-hoc 签名，不代表已验证开发者身份，也不包含公证票据。用户可能需要右键应用并选择“打开”，或在“隐私与安全性”中允许打开。

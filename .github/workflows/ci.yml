@@ -77,6 +77,39 @@ jobs:
           restore-keys: |
             cargo-target-ci-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mise.toml') }}-
       - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
+      - name: Verify Windows executable manifests and startup
+        if: runner.os == 'Windows'
+        timeout-minutes: 5
+        shell: pwsh
+        run: |
+          cargo build --locked --manifest-path src-tauri/Cargo.toml --bin voicepaste
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $mt = Get-ChildItem "${env:ProgramFiles(x86)}/Windows Kits/10/bin/*/x64/mt.exe" |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          if (!$mt) { throw "Windows SDK manifest tool not found" }
+          $test = Get-ChildItem src-tauri/target/debug/deps/voicepaste_lib-*.exe |
+            Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
+          foreach ($exe in @($test.FullName, (Resolve-Path src-tauri/target/debug/voicepaste.exe).Path)) {
+            $manifest = Join-Path $env:RUNNER_TEMP ([IO.Path]::GetFileName($exe) + ".manifest")
+            & $mt.FullName "-inputresource:$exe;#1" "-out:$manifest"
+            if ($LASTEXITCODE -ne 0) { throw "Missing executable manifest: $exe" }
+            [xml]$xml = Get-Content $manifest -Raw
+            $controls = $xml.SelectSingleNode("//*[local-name()='assemblyIdentity' and @name='Microsoft.Windows.Common-Controls']")
+            if (!$controls -or $controls.version -ne '6.0.0.0') { throw "Common Controls v6 missing: $exe" }
+            Write-Output "Common Controls v6 verified: $exe"
+          }
+          $app = Start-Process src-tauri/target/debug/voicepaste.exe -PassThru
+          try {
+            for ($attempt = 0; $attempt -lt 100; $attempt++) {
+              if ($app.WaitForExit(200)) { throw "Application exited before showing a window: $($app.ExitCode)" }
+              $app.Refresh()
+              if ($app.MainWindowHandle -ne 0) { break }
+            }
+            if ($app.MainWindowHandle -eq 0) { throw "Application did not show a native window" }
+            Write-Output "Native window opened: $($app.MainWindowTitle)"
+          } finally {
+            if (!$app.HasExited) { Stop-Process -Id $app.Id }
+          }
       - name: Diagnose Windows loader failure
         if: failure() && runner.os == 'Windows'
         timeout-minutes: 3
