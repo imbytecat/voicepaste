@@ -206,3 +206,11 @@ NixOS 本地环境不能可靠生成 AppImage；本地只运行检查与原生�
 - 新 [Windows NSIS/MSI](https://github.com/imbytecat/voicepaste/actions/runs/37326950340) 实际安装、可见启动及卸载均通过；新 [macOS DMG/更新归档](https://github.com/imbytecat/voicepaste/actions/runs/37327532966) 独立安装、arm64/严格签名校验、可见启动及清理均通过；新 [Ubuntu DEB/Fedora RPM](https://github.com/imbytecat/voicepaste/actions/runs/37326755532) 正常依赖安装、可见启动及卸载均通过。截图已逐平台读取，前述环境、Gatekeeper 与目录优先级限制仍适用。
 - 新 AppImage SHA-256 为 `276d80a3ff0d13997fe40c38fed9505895a326e21cd14214c8690a98cd714c88`。从该已验签文件实际启动后，分别执行按住快捷键和切换录音两种模式；采集流确认绑定合成 monitor，经真实账号 ASR 后，独立 GTK 输入框都实际收到“今天下午 3 点开会，请把会议纪要发给我。”，输入框进程正常提交退出。物理麦克风未采集，未运行 LLM；测试音频节点及进程已清理。
 - 验收支持当前已实现功能进入正常发布流程，不代表豆包完整云词库 CRUD 已接入，也不代表所有平台权限/沙箱、SmartScreen/Gatekeeper 首次交互或正式 updater 在线升级已穷尽验证。没有合并 Release PR、创建正式 tag 或公开 Release；测试工件仍使用 main 的版本号，正式版本由 Release Please 管理。
+
+### 公开 1.5.0 升级补验
+
+2026-10-06，Release PR #19 合并至 `c5759eb`，[正式构建](https://github.com/imbytecat/voicepaste/actions/runs/37340042610) 三平台和 manifest finalize 全部成功。按用户授权短暂公开 2.0.0 后，在隔离设置目录、独立 DBus/Xvfb 中运行公开 1.5.0 AppImage，从“关于”页面实际检查更新、确认下载并安装。旧 AppImage 被 updater 替换，SHA-256 为 `d955ef5732bd5d664360f5e223e10d8e850c7141183dbf1a6f068c73dc329fa5`，与 GitHub 2.0.0 AppImage digest 一致。
+
+重新启动更新后的程序发现真实回归：旧版本无 schema version 的设置被 2.0.0 拒绝，setup hook panic，退出码 101。2.0.0 已撤回草稿，不能把该版本说成升级验收通过。Xvfb 生命周期随旧程序退出，自动重启未获有效观察；手动重启用于发现上述设置回归，不作为自动重启成功证据。
+
+修复将公开 1.5.0 设置一次性迁入火山渠道，保留快捷键、麦克风、词表绑定和 LLM 设置；首次写入前保存 `settings.pre-v3.json`，不覆盖不同的既存备份。凭据先复制到新命名空间再提交设置，原凭据保留供回退；不是运行时旧凭据别名。真实应用启动已确认 version 3、火山渠道、原文件备份与可见设置窗口；完整三平台修复版在线升级仍须补验。

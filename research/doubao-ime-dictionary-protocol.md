@@ -118,7 +118,7 @@ ASR 的 `extra.context` 是 Base64 的聊天/位置/输入场景信息，不是�
 - 内部 task 43 `ForceToCommit`（`0x1d3544`）可通过官方 `SysDict::Zhuyin` 生成音节，并以频次 1、本地伪时间加 1、当前时间和来源 flags 学习新词；同时会更新 bigram/history。没有证明这是可供 Linux 直接调用的设置编辑接口，也不能把下载的云 side metadata 当成本地生成器状态。
 - 实际上传只构造 oneof100 用户词及 side 元数据；101–103 的已发现构造者是 protobuf 复制、合并、解析和 New thunk，不是已发现的删除 producer。同步任务 generation 的消费方是 `IsCurrentTaskLocked`，用于排除本地过期回调，不是云端 reset epoch。
 - macOS ASR 的真实 `getASRUserWords` → `AsrGetUserWord`（`0x1d0468`）枚举本地学习词，经频次、模型分数、长度和 500 UTF-16 单元上限筛选后交给 `ASRContext.HotwordContext`；它不枚举下载的云 side 记录。不能宣称拉到的全部云词已参与识别。
-- 官方“清空个人词库”也不是云端删除：x86_64 `Engine::ClearUsrDict(bool)` 只调用 `UsrDictsManager::Clear`、`ClearNerDict` 等本地清理，再经 `SyncTaskManager::OnLocalUserDictClear` → `CancelInflightLocked`/`ClearInflightRuntimeLocked` 取消在途同步任务；直接调用链中没有上传或 push 构造（`CancelInflightLocked` 取得网络客户端后的虚调用未逐一解析，按函数名推断为取消在途请求）。Android、Windows、macOS 三端二进制中的个人词库同步端点只有 `sync/version`、`sync/last_version`、`sync/pull`、`stream/sync/upload`、`sync/push`、`sync/settings`，没有删除端点；`AttributeIsDeleted` 只出现在联系人与常用语词典。
+- 已解析的 macOS x86_64 `Engine::ClearUsrDict(bool)` 调用 `UsrDictsManager::Clear`、`ClearNerDict` 等本地清理，并关联 `SyncTaskManager::OnLocalUserDictClear` → `CancelInflightLocked`/`ClearInflightRuntimeLocked`。直接调用分析未发现上传或 push 构造，但网络客户端虚调用尚未逐一解析，不能据此排除间接云端操作。三端静态字符串扫描未发现专用个人词库删除端点；字符串缺失不证明服务不存在删除能力。
 
 该缺口不是缺账号，也不是等待用户补一次登录。当前客户端的正向执行链仍未给出个人云词逐条删除、删除确认或并发提交契约；[官方隐私政策](https://lf3-cdn-tos.draftstatic.com/obj/ies-hotsoon-draft/wave_ime/ime_privacy_policy.html)说明整库清空入口，也没有提供上述操作级保证。不能将“未找到可安全调用的删除协议”夸大成“服务永远没有删除接口”；同样不能在确实存在其他写入者的真实词库上猜测墓碑、空 FULL 或用旧快照覆盖来试验撤销。
 
@@ -156,7 +156,7 @@ ASR 的 `extra.context` 是 Base64 的聊天/位置/输入场景信息，不是�
 
 每个写入窗口都比较了前后全部非测试词的完整 key 与属性：原有记录删除数、其他记录属性变化数均为 **0**。其他客户端在实验间隔继续增加词条，最后一次本轮回读为 **627 条**；不能用最初 611 条旧快照覆盖来撤销测试。
 
-**残留与发布边界：** canonical 云词库仍有 1 条“语贴验词”，频次 2；官方三端既无单条云词删除，也无云端清空（第 9 节），因此该残留无法经任何已知客户端接口清理。它单独存在时不影响账号 ASR（第 12 节）。没有把失败的删除/重置说成清理完成，也未继续猜测全库清空接口。当前产品没有接入这些实验写路径，仍如实显示豆包官方词库未接入；不能将本版宣传为完整云词库 CRUD，也不能在产品中把这些服务响应映射成虚假的“已删除”。
+**残留与发布边界：** 最近一次真实回读中，canonical 云词库仍有 1 条“语贴验词”，频次 2；尚未找到并验证能安全删除该词的客户端操作。第 12 节仅证明固定音频在未上传 context 时未命中，不能推广为该词不影响任何账号 ASR。没有把失败的删除/重置说成清理完成，也未继续猜测全库清空接口。当前产品没有接入这些实验写路径，仍如实显示豆包官方词库未接入；不能将本版宣传为完整云词库 CRUD，也不能在产品中把这些服务响应映射成虚假的“已删除”。
 
 ## 12. 新增测试词的语音增强与行为撤回
 

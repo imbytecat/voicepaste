@@ -381,9 +381,91 @@ fn load_document(value: &Value) -> Result<LoadedSettings, String> {
     })
 }
 
+fn migrate_legacy_document(value: &Value) -> Result<Option<Value>, String> {
+    let Some(object) = value.as_object() else {
+        return Ok(None);
+    };
+    if object.contains_key("version") || object.contains_key("recognition") {
+        return Ok(None);
+    }
+    // Public 1.5.0 persisted these fields without a schema version.
+    if !object.contains_key("onboardingCompleted") || !object.contains_key("llm") {
+        return Ok(None);
+    }
+    let mut migrated = value.clone();
+    let root = migrated.as_object_mut().unwrap();
+    let mut profile = serde_json::Map::new();
+    for key in ["hotwords", "hotwordsEnabled", "hotwordBinding", "llm"] {
+        if let Some(value) = root.remove(key) {
+            profile.insert(key.to_owned(), value);
+        }
+    }
+    root.remove("apiKey");
+    root.insert("version".to_owned(), json!(SCHEMA_VERSION));
+    root.insert(
+        "recognition".to_owned(),
+        json!({"provider": "volcengine", "volcengine": profile}),
+    );
+    let migrated = validate_document(migrated)?;
+    decode_document(&migrated)?;
+    Ok(Some(migrated))
+}
+
 pub fn load(app: &AppHandle) -> Result<LoadedSettings, String> {
     let store = read_store(app)?;
-    let value = document(&store)?;
+    let value = if let Some(migrated) = store
+        .get(STORE_KEY)
+        .map(migrate_legacy_document)
+        .transpose()?
+        .flatten()
+    {
+        let directory = app
+            .path()
+            .app_data_dir()
+            .map_err(|error| error.to_string())?;
+        let original = fs::read(directory.join(STORE_PATH))
+            .map_err(|error| format!("备份旧设置失败：{error}"))?;
+        let backup = directory.join("settings.pre-v3.json");
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        match options.open(&backup) {
+            Ok(mut file) => {
+                file.write_all(&original)
+                    .and_then(|()| file.sync_all())
+                    .map_err(|error| format!("备份旧设置失败：{error}"))?;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                if fs::read(&backup).map_err(|error| error.to_string())? != original {
+                    return Err("旧设置备份与当前文件不同；未覆盖任何设置".to_owned());
+                }
+            }
+            Err(error) => return Err(format!("备份旧设置失败：{error}")),
+        }
+        // Copy before committing the document. A failed credential write leaves
+        // the old document and credentials intact, so the next launch can retry.
+        for (old, new) in [
+            ("doubao-api-key", VOLCENGINE_KEYRING_ACCOUNT),
+            (
+                "llm-api-key",
+                RecognitionProvider::Volcengine.llm_credential(),
+            ),
+        ] {
+            if read_secret(new)?.is_none()
+                && let Some(secret) = read_secret(old)?
+            {
+                write_secret(new, Some(&secret))?;
+            }
+        }
+        persist_document(app, store, migrated.clone())?;
+        migrated
+    } else {
+        document(&store)?
+    };
     load_document(&value)
 }
 
@@ -569,6 +651,38 @@ mod tests {
             restored.recognition.volcengine.hotword_draft,
             Some(vec!["newer".to_owned()])
         );
+    }
+
+    #[test]
+    fn public_settings_migrate_to_volcengine_without_losing_user_data() {
+        let legacy = json!({
+            "shortcut": "F13", "activationMode": "toggle", "microphoneId": "mic-id",
+            "onboardingCompleted": true, "openSettingsOnStartup": false,
+            "overlayPosition": "left", "hotwords": ["项目词"], "hotwordsEnabled": true,
+            "hotwordBinding": {"tableId": "owned-table", "limit": 5000},
+            "llm": {"enabled": true, "baseUrl": "https://example.com/v1",
+                "model": "chosen-model", "prompt": "保留术语", "apiKey": "discard-plaintext"}
+        });
+        let migrated = migrate_legacy_document(&legacy).unwrap().unwrap();
+        let (settings, binding) = decode_document(&migrated).unwrap();
+        assert_eq!(
+            settings.recognition.provider,
+            RecognitionProvider::Volcengine
+        );
+        assert_eq!(settings.shortcut, "F13");
+        assert_eq!(settings.activation_mode, ActivationMode::Toggle);
+        assert_eq!(settings.microphone_id, "mic-id");
+        assert!(settings.onboarding_completed);
+        assert!(!settings.open_settings_on_startup);
+        assert_eq!(settings.overlay_position, OverlayPosition::Left);
+        assert_eq!(settings.recognition.volcengine.hotwords, ["项目词"]);
+        assert!(settings.recognition.volcengine.hotwords_enabled);
+        assert_eq!(binding.unwrap().table_id, "owned-table");
+        assert_eq!(settings.recognition.llm().model, "chosen-model");
+        assert_eq!(settings.recognition.llm().prompt, "保留术语");
+        assert!(settings.recognition.llm().api_key.is_empty());
+        assert!(migrate_legacy_document(&migrated).unwrap().is_none());
+        assert!(migrate_legacy_document(&json!({})).unwrap().is_none());
     }
 
     #[test]
