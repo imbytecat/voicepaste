@@ -1,6 +1,7 @@
 export const SETTINGS_PATHS = {
   shortcut: "/settings/voice-input",
   recognition: "/settings/recognition",
+  dictionary: "/settings/dictionary",
   processing: "/settings/processing",
   general: "/settings/general",
   diagnostics: "/settings/diagnostics",

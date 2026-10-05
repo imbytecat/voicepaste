@@ -21,7 +21,7 @@ const SAVE_POLL_INTERVAL: Duration = Duration::from_millis(500);
 
 /// The cloud table VoicePaste manages, as persisted in the local store.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Binding {
     pub table_id: String,
     pub limit: usize,
@@ -80,6 +80,7 @@ pub enum SyncOutcome {
         action: SyncAction,
     },
     Conflict(Snapshot),
+    Rejected(String),
 }
 
 /// What `sync` has to do to make the cloud match the desired words.
@@ -139,6 +140,7 @@ pub fn normalize(words: Vec<String>) -> Result<Vec<String>, String> {
             normalized.push(word.to_owned());
         }
     }
+    validate(&normalized, &Limits::default())?;
     Ok(normalized)
 }
 
@@ -159,16 +161,36 @@ pub async fn sync(
     saved_words: &[String],
     desired_words: &[String],
     binding: Option<&Binding>,
-    force: bool,
+    reviewed: Option<&Snapshot>,
 ) -> Result<SyncOutcome, String> {
-    let client = client()?;
-    let state = load_with_client(
-        &client,
-        api_key,
-        binding.map(|binding| binding.table_id.as_str()),
-    )
-    .await?;
-    validate(desired_words, &state.limits)?;
+    let prepared = async {
+        let client = client()?;
+        let state = load_with_client(
+            &client,
+            api_key,
+            binding.map(|binding| binding.table_id.as_str()),
+        )
+        .await?;
+        validate(desired_words, &state.limits)?;
+        Ok::<_, String>((client, state))
+    }
+    .await;
+    let (client, state) = match prepared {
+        Ok(prepared) => prepared,
+        Err(error) => return Ok(SyncOutcome::Rejected(error)),
+    };
+    if reviewed.is_some_and(|reviewed| !matches_review(&state, reviewed))
+        || (reviewed.is_none()
+            && binding.is_some_and(|binding| {
+                state
+                    .table
+                    .as_ref()
+                    .is_some_and(|table| table.id != binding.table_id)
+            }))
+    {
+        return Ok(SyncOutcome::Conflict(snapshot(state)));
+    }
+    let force = reviewed.is_some();
 
     let remote_words = state.table.as_ref().map(|table| table.words.as_slice());
     let decision = plan(
@@ -231,6 +253,20 @@ pub async fn sync(
         snapshot: snapshot(state),
         action,
     })
+}
+
+fn matches_review(state: &CloudState, reviewed: &Snapshot) -> bool {
+    state.table.as_ref().map(|table| table.id.as_str())
+        == reviewed
+            .binding
+            .as_ref()
+            .map(|binding| binding.table_id.as_str())
+        && state
+            .table
+            .as_ref()
+            .map_or(&[][..], |table| table.words.as_slice())
+            == reviewed.words
+        && state.limits.table == reviewed.limit
 }
 
 /// Pure decision: what the cloud state, the last saved words and the desired
@@ -320,20 +356,11 @@ async fn load_with_client(
     let tables = list
         .pointer("/Result/BoostingTables")
         .and_then(Value::as_array)
-        .map_or(&[][..], Vec::as_slice);
-
-    // Prefer the table we are bound to; fall back to the name we create under.
-    let managed = table_id
-        .and_then(|table_id| {
-            tables.iter().position(|table| {
-                string_field(table, "BoostingTableID").as_deref() == Some(table_id)
-            })
-        })
-        .or_else(|| {
-            tables.iter().position(|table| {
-                string_field(table, "BoostingTableName").as_deref() == Some(TABLE_NAME)
-            })
-        });
+        .ok_or("云端常用词列表缺失或格式无效，未修改任何词表")?;
+    if tables.len() >= 500 {
+        return Err("云端词表列表可能不完整，无法安全确定受管理词表".to_owned());
+    }
+    let managed = managed_table_index(tables, table_id)?;
     let foreign_tables: Vec<ForeignTable> = tables
         .iter()
         .enumerate()
@@ -360,17 +387,7 @@ async fn load_with_client(
             let summary = &tables[index];
             Ok::<_, String>(RemoteTable {
                 id: required_string(summary, "BoostingTableID", "云端常用词表缺少 ID")?,
-                words: summary
-                    .get("Preview")
-                    .and_then(Value::as_array)
-                    .map(|words| {
-                        words
-                            .iter()
-                            .filter_map(Value::as_str)
-                            .filter_map(parse_word)
-                            .collect()
-                    })
-                    .unwrap_or_default(),
+                words: complete_preview(summary)?,
             })
         })
         .transpose()?;
@@ -380,6 +397,47 @@ async fn load_with_client(
         table,
         foreign_tables,
     })
+}
+
+fn managed_table_index(tables: &[Value], binding: Option<&str>) -> Result<Option<usize>, String> {
+    if let Some(index) = binding.and_then(|id| {
+        tables
+            .iter()
+            .position(|table| string_field(table, "BoostingTableID").as_deref() == Some(id))
+    }) {
+        if string_field(&tables[index], "BoostingTableName").as_deref() != Some(TABLE_NAME) {
+            return Err("绑定词表已不属于 VoicePaste，未修改云端数据".to_owned());
+        }
+        return Ok(Some(index));
+    }
+    let mut candidates = tables.iter().enumerate().filter(|(_, table)| {
+        string_field(table, "BoostingTableName").as_deref() == Some(TABLE_NAME)
+    });
+    let selected = candidates.next().map(|(index, _)| index);
+    if candidates.next().is_some() {
+        return Err("找到多张 VoicePaste 词表，无法安全确定归属；未修改云端数据".to_owned());
+    }
+    Ok(selected)
+}
+
+fn complete_preview(summary: &Value) -> Result<Vec<String>, String> {
+    let count = usize_field(summary, "WordCount").ok_or("云端常用词表缺少有效词数")?;
+    let preview = summary
+        .get("Preview")
+        .and_then(Value::as_array)
+        .ok_or("云端常用词快照缺失，无法安全读取或覆盖")?;
+    let words: Vec<String> = preview
+        .iter()
+        .map(|word| {
+            word.as_str()
+                .and_then(parse_word)
+                .ok_or("云端常用词快照包含无效条目".to_owned())
+        })
+        .collect::<Result<_, _>>()?;
+    if count != words.len() {
+        return Err("云端常用词快照不完整，未修改任何词条".to_owned());
+    }
+    Ok(words)
 }
 
 async fn create_table(
@@ -509,15 +567,23 @@ async fn send(action: &str, request: RequestBuilder) -> Result<Value, String> {
     parse_response(action, response).await
 }
 
-async fn parse_response(action: &str, response: reqwest::Response) -> Result<Value, String> {
+async fn parse_response(action: &str, mut response: reqwest::Response) -> Result<Value, String> {
+    const MAX_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
     let status = response.status();
-    let text = response.text().await.map_err(|error| {
-        log::error!("hotwords: {action} response unreadable: {error}");
-        format!("读取豆包常用词响应失败：{error}")
-    })?;
-    let value: Value = serde_json::from_str(&text).map_err(|error| {
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|error| format!("读取火山常用词响应失败：{error}"))?
+    {
+        if chunk.len() > MAX_RESPONSE_BYTES - bytes.len() {
+            return Err("火山常用词响应过大，未继续处理".to_owned());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    let value: Value = serde_json::from_slice(&bytes).map_err(|error| {
         log::error!("hotwords: {action} returned invalid JSON (HTTP {status}): {error}");
-        format!("豆包常用词服务返回了无效响应（{action}，HTTP {status}）：{error}")
+        format!("火山常用词服务返回了无效响应（{action}，HTTP {status}）：{error}")
     })?;
     if !status.is_success() || value.pointer("/ResponseMetadata/Error").is_some() {
         let code = value
@@ -627,6 +693,73 @@ fn scalar(value: &Value) -> String {
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn preflight_failure_is_not_an_uncertain_cloud_write() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let outcome = sync(
+            "invalid\r\nkey",
+            &[],
+            &["VoicePaste".to_owned()],
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        assert!(matches!(outcome, SyncOutcome::Rejected(_)));
+    }
+
+    #[test]
+    fn refuses_ambiguous_or_foreign_managed_tables_and_partial_snapshots() {
+        let first = json!({"BoostingTableID": "one", "BoostingTableName": TABLE_NAME,
+            "WordCount": 2, "Preview": ["first|10"]});
+        let second = json!({"BoostingTableID": "two", "BoostingTableName": TABLE_NAME});
+        assert!(managed_table_index(&[first.clone(), second.clone()], None).is_err());
+        assert_eq!(
+            managed_table_index(&[first.clone(), second], Some("one")).unwrap(),
+            Some(0)
+        );
+        assert!(
+            managed_table_index(
+                &[json!({"BoostingTableID": "one", "BoostingTableName": "OtherApp"})],
+                Some("one")
+            )
+            .is_err()
+        );
+        assert!(complete_preview(&first).is_err());
+        assert!(complete_preview(&json!({"WordCount": 1, "Preview": [42]})).is_err());
+        assert_eq!(
+            complete_preview(&json!({"WordCount": 1, "Preview": ["word|10"]})).unwrap(),
+            ["word"]
+        );
+    }
+
+    #[test]
+    fn reviewed_overwrite_is_bound_to_exact_words_and_table_identity() {
+        let mut state = CloudState {
+            app_id: None,
+            limits: Limits::default(),
+            table: Some(RemoteTable {
+                id: "one".to_owned(),
+                words: words(&["original"]),
+            }),
+            foreign_tables: Vec::new(),
+        };
+        let reviewed = Snapshot {
+            binding: Some(Binding {
+                table_id: "one".to_owned(),
+                limit: DEFAULT_TABLE_LIMIT,
+            }),
+            words: words(&["original"]),
+            ..Snapshot::default()
+        };
+        assert!(matches_review(&state, &reviewed));
+        state.table.as_mut().unwrap().words = words(&["concurrent"]);
+        assert!(!matches_review(&state, &reviewed));
+        state.table.as_mut().unwrap().words = reviewed.words.clone();
+        state.table.as_mut().unwrap().id = "replacement".to_owned();
+        assert!(!matches_review(&state, &reviewed));
+    }
+
     fn words(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| (*value).to_owned()).collect()
     }
@@ -650,7 +783,7 @@ mod tests {
     }
 
     #[test]
-    fn normalizes_cloud_words_without_inline_total_limit() {
+    fn normalizes_and_deduplicates_cloud_words() {
         let words = (0..150).map(|index| format!("词{index}")).collect();
         assert_eq!(normalize(words).unwrap().len(), 150);
         assert_eq!(
@@ -665,9 +798,19 @@ mod tests {
     }
 
     #[test]
-    fn rejects_cloud_format_control_characters() {
+    fn rejects_invalid_format_and_word_count_character_and_byte_overflow() {
         assert!(normalize(vec!["Visual Studio".into()]).is_err());
         assert!(normalize(vec!["VoicePaste|10".into()]).is_err());
+        assert!(normalize(vec!["abcdefghijk".into()]).is_err());
+        assert!(normalize(vec!["\u{10400}".repeat(8)]).is_err());
+        assert!(
+            normalize(
+                (0..=DEFAULT_TABLE_LIMIT)
+                    .map(|index| format!("词{index}"))
+                    .collect()
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -821,15 +964,6 @@ mod tests {
                 "{name}"
             );
         }
-    }
-
-    #[test]
-    fn reads_bindings_persisted_before_revision_was_dropped() {
-        let binding: Binding =
-            serde_json::from_value(json!({"tableId": "table-id", "revision": "2024", "limit": 42}))
-                .unwrap();
-        assert_eq!(binding.table_id, "table-id");
-        assert_eq!(binding.limit, 42);
     }
 
     #[test]

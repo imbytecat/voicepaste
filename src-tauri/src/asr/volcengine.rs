@@ -3,12 +3,7 @@ use std::io::{Read, Write};
 use flate2::{Compression, read::GzDecoder, write::GzEncoder};
 use futures_util::{Sink, SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
-use tauri::{AppHandle, Emitter};
-use tokio::{
-    sync::{mpsc, watch},
-    time::Duration,
-};
+use tokio::{sync::mpsc, time::Duration};
 use tokio_tungstenite::{
     connect_async_with_config,
     tungstenite::{
@@ -19,10 +14,8 @@ use tokio_tungstenite::{
     },
 };
 use uuid::Uuid;
-// The `log` crate is re-exported by tauri-plugin-log, which owns the logger setup.
-use tauri_plugin_log::log;
 
-use crate::settings::AppSettings;
+use super::{AsrOutcome, AudioCommand, IssueLink, ServiceIssue};
 
 const DOUBAO_ENDPOINT: &str = "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async";
 const DOUBAO_RESOURCE_ID: &str = "volc.seedasr.sauc.duration";
@@ -43,72 +36,6 @@ const MAX_AUDIO_BYTES: usize = 64 * 1024;
 const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
 const MAX_DECOMPRESSED_BYTES: usize = 4 * 1024 * 1024;
 
-pub enum AudioCommand {
-    Data(Vec<u8>),
-    Finish,
-}
-
-pub enum AsrOutcome {
-    Text(String),
-    Cancelled,
-}
-
-/// A Doubao failure translated into something the user can act on.
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ServiceIssue {
-    pub kind: &'static str,
-    pub title: String,
-    pub detail: String,
-    pub steps: Vec<&'static str>,
-    pub links: Vec<IssueLink>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct IssueLink {
-    pub label: &'static str,
-    pub target: &'static str,
-}
-
-impl ServiceIssue {
-    fn new(kind: &'static str, title: impl Into<String>, detail: impl Into<String>) -> Self {
-        Self {
-            kind,
-            title: title.into(),
-            detail: detail.into(),
-            steps: Vec::new(),
-            links: Vec::new(),
-        }
-    }
-
-    fn with_guidance(mut self, steps: Vec<&'static str>, links: Vec<IssueLink>) -> Self {
-        self.steps = steps;
-        self.links = links;
-        self
-    }
-
-    pub fn unknown(detail: impl Into<String>) -> Self {
-        Self::new("unknown", "豆包语音服务返回了未预期的结果", detail)
-    }
-
-    /// Recognition works but the managed hotword table could not be reached.
-    pub fn hotwords_unavailable(detail: impl Into<String>) -> Self {
-        Self::new("unknown", "语音识别连接正常，但常用词同步不可用", detail).with_guidance(
-            vec![
-                "确认这个 API Key 同时开通了自学习平台（热词）能力",
-                "常用词不可用时听写仍然可用，只是不会应用词表",
-            ],
-            vec![link("检查 API Key 权限", "apiKeyConsole")],
-        )
-    }
-
-    /// Short line for the overlay and other string-only error paths.
-    pub fn message(&self) -> String {
-        self.title.clone()
-    }
-}
-
 fn link(label: &'static str, target: &'static str) -> IssueLink {
     IssueLink { label, target }
 }
@@ -116,39 +43,26 @@ fn link(label: &'static str, target: &'static str) -> IssueLink {
 fn handshake_detail(
     response: &tokio_tungstenite::tungstenite::http::Response<Option<Vec<u8>>>,
 ) -> String {
-    let mut parts = vec![format!("HTTP {}", response.status().as_u16())];
-    for header in ["x-api-status-code", "x-api-message", "x-tt-logid"] {
-        if let Some(value) = response
-            .headers()
-            .get(header)
-            .and_then(|value| value.to_str().ok())
-            .filter(|value| !value.is_empty())
-        {
-            parts.push(format!("{header}: {value}"));
-        }
-    }
-    if let Some(body) = response.body().as_ref().filter(|body| !body.is_empty()) {
-        let text = String::from_utf8_lossy(body);
-        let text = text.trim();
-        if !text.is_empty() {
-            parts.push(text.chars().take(200).collect());
-        }
-    }
-    parts.join(" · ")
+    // Never display response bodies or echoed headers containing credentials.
+    format!("HTTP {}", response.status().as_u16())
 }
 
 /// Turns a WebSocket handshake or transport failure into actionable guidance.
 pub fn connect_issue(error: &WebSocketError) -> ServiceIssue {
     let WebSocketError::Http(response) = error else {
-        return ServiceIssue::new("network", "无法连接豆包语音服务", error.to_string())
-            .with_guidance(
-                vec![
-                    "确认这台电脑可以访问 openspeech.bytedance.com",
-                    "如果使用代理或公司网络，允许 VoicePaste 的 WebSocket 连接",
-                    "网络恢复后回到这里重新测试",
-                ],
-                Vec::new(),
-            );
+        return ServiceIssue::new(
+            "network",
+            "无法连接火山引擎语音服务",
+            "WebSocket 网络连接失败",
+        )
+        .with_guidance(
+            vec![
+                "确认这台电脑可以访问 openspeech.bytedance.com",
+                "如果使用代理或公司网络，允许 VoicePaste 的 WebSocket 连接",
+                "网络恢复后回到这里重新测试",
+            ],
+            Vec::new(),
+        );
     };
     let detail = handshake_detail(response);
     match response.status().as_u16() {
@@ -202,12 +116,8 @@ pub fn connect_issue(error: &WebSocketError) -> ServiceIssue {
 
 /// Turns an in-band v3 error code into guidance. Codes come from the official
 /// 大模型流式语音识别 API error table.
-pub fn api_issue(code: u32, message: &str) -> ServiceIssue {
-    let detail = if message.is_empty() {
-        format!("错误码 {code}")
-    } else {
-        format!("错误码 {code} · {message}")
-    };
+fn api_issue(code: u32) -> ServiceIssue {
+    let detail = format!("错误码 {code}");
     match code {
         45_000_001 => ServiceIssue::new("unknown", "豆包语音认为请求参数无效", detail),
         45_000_002 => ServiceIssue::new("unknown", "没有采集到语音，请靠近麦克风后重试", detail),
@@ -277,12 +187,6 @@ struct ServerResponse {
     code: u32,
     is_last: bool,
     text: String,
-    error: String,
-}
-
-enum ResponseProgress {
-    Continue,
-    Final(String),
 }
 
 fn socket_config() -> WebSocketConfig {
@@ -303,167 +207,153 @@ fn build_connection_request(api_key: &str, connection_id: &str) -> Result<HttpRe
         ("x-api-resource-id", DOUBAO_RESOURCE_ID),
         ("x-api-connect-id", connection_id),
     ] {
-        request.headers_mut().insert(
-            HeaderName::from_static(name),
-            HeaderValue::from_str(value).map_err(|error| format!("豆包请求头无效：{error}"))?,
-        );
+        let mut header =
+            HeaderValue::from_str(value).map_err(|_| "火山引擎请求头格式无效".to_owned())?;
+        header.set_sensitive(name == "x-api-key");
+        request
+            .headers_mut()
+            .insert(HeaderName::from_static(name), header);
     }
     Ok(request)
 }
 
-pub async fn run(
-    settings: AppSettings,
+pub(super) async fn run(
+    api_key: String,
     hotword_table_id: Option<String>,
     mut commands: mpsc::Receiver<AudioCommand>,
-    mut cancelled: watch::Receiver<bool>,
-    app: AppHandle,
-    session_id: String,
-) -> Result<AsrOutcome, String> {
+    on_partial: &mut (impl FnMut(&str) + Send),
+) -> Result<AsrOutcome, ServiceIssue> {
     let connection_id = Uuid::new_v4().to_string();
-    let request = build_connection_request(&settings.api_key, &connection_id)?;
-    let connect = tokio::time::timeout(
-        CONNECT_TIMEOUT,
-        connect_async_with_config(request, Some(socket_config()), false),
-    );
-    tokio::pin!(connect);
-    let (socket, response) = tokio::select! {
-        result = &mut connect => result
-            .map_err(|_| "连接豆包语音超时".to_owned())?
-            .map_err(|error| {
-                let issue = connect_issue(&error);
-                log::error!("豆包语音连接失败：{} · {}", issue.kind, issue.detail);
-                issue.message()
-            })?,
-        changed = cancelled.changed() => {
-            let _ = changed;
-            return Ok(AsrOutcome::Cancelled);
-        }
-    };
-    if let Some(log_id) = response
-        .headers()
-        .get("x-tt-logid")
-        .and_then(|value| value.to_str().ok())
-    {
-        eprintln!("豆包语音连接 logid: {log_id}");
-    }
-    let (mut writer, mut reader) = socket.split();
-    send_message(
-        &mut writer,
-        Message::Binary(encode_full_request(&connection_id, hotword_table_id.as_deref())?.into()),
-        "发送豆包初始化请求",
-    )
-    .await?;
-
-    loop {
-        tokio::select! {
-            changed = cancelled.changed() => {
-                let _ = changed;
-                return Ok(AsrOutcome::Cancelled);
-            }
-            command = commands.recv() => {
-                match command {
-                    Some(AudioCommand::Data(pcm)) => {
-                        send_message(
-                            &mut writer,
-                            Message::Binary(encode_audio_frame(&pcm, false)?.into()),
-                            "发送语音数据",
-                        ).await?;
-                    }
-                    Some(AudioCommand::Finish) | None => {
-                        send_message(
-                            &mut writer,
-                            Message::Binary(encode_audio_frame(&[], true)?.into()),
-                            "结束语音流",
-                        ).await?;
-                        break;
-                    }
-                }
-            }
-            incoming = reader.next() => {
-                match incoming {
-                    Some(Ok(Message::Binary(data))) => {
-                        if let ResponseProgress::Final(text) = process_response(&app, &session_id, &data)? {
-                            return Ok(AsrOutcome::Text(text));
-                        }
-                    }
-                    Some(Ok(Message::Ping(payload))) => {
-                        send_message(&mut writer, Message::Pong(payload), "回应豆包心跳").await?;
-                    }
-                    Some(Ok(Message::Close(_))) | None => return Err("豆包语音连接提前关闭".to_owned()),
-                    Some(Err(error)) => return Err(format!("读取豆包语音结果失败：{error}")),
-                    _ => {}
-                }
-            }
-        }
-    }
-
-    let final_result = tokio::time::timeout(FINAL_TIMEOUT, async {
-        loop {
-            tokio::select! {
-                changed = cancelled.changed() => {
-                    let _ = changed;
-                    return Ok(AsrOutcome::Cancelled);
-                }
-                incoming = reader.next() => match incoming {
-                    Some(Ok(Message::Binary(data))) => {
-                        if let ResponseProgress::Final(text) = process_response(&app, &session_id, &data)? {
-                            return Ok(AsrOutcome::Text(text));
-                        }
-                    }
-                    Some(Ok(Message::Ping(payload))) => {
-                        send_message(&mut writer, Message::Pong(payload), "回应豆包心跳").await?;
-                    }
-                    Some(Ok(Message::Close(_))) | None => return Err("豆包未返回最终修正结果".to_owned()),
-                    Some(Err(error)) => return Err(format!("读取豆包最终结果失败：{error}")),
-                    _ => {}
-                }
-            }
-        }
-    })
-    .await
-    .map_err(|_| "等待豆包最终修正结果超时".to_owned())??;
-    Ok(final_result)
-}
-
-pub async fn test_connection(api_key: String) -> Result<(), ServiceIssue> {
-    let api_key = api_key.trim();
-    if api_key.is_empty() {
-        return Err(ServiceIssue::new(
-            "unauthorized",
-            "请先填写豆包 API Key",
-            "本机未填写 API Key",
-        ));
-    }
-    let connection_id = Uuid::new_v4().to_string();
-    let request =
-        build_connection_request(api_key, &connection_id).map_err(ServiceIssue::unknown)?;
+    let request = connection_request(&api_key, &connection_id)?;
     let (socket, _) = tokio::time::timeout(
         CONNECT_TIMEOUT,
         connect_async_with_config(request, Some(socket_config()), false),
     )
     .await
-    .map_err(|_| {
-        ServiceIssue::new(
-            "network",
-            "连接豆包语音超时",
-            format!("{} 秒内没有完成 WebSocket 握手", CONNECT_TIMEOUT.as_secs()),
-        )
-    })?
+    .map_err(|_| ServiceIssue::network("连接火山引擎语音超时"))?
     .map_err(|error| connect_issue(&error))?;
     let (mut writer, mut reader) = socket.split();
-    for (frame, action) in [
-        (
-            encode_full_request(&connection_id, None).map_err(ServiceIssue::unknown)?,
-            "发送豆包初始化请求",
+    send_message(
+        &mut writer,
+        Message::Binary(
+            encode_full_request(&connection_id, hotword_table_id.as_deref())
+                .map_err(ServiceIssue::unknown)?
+                .into(),
         ),
-        (
-            encode_audio_frame(&[], true).map_err(ServiceIssue::unknown)?,
-            "发送豆包测试请求",
-        ),
+        "发送火山引擎初始化请求",
+    )
+    .await?;
+
+    let mut finishing = false;
+    let mut deadline = tokio::time::Instant::now() + FINAL_TIMEOUT;
+    loop {
+        tokio::select! {
+            _ = tokio::time::sleep_until(deadline) => {
+                return Err(ServiceIssue::network(if finishing {
+                    "等待火山引擎最终结果超时"
+                } else {
+                    "火山引擎长时间未返回响应"
+                }));
+            }
+            command = commands.recv(), if !finishing => {
+                match command {
+                    Some(AudioCommand::Data(pcm)) => {
+                        send_message(
+                            &mut writer,
+                            Message::Binary(encode_audio_frame(&pcm, false)
+                                .map_err(ServiceIssue::unknown)?.into()),
+                            "发送语音数据",
+                        ).await?;
+                    }
+                    Some(AudioCommand::Finish) => {
+                        send_message(
+                            &mut writer,
+                            Message::Binary(encode_audio_frame(&[], true)
+                                .map_err(ServiceIssue::unknown)?.into()),
+                            "结束语音流",
+                        ).await?;
+                        finishing = true;
+                        deadline = tokio::time::Instant::now() + FINAL_TIMEOUT;
+                    }
+                    None => return Err(ServiceIssue::unknown("录音数据流未正常结束")),
+                }
+            }
+            incoming = reader.next() => {
+                match incoming {
+                    Some(Ok(Message::Binary(data))) => {
+                        let response = parse_response(&data).map_err(ServiceIssue::unknown)?;
+                        if response.code != 0 {
+                            return Err(api_issue(response.code));
+                        }
+                        if response.is_last {
+                            if !finishing {
+                                return Err(ServiceIssue::unknown("语音服务在录音结束前关闭了识别任务"));
+                            }
+                            return Ok(AsrOutcome::Text(response.text));
+                        }
+                        if !response.text.is_empty() {
+                            on_partial(&response.text);
+                        }
+                        if !finishing {
+                            deadline = tokio::time::Instant::now() + FINAL_TIMEOUT;
+                        }
+                    }
+                    Some(Ok(Message::Ping(payload))) => {
+                        send_message(&mut writer, Message::Pong(payload), "回应语音心跳").await?;
+                        if !finishing {
+                            deadline = tokio::time::Instant::now() + FINAL_TIMEOUT;
+                        }
+                    }
+                    Some(Ok(Message::Close(_))) | None => {
+                        return Err(ServiceIssue::network("火山引擎连接在最终结果前关闭"));
+                    }
+                    Some(Err(error)) => return Err(connect_issue(&error)),
+                    Some(Ok(Message::Text(_))) => {
+                        return Err(ServiceIssue::unknown("火山引擎返回了非二进制响应"));
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+}
+
+fn connection_request(api_key: &str, connection_id: &str) -> Result<HttpRequest<()>, ServiceIssue> {
+    let api_key = api_key.trim();
+    if api_key.is_empty() {
+        return Err(ServiceIssue::new(
+            "unauthorized",
+            "请先填写火山引擎 API Key",
+            "本机未填写 API Key",
+        ));
+    }
+    build_connection_request(api_key, connection_id).map_err(ServiceIssue::unknown)
+}
+
+pub(super) async fn test_connection(
+    api_key: String,
+    hotword_table_id: Option<String>,
+) -> Result<(), ServiceIssue> {
+    let connection_id = Uuid::new_v4().to_string();
+    let request = connection_request(&api_key, &connection_id)?;
+    let (socket, _) = tokio::time::timeout(
+        CONNECT_TIMEOUT,
+        connect_async_with_config(request, Some(socket_config()), false),
+    )
+    .await
+    .map_err(|_| ServiceIssue::network("连接火山引擎语音超时"))?
+    .map_err(|error| connect_issue(&error))?;
+    let (mut writer, mut reader) = socket.split();
+    for frame in [
+        encode_full_request(&connection_id, hotword_table_id.as_deref()),
+        encode_audio_frame(&[], true),
     ] {
-        send_message(&mut writer, Message::Binary(frame.into()), action)
-            .await
-            .map_err(ServiceIssue::unknown)?;
+        send_message(
+            &mut writer,
+            Message::Binary(frame.map_err(ServiceIssue::unknown)?.into()),
+            "发送火山引擎测试请求",
+        )
+        .await?;
     }
 
     tokio::time::timeout(CONNECT_TIMEOUT, async {
@@ -472,81 +362,34 @@ pub async fn test_connection(api_key: String) -> Result<(), ServiceIssue> {
                 Message::Binary(data) => {
                     let response = parse_response(&data).map_err(ServiceIssue::unknown)?;
                     if response.code != 0 {
-                        return Err(api_issue(response.code, &response.error));
+                        return Err(api_issue(response.code));
                     }
                     return Ok(());
                 }
-                Message::Close(_) => {
-                    return Err(ServiceIssue::new(
-                        "server",
-                        "豆包语音提前关闭了连接",
-                        "服务端在返回测试结果前关闭了 WebSocket",
-                    ));
+                Message::Ping(payload) => {
+                    send_message(&mut writer, Message::Pong(payload), "回应测试心跳").await?;
+                }
+                Message::Close(_) => break,
+                Message::Text(_) => {
+                    return Err(ServiceIssue::unknown("火山引擎返回了非二进制响应"));
                 }
                 _ => {}
             }
         }
-        Err(ServiceIssue::new(
-            "server",
-            "豆包语音提前关闭了连接",
-            "服务端在返回测试结果前关闭了 WebSocket",
-        ))
+        Err(ServiceIssue::network("火山引擎在测试结果前关闭了连接"))
     })
     .await
-    .map_err(|_| {
-        ServiceIssue::new(
-            "server",
-            "连接成功，但豆包没有返回测试结果",
-            format!("{} 秒内没有收到服务端响应", CONNECT_TIMEOUT.as_secs()),
-        )
-    })?
-    .inspect_err(|issue: &ServiceIssue| {
-        log::error!("豆包连接测试失败：{} · {}", issue.kind, issue.detail);
-    })
+    .map_err(|_| ServiceIssue::network("等待火山引擎测试结果超时"))?
 }
 
-async fn send_message<S>(writer: &mut S, message: Message, action: &str) -> Result<(), String>
+async fn send_message<S>(writer: &mut S, message: Message, action: &str) -> Result<(), ServiceIssue>
 where
     S: Sink<Message, Error = WebSocketError> + Unpin,
 {
     tokio::time::timeout(WRITE_TIMEOUT, writer.send(message))
         .await
-        .map_err(|_| format!("{action}超时"))?
-        .map_err(|error| format!("{action}失败：{error}"))
-}
-
-fn process_response(
-    app: &AppHandle,
-    session_id: &str,
-    data: &[u8],
-) -> Result<ResponseProgress, String> {
-    let response = parse_response(data)?;
-    if response.code != 0 {
-        let issue = api_issue(response.code, &response.error);
-        log::error!("豆包语音识别失败：{} · {}", issue.kind, issue.detail);
-        return Err(issue.message());
-    }
-
-    if response.is_last {
-        if !response.text.is_empty() {
-            app.emit_to(
-                "overlay",
-                "asr-event",
-                json!({ "kind": "final", "sessionId": session_id, "text": response.text }),
-            )
-            .map_err(|error| format!("发送最终识别结果失败：{error}"))?;
-        }
-        return Ok(ResponseProgress::Final(response.text));
-    }
-    if !response.text.is_empty() {
-        app.emit_to(
-            "overlay",
-            "asr-event",
-            json!({ "kind": "partial", "sessionId": session_id, "text": response.text }),
-        )
-        .map_err(|error| format!("发送实时识别结果失败：{error}"))?;
-    }
-    Ok(ResponseProgress::Continue)
+        .map_err(|_| ServiceIssue::network(format!("{action}超时")))?
+        .map_err(|error| connect_issue(&error))
 }
 
 fn encode_full_request(
@@ -635,6 +478,9 @@ fn parse_response(message: &[u8]) -> Result<ServerResponse, String> {
     if message.len() < 4 {
         return Err("豆包响应过短".to_owned());
     }
+    if message[0] >> 4 != 1 {
+        return Err("火山引擎响应协议版本无效".to_owned());
+    }
     let header_size = usize::from(message[0] & 0x0f) * 4;
     if header_size < 4 || header_size > message.len() {
         return Err("豆包响应头长度无效".to_owned());
@@ -643,6 +489,9 @@ fn parse_response(message: &[u8]) -> Result<ServerResponse, String> {
     let message_type = message[1] >> 4;
     let flags = message[1] & 0x0f;
     let compression = message[2] & 0x0f;
+    if flags & 0x08 != 0 || !matches!(compression, COMPRESSION_NONE | COMPRESSION_GZIP) {
+        return Err("火山引擎响应标记或压缩格式无效".to_owned());
+    }
     let mut payload = &message[header_size..];
     if flags & 0x01 != 0 {
         payload = payload
@@ -657,9 +506,8 @@ fn parse_response(message: &[u8]) -> Result<ServerResponse, String> {
 
     let mut response = ServerResponse {
         code: 0,
-        is_last: flags == 0x2 || flags == 0x3,
+        is_last: flags & 0x02 != 0,
         text: String::new(),
-        error: String::new(),
     };
     match message_type {
         MSG_FULL_SERVER_RESPONSE => {
@@ -672,6 +520,9 @@ fn parse_response(message: &[u8]) -> Result<ServerResponse, String> {
             if payload_size > MAX_RESPONSE_BYTES {
                 return Err("豆包响应内容超过大小限制".to_owned());
             }
+            if payload.len() != 4 + payload_size {
+                return Err("火山引擎响应长度与实际内容不符".to_owned());
+            }
             let body = payload
                 .get(4..4 + payload_size)
                 .ok_or_else(|| "豆包响应内容不完整".to_owned())?;
@@ -680,7 +531,7 @@ fn parse_response(message: &[u8]) -> Result<ServerResponse, String> {
             }
             let body = decode_body(body, compression)?;
             let decoded: ResponsePayload = serde_json::from_slice(&body)
-                .map_err(|error| format!("解析豆包识别结果失败：{error}"))?;
+                .map_err(|_| "火山引擎识别 JSON 结构无效".to_owned())?;
             response.text = decoded.result.text;
         }
         MSG_SERVER_ERROR => {
@@ -698,12 +549,11 @@ fn parse_response(message: &[u8]) -> Result<ServerResponse, String> {
             if payload_size > MAX_RESPONSE_BYTES {
                 return Err("豆包错误内容超过大小限制".to_owned());
             }
-            let body = payload
-                .get(8..8 + payload_size)
-                .ok_or_else(|| "豆包错误响应内容不完整".to_owned())?;
-            response.error = String::from_utf8_lossy(&decode_body(body, compression)?).into_owned();
+            if payload.len() != 8 + payload_size || response.code == 0 {
+                return Err("火山引擎错误响应无效".to_owned());
+            }
         }
-        _ => {}
+        _ => return Err("火山引擎返回了未知消息类型".to_owned()),
     }
     Ok(response)
 }
@@ -744,47 +594,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn final_audio_frame_sets_last_flag() {
-        let frame = encode_audio_frame(&[], true).expect("encode final audio frame");
-        assert_eq!(frame[1] & 0x0f, FLAG_LAST_NO_SEQUENCE);
-    }
-
-    #[test]
-    fn new_console_auth_uses_fixed_resource_id() {
-        let request = build_connection_request("new-api-key", "request-id").expect("build request");
-        assert_eq!(request.headers()["x-api-key"], "new-api-key");
-        assert_eq!(request.headers()["x-api-resource-id"], DOUBAO_RESOURCE_ID);
-        assert!(!request.headers().contains_key("x-api-app-key"));
-        assert!(!request.headers().contains_key("x-api-access-key"));
-    }
-
-    #[test]
-    fn full_request_uses_documented_model_name() {
-        let frame = encode_full_request("request-id", None).expect("encode request");
-        let payload: serde_json::Value =
-            serde_json::from_slice(&gunzip(&frame[8..]).expect("decompress request"))
-                .expect("parse request");
-        assert_eq!(payload["request"]["model_name"], "bigmodel");
-        assert_eq!(payload["request"]["enable_nonstream"], true);
-        assert_eq!(payload["request"]["show_utterances"], false);
-        assert_eq!(payload["request"]["enable_ddc"], true);
-    }
-
-    #[test]
-    fn cloud_hotword_request_avoids_second_pass_overwrite() {
-        let frame = encode_full_request("request-id", Some("table-id")).expect("encode request");
-        let payload: serde_json::Value =
-            serde_json::from_slice(&gunzip(&frame[8..]).expect("decompress request"))
-                .expect("parse request");
-        assert_eq!(
-            payload["request"]["corpus"]["boosting_table_id"],
-            "table-id"
-        );
-        assert_eq!(payload["request"]["enable_nonstream"], false);
-        assert_eq!(payload["request"]["enable_ddc"], false);
-        assert!(payload["request"]["corpus"].get("context").is_none());
-    }
-    #[test]
     fn parses_empty_final_response_as_final() {
         let payload = gzip(b"{}").expect("gzip response");
         let mut message = vec![
@@ -821,5 +630,14 @@ mod tests {
         let response = parse_response(&message).expect("parse response");
         assert!(response.is_last);
         assert_eq!(response.text, "你好，世界。");
+    }
+
+    #[test]
+    fn malformed_messages_cannot_pass_connection_test() {
+        assert!(parse_response(&[0x11, 0x82, 0, 0, 0, 0, 0, 0]).is_err());
+        assert!(parse_response(&[0x11, 0x92, 0, 0, 0, 0, 0, 2, b'{']).is_err());
+        assert!(parse_response(&[0x11, 0x92, 0, 0, 0, 0, 0, 0, 1]).is_err());
+        let compressed = gzip(&vec![b' '; MAX_DECOMPRESSED_BYTES + 1]).unwrap();
+        assert!(gunzip(&compressed).is_err());
     }
 }

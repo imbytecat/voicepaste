@@ -1,4 +1,4 @@
-import type { HotwordAction, HotwordSyncState } from "@/types";
+import type { HotwordAction } from "@/types";
 
 const UTF8_ENCODER = new TextEncoder();
 const CHARACTER_SEGMENTER = new Intl.Segmenter("zh", {
@@ -26,6 +26,8 @@ export function normalizeHotwords(value: string, limit: number): string[] {
     );
   for (const word of hotwords) {
     if (/\s/u.test(word)) throw new Error(`常用词“${word}”不能包含空格`);
+    if (/\p{Cc}/u.test(word))
+      throw new Error(`常用词“${word}”不能包含控制字符`);
     if (
       [...CHARACTER_SEGMENTER.segment(word)].length > 10 ||
       UTF8_ENCODER.encode(word).length > 30
@@ -48,30 +50,61 @@ export function hotwordDiff(
   };
 }
 
-export function hotwordChip(input: {
-  state: HotwordSyncState;
-  syncing: boolean;
-  failed: boolean;
-  local: string[];
-  cloud: string[];
-}): {
-  label: string;
-  tone: "synced" | "dirty" | "error" | "neutral" | "syncing";
-} {
-  if (input.syncing) return { label: "正在同步", tone: "syncing" };
-  if (input.failed) return { label: "同步失败", tone: "error" };
-  if (input.state === "unknown") return { label: "检查中…", tone: "neutral" };
-  const { onlyCloud, onlyLocal } = hotwordDiff(input.local, input.cloud);
-  if (onlyCloud.length > 0 || onlyLocal.length > 0)
-    return { label: "待同步", tone: "dirty" };
-  if (input.state === "disabled")
-    return {
-      label: `云端保留 ${input.cloud.length} 词 · 识别时不使用`,
-      tone: "neutral",
+export function replayHotwordChanges(
+  baseline: string[],
+  draft: string[],
+  cloud: string[]
+): string[] {
+  const { onlyLocal: added, onlyCloud: removed } = hotwordDiff(draft, baseline);
+  const removedKeys = new Set(removed.map((word) => word.toLocaleLowerCase()));
+  return uniqueHotwords(
+    [
+      ...cloud.filter((word) => !removedKeys.has(word.toLocaleLowerCase())),
+      ...added,
+    ].join("\n")
+  );
+}
+
+export interface HotwordImportRow {
+  line: number;
+  word: string;
+  state: "added" | "duplicate" | "invalid" | "overLimit";
+  reason: string | null;
+}
+
+export function previewHotwordImport(
+  text: string,
+  existing: string[],
+  limit: number
+): HotwordImportRow[] {
+  const seen = new Set(existing.map((word) => word.toLocaleLowerCase()));
+  const rows: HotwordImportRow[] = [];
+  for (const [index, line] of text
+    .replace(/^\uFEFF/u, "")
+    .split(/\r?\n/u)
+    .entries()) {
+    const word = line.trim();
+    if (!word) continue;
+    const row: HotwordImportRow = {
+      line: index + 1,
+      word,
+      state: "added",
+      reason: null,
     };
-  if (input.cloud.length === 0 && input.local.length === 0)
-    return { label: "尚未添加", tone: "neutral" };
-  return { label: "已同步", tone: "synced" };
+    try {
+      normalizeHotwords(word, 1);
+      if (seen.has(word.toLocaleLowerCase())) row.state = "duplicate";
+      else {
+        seen.add(word.toLocaleLowerCase());
+        if (seen.size > limit) row.state = "overLimit";
+      }
+    } catch (error) {
+      row.state = "invalid";
+      row.reason = String(error);
+    }
+    rows.push(row);
+  }
+  return rows;
 }
 
 export function hotwordActionMessage(

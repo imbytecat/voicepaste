@@ -20,7 +20,11 @@ flate2 = "1"
 futures-util = "0.3"
 keyring = "4"
 open = "5"
+# opus 0.4 uses opusic-sys's bundled, statically linked libopus (CMake).
+opus = "0.4"
+prost = "0.14"
 reqwest = { version = "0.13", default-features = false, features = [
+  "cookies",
   "json",
   "multipart",
   "rustls-no-provider",
@@ -33,9 +37,8 @@ tauri-plugin-clipboard-manager = "2"
 rtrb = "0.4"
 rubato = "5"
 tauri-plugin-global-shortcut = "2"
-tauri-plugin-store = "2"
 tauri-plugin-single-instance = "2"
-tokio = { version = "1", features = ["sync", "time"] }
+tokio = { version = "1", features = ["macros", "net", "rt", "sync", "time"] }
 tokio-tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
 uuid = { version = "1", features = ["v4"] }
 tauri-plugin-dialog = "2"

@@ -84,6 +84,8 @@ Tauri 在 linuxdeploy 与 AppImage 打包之间没有 hook，因此 `tools/repac
 
 Node.js、pnpm 与 Rust 版本统一定义在 `mise.toml`。本地与 GitHub Actions 均通过 mise 安装；Linux 系统库仍由 `apt` 安装。
 
+豆包输入法后端使用 `opus` / `opusic-sys` 的随源 libopus 静态构建；构建机需要 C/C++ 工具链与 CMake，不要求终端用户安装 libopus，也不依赖 Python、Android SDK 或输入法安装包。Linux CI 和 Nix 开发环境已声明 CMake；Windows/macOS 构建机同样须提供 CMake 与原生编译器。Protobuf 使用 Rust 派生定义，不需要 protoc。
+
 ```bash
 mise install
 ```

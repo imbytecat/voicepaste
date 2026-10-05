@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"
+    />
+    <title>登录豆包输入法 — VoicePaste</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: system-ui, sans-serif;
+        background: #faf9f6;
+        color: #292824;
+      }
+      body {
+        margin: 0;
+        padding: 28px 28px 20px;
+        text-align: center;
+      }
+      h1 {
+        margin: 0 0 10px;
+        font-size: 23px;
+        font-weight: 650;
+      }
+      p {
+        margin: 10px 0;
+        line-height: 1.65;
+        font-size: 14px;
+      }
+      .qr {
+        display: block;
+        width: 236px;
+        height: 236px;
+        margin: 22px auto;
+        padding: 12px;
+        background: white;
+        border: 1px solid #e3e0d8;
+        border-radius: 12px;
+      }
+      .hint {
+        color: #726e65;
+        font-size: 12px;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          background: #23221f;
+          color: #eeece6;
+        }
+        .hint {
+          color: #b4afa5;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <h1>登录豆包输入法</h1>
+    <p>用豆包或豆包输入法 App 扫码<br />在手机上确认登录「豆包输入法 PC 端」</p>
+    <img
+      class="qr"
+      id="doubao-login-qr"
+      alt="豆包输入法官方登录二维码，请使用手机 App 扫描"
+    />
+    <p>确认后，VoicePaste 将验证输入法会话。</p>
+    <p class="hint">
+      二维码来自豆包官方账号服务。VoicePaste 为独立第三方客户端。<br />关闭此窗口可取消；二维码过期后请重新登录。
+    </p>
+  </body>
+</html>

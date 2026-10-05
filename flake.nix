@@ -38,6 +38,7 @@
             packages =
               (with pkgs; [
                 alsa-lib.dev
+                cmake
                 curl
                 file
                 gcc

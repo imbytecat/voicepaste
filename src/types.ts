@@ -11,18 +11,42 @@ export interface LlmSettings {
   extraParameters: string;
 }
 
-export interface AppSettings {
+export type RecognitionProvider = "volcengine" | "doubaoIme";
+
+export interface VolcengineSettings {
   apiKey: string;
+  hotwords: string[];
+  hotwordsEnabled: boolean;
+  hotwordDraft: string[] | null;
+  llm: LlmSettings;
+}
+
+export interface DoubaoImeSettings {
+  llm: LlmSettings;
+}
+
+export interface RecognitionSettings {
+  provider: RecognitionProvider;
+  volcengine: VolcengineSettings;
+  doubaoIme: DoubaoImeSettings;
+}
+
+export interface AccountStatus {
+  state: "guest" | "signingIn" | "signedIn" | "expired" | "unavailable";
+  nickname: string | null;
+  message: string | null;
+  revision: number;
+}
+
+export interface AppSettings {
+  recognition: RecognitionSettings;
   shortcut: string;
   activationMode: ActivationMode;
   microphoneId: string;
-  hotwords: string[];
-  hotwordsEnabled: boolean;
   onboardingCompleted: boolean;
   launchAtStartup: boolean;
   openSettingsOnStartup: boolean;
   overlayPosition: OverlayPosition;
-  llm: LlmSettings;
 }
 
 export interface AsrEvent {
@@ -49,6 +73,7 @@ export type HotwordSyncState =
   | "empty"
   | "synced"
   | "pending"
+  | "confirming"
   | "disabled"
   | "unknown";
 
@@ -76,13 +101,16 @@ export type HotwordAction =
 export interface HotwordSnapshotResult {
   hotwordStatus: HotwordSyncStatus;
   cloudHotwords: string[];
+  reviewToken: string;
+  confirmedHotwords: string[];
+  hotwordDraft: string[] | null;
 }
 
 export type SaveSettingsResult =
   | {
       kind: "saved";
       credentialStorage: "keyring" | "removed";
-      hotwordStatus: HotwordSyncStatus;
+      hotwordStatus: HotwordSyncStatus | null;
       hotwordAction: HotwordAction;
       cloudHotwords: string[];
       hotwordLimit: number;
@@ -94,11 +122,15 @@ export type SaveSettingsResult =
       hotwordAction: null;
       cloudHotwords: string[];
       hotwordLimit: number;
+      reviewToken: string;
     };
 
-export interface TestDoubaoResult {
-  hotwordCount: number;
-  hotwordLimit: number;
+export interface TestRecognitionResult {
+  provider: RecognitionProvider;
+  providerRevision: number;
+  accountRevision: number;
+  hotwordStatus: HotwordSyncStatus | null;
+  warning: string | null;
 }
 
 export type ServiceIssueKind =
@@ -107,6 +139,8 @@ export type ServiceIssueKind =
   | "rateLimited"
   | "network"
   | "server"
+  | "loginRequired"
+  | "credentialStorage"
   | "unknown";
 
 export interface ServiceIssueLink {
@@ -137,19 +171,28 @@ export interface UpdateInfo {
 export const DEFAULT_LLM_PREFERENCE =
   "保持说话者原意、人称和自然口语，只做必要润色，不要过度书面化。";
 
+export const DEFAULT_LLM_SETTINGS: LlmSettings = {
+  apiKey: "",
+  baseUrl: "",
+  enabled: false,
+  model: "",
+  prompt: DEFAULT_LLM_PREFERENCE,
+  streaming: true,
+  extraParameters: "",
+};
+
 export const DEFAULT_SETTINGS: AppSettings = {
   activationMode: "hold",
-  apiKey: "",
-  hotwords: [],
-  hotwordsEnabled: false,
-  llm: {
-    apiKey: "",
-    baseUrl: "",
-    enabled: false,
-    model: "",
-    prompt: DEFAULT_LLM_PREFERENCE,
-    streaming: true,
-    extraParameters: "",
+  recognition: {
+    provider: "doubaoIme",
+    volcengine: {
+      apiKey: "",
+      hotwords: [],
+      hotwordDraft: null,
+      hotwordsEnabled: false,
+      llm: { ...DEFAULT_LLM_SETTINGS },
+    },
+    doubaoIme: { llm: { ...DEFAULT_LLM_SETTINGS } },
   },
   launchAtStartup: false,
   openSettingsOnStartup: true,

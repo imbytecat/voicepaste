@@ -16,6 +16,7 @@ import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as SettingsIndexRouteImport } from './routes/settings/index'
 import { Route as SettingsAboutRouteImport } from './routes/settings/about'
 import { Route as SettingsDiagnosticsRouteImport } from './routes/settings/diagnostics'
+import { Route as SettingsDictionaryRouteImport } from './routes/settings/dictionary'
 import { Route as SettingsGeneralRouteImport } from './routes/settings/general'
 import { Route as SettingsProcessingRouteImport } from './routes/settings/processing'
 import { Route as SettingsRecognitionRouteImport } from './routes/settings/recognition'
@@ -56,6 +57,11 @@ const SettingsDiagnosticsRoute = SettingsDiagnosticsRouteImport.update({
   path: '/diagnostics',
   getParentRoute: () => SettingsRoute,
 } as any)
+const SettingsDictionaryRoute = SettingsDictionaryRouteImport.update({
+  id: '/dictionary',
+  path: '/dictionary',
+  getParentRoute: () => SettingsRoute,
+} as any)
 const SettingsGeneralRoute = SettingsGeneralRouteImport.update({
   id: '/general',
   path: '/general',
@@ -84,6 +90,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SettingsRouteWithChildren
   '/settings/about': typeof SettingsAboutRoute
   '/settings/diagnostics': typeof SettingsDiagnosticsRoute
+  '/settings/dictionary': typeof SettingsDictionaryRoute
   '/settings/general': typeof SettingsGeneralRoute
   '/settings/processing': typeof SettingsProcessingRoute
   '/settings/recognition': typeof SettingsRecognitionRoute
@@ -96,6 +103,7 @@ export interface FileRoutesByTo {
   '/onboarding': typeof OnboardingRoute
   '/settings/about': typeof SettingsAboutRoute
   '/settings/diagnostics': typeof SettingsDiagnosticsRoute
+  '/settings/dictionary': typeof SettingsDictionaryRoute
   '/settings/general': typeof SettingsGeneralRoute
   '/settings/processing': typeof SettingsProcessingRoute
   '/settings/recognition': typeof SettingsRecognitionRoute
@@ -110,6 +118,7 @@ export interface FileRoutesById {
   '/settings': typeof SettingsRouteWithChildren
   '/settings/about': typeof SettingsAboutRoute
   '/settings/diagnostics': typeof SettingsDiagnosticsRoute
+  '/settings/dictionary': typeof SettingsDictionaryRoute
   '/settings/general': typeof SettingsGeneralRoute
   '/settings/processing': typeof SettingsProcessingRoute
   '/settings/recognition': typeof SettingsRecognitionRoute
@@ -125,6 +134,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/settings/about'
     | '/settings/diagnostics'
+    | '/settings/dictionary'
     | '/settings/general'
     | '/settings/processing'
     | '/settings/recognition'
@@ -137,6 +147,7 @@ export interface FileRouteTypes {
     | '/onboarding'
     | '/settings/about'
     | '/settings/diagnostics'
+    | '/settings/dictionary'
     | '/settings/general'
     | '/settings/processing'
     | '/settings/recognition'
@@ -150,6 +161,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/settings/about'
     | '/settings/diagnostics'
+    | '/settings/dictionary'
     | '/settings/general'
     | '/settings/processing'
     | '/settings/recognition'
@@ -215,6 +227,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsDiagnosticsRouteImport
       parentRoute: typeof SettingsRoute
     }
+    '/settings/dictionary': {
+      id: '/settings/dictionary'
+      path: '/dictionary'
+      fullPath: '/settings/dictionary'
+      preLoaderRoute: typeof SettingsDictionaryRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     '/settings/general': {
       id: '/settings/general'
       path: '/general'
@@ -249,6 +268,7 @@ declare module '@tanstack/react-router' {
 interface SettingsRouteChildren {
   SettingsAboutRoute: typeof SettingsAboutRoute
   SettingsDiagnosticsRoute: typeof SettingsDiagnosticsRoute
+  SettingsDictionaryRoute: typeof SettingsDictionaryRoute
   SettingsGeneralRoute: typeof SettingsGeneralRoute
   SettingsProcessingRoute: typeof SettingsProcessingRoute
   SettingsRecognitionRoute: typeof SettingsRecognitionRoute
@@ -259,6 +279,7 @@ interface SettingsRouteChildren {
 const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsAboutRoute: SettingsAboutRoute,
   SettingsDiagnosticsRoute: SettingsDiagnosticsRoute,
+  SettingsDictionaryRoute: SettingsDictionaryRoute,
   SettingsGeneralRoute: SettingsGeneralRoute,
   SettingsProcessingRoute: SettingsProcessingRoute,
   SettingsRecognitionRoute: SettingsRecognitionRoute,
