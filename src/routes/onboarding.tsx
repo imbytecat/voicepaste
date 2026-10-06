@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback } from "react";
 
-import { Settings } from "@/components/Settings";
+import { Settings } from "@/components/settings/SettingsLayout";
 import { SETTINGS_PATHS } from "@/routes/-settings-navigation";
 import type { SettingsSectionId } from "@/routes/-settings-navigation";
 

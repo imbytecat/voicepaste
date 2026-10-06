@@ -291,8 +291,8 @@ export function Overlay() {
       : phase === "error"
         ? "bg-overlay-error text-overlay-foreground"
         : phase === "recording"
-          ? "bg-primary/15 text-primary"
-          : "bg-overlay-foreground/8 text-primary";
+          ? "bg-brand/15 text-brand"
+          : "bg-overlay-foreground/8 text-brand";
   const statusColor =
     phase === "success"
       ? "text-overlay-success-foreground"
@@ -323,7 +323,7 @@ export function Overlay() {
             )}
           </span>
           {phase === "recording" ? (
-            <span className="vp-recording-pulse absolute -inset-1 rounded-[16px] border border-primary/45" />
+            <span className="vp-recording-pulse absolute -inset-1 rounded-[16px] border border-brand/45" />
           ) : null}
         </div>
 
@@ -358,7 +358,7 @@ export function Overlay() {
         >
           {WAVE_WEIGHTS.map((weight, index) => (
             <span
-              className={`vp-motion-fast h-8 w-0.5 origin-bottom rounded-full bg-primary transition-[transform,opacity] ${phase === "finishing" || phase === "processing" ? "animate-[pulse_900ms_cubic-bezier(0.22,1,0.36,1)_infinite]" : ""}`}
+              className={`vp-motion-fast h-8 w-0.5 origin-bottom rounded-full bg-brand transition-[transform,opacity] ${phase === "finishing" || phase === "processing" ? "animate-[pulse_900ms_cubic-bezier(0.22,1,0.36,1)_infinite]" : ""}`}
               key={`${weight}-${index}`}
               style={{
                 animationDelay: `${index * -90}ms`,

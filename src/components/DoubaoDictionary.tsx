@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
+import { BookText, RotateCw, Search } from "lucide-react";
 import { useState } from "react";
 
+import { Block, EmptyState, Group, Notice } from "@/components/settings/kit";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -9,13 +11,10 @@ interface Word {
   input: string;
   frequency: number;
 }
-export function DoubaoDictionary({
-  revision,
-  signedIn,
-}: {
-  revision: number;
-  signedIn: boolean;
-}) {
+
+const ROW_CAP = 100;
+
+export function DoubaoDictionary({ revision }: { revision: number }) {
   const [words, setWords] = useState<Word[] | null>(null);
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
@@ -30,61 +29,103 @@ export function DoubaoDictionary({
       );
       setWords(value.words);
     } catch {
-      setError("读取个人词库失败；未修改云端数据，请重试。");
+      setError("读取个人词库失败，云端数据未修改，请重试");
     } finally {
       setBusy(false);
     }
   };
-  const selected = words?.filter(
+  const errorNotice = error ? (
+    <Block>
+      <Notice tone="error">{error}</Notice>
+    </Block>
+  ) : null;
+
+  if (!words)
+    return (
+      <Group title="个人词库" description="豆包输入法自动学习的词，只读">
+        <EmptyState
+          icon={BookText}
+          title="个人词库保存在豆包云端"
+          description="读取后可在这里搜索查看"
+          action={
+            <Button type="button" disabled={busy} onClick={() => void load()}>
+              {busy ? "读取中…" : "读取个人词库"}
+            </Button>
+          }
+        />
+        {errorNotice}
+      </Group>
+    );
+  const matched = words.filter(
     (word) => word.text.includes(query) || word.input.includes(query)
   );
+
   return (
-    <div className="space-y-3 border-t px-6 py-5">
-      <h3 className="text-sm font-medium">自动学习的个人词库</h3>
-      <p className="text-xs text-muted-foreground">
-        只读查看输入法同步到账号的个人词库。不会自动学习或上传听写；读取成功不等于全部词条已参与语音识别。
-      </p>
-      <Button
-        type="button"
-        disabled={!signedIn || busy}
-        onClick={() => void load()}
-      >
-        {busy ? "读取中…" : "读取个人词库"}
-      </Button>
-      {words && (
+    <Group
+      title="个人词库"
+      description={`豆包输入法自动学习的词，只读 · ${words.length} 条`}
+      actions={
+        <Button
+          variant="ghost"
+          size="sm"
+          type="button"
+          disabled={busy}
+          onClick={() => void load()}
+        >
+          <RotateCw />
+          刷新
+        </Button>
+      }
+    >
+      {words.length === 0 ? (
+        <EmptyState title="个人词库为空" className="py-6" />
+      ) : (
         <>
-          <p className="text-xs text-muted-foreground">
-            {words.length} 条记录；同词不同读音可分别存在。当前不执行云端重置。
-          </p>
-          <Input
-            aria-label="搜索豆包个人词库"
-            value={query}
-            onChange={(e) => {
-              setQuery(e.target.value);
-            }}
-            placeholder="搜索词语或拼音"
-          />
-          <ul className="max-h-72 overflow-auto text-sm">
-            {selected?.slice(0, 100).map((word, index) => (
-              <li
-                key={`${word.input}-${word.text}-${index}`}
-                className="flex justify-between gap-3 border-b py-2"
-              >
-                <span>{word.text}</span>
-                <span className="text-xs text-muted-foreground">
-                  {word.input} · {word.frequency}
-                </span>
-              </li>
-            ))}
-          </ul>
-          {(selected?.length ?? 0) > 100 && (
-            <p className="text-xs text-muted-foreground">
-              显示前 100 条匹配记录，请缩小搜索范围。
-            </p>
+          <Block>
+            <div className="relative">
+              <Search
+                className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
+                aria-hidden="true"
+              />
+              <Input
+                type="search"
+                className="pl-8"
+                aria-label="搜索豆包个人词库"
+                value={query}
+                onChange={(event) => {
+                  setQuery(event.target.value);
+                }}
+                placeholder="搜索词语或拼音"
+              />
+            </div>
+          </Block>
+          {matched.length === 0 ? (
+            <EmptyState title="没有匹配的词" className="py-6" />
+          ) : (
+            <ul className="max-h-80 divide-y divide-border overflow-y-auto">
+              {matched.slice(0, ROW_CAP).map((word, index) => (
+                <li
+                  key={`${word.input}-${word.text}-${index}`}
+                  className="flex items-baseline justify-between gap-4 px-4 py-2"
+                >
+                  <span className="min-w-0 text-[13px] wrap-break-word">
+                    {word.text}
+                  </span>
+                  <span className="shrink-0 text-[12px] text-muted-foreground tabular-nums">
+                    {word.input} · {word.frequency}
+                  </span>
+                </li>
+              ))}
+            </ul>
           )}
+          {matched.length > ROW_CAP ? (
+            <Block className="py-2.5 text-[12px] text-muted-foreground">
+              仅显示前 {ROW_CAP} 条匹配结果，请缩小搜索范围
+            </Block>
+          ) : null}
         </>
       )}
-      {error && <p role="alert">{error}</p>}
-    </div>
+      {errorNotice}
+    </Group>
   );
 }

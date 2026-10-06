@@ -1,6 +1,23 @@
 import { invoke } from "@tauri-apps/api/core";
+import {
+  Copy,
+  MessageSquareText,
+  Pencil,
+  RotateCw,
+  Trash2,
+} from "lucide-react";
 import { useState } from "react";
 
+import { Block, EmptyState, Feedback, Group } from "@/components/settings/kit";
+import type { Message } from "@/components/settings/kit";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -12,22 +29,20 @@ interface Snapshot {
   version: string;
   phrases: Phrase[];
 }
-export function DoubaoPhrases({
-  revision,
-  signedIn,
-}: {
-  revision: number;
-  signedIn: boolean;
-}) {
+
+const MAX_LENGTH = 50;
+
+export function DoubaoPhrases({ revision }: { revision: number }) {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [text, setText] = useState("");
-  const [editing, setEditing] = useState<string | null>(null);
+  const [editing, setEditing] = useState<Phrase | null>(null);
   const [deleting, setDeleting] = useState<Phrase | null>(null);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState<Message>(null);
+
   const load = async () => {
     setBusy(true);
-    setMessage("");
+    setMessage(null);
     try {
       setSnapshot(
         await invoke<Snapshot>("doubao_phrase_snapshot", {
@@ -36,15 +51,20 @@ export function DoubaoPhrases({
       );
     } catch {
       setSnapshot(null);
-      setMessage("无法读取豆包常用语，请检查账号和网络。");
+      setMessage({
+        kind: "error",
+        text: "无法读取豆包常用语，请检查账号和网络",
+      });
     } finally {
       setBusy(false);
     }
   };
+
+  // id null = add, value null = delete; otherwise edit.
   const apply = async (id: string | null, value: string | null) => {
     if (!snapshot) return;
     setBusy(true);
-    setMessage("");
+    setMessage(null);
     try {
       const next = await invoke<Snapshot>("apply_doubao_phrase", {
         providerRevision: revision,
@@ -53,155 +73,225 @@ export function DoubaoPhrases({
         text: value,
       });
       setSnapshot(next);
-      setText("");
-      setEditing(null);
+      if (id === null) setText("");
+      else if (editing?.id === id) setEditing(null);
       setDeleting(null);
-      setMessage("已通过豆包云端回读确认。");
+      setMessage({ kind: "success", text: "已同步，云端回读确认" });
     } catch (error) {
+      // The write may have landed; force a fresh read before any retry.
       setSnapshot(null);
       setDeleting(null);
-      setMessage(
-        `${String(error)}。请重新读取云端后核对，勿重复提交；输入内容已保留。`
-      );
+      setMessage({
+        kind: "error",
+        text: `${String(error)}。请重新读取后核对，避免重复提交；输入内容已保留`,
+      });
     } finally {
       setBusy(false);
     }
   };
+
+  const copy = (phrase: Phrase) => {
+    void invoke("copy_tool_text", { text: phrase.text }).then(
+      () => {
+        setMessage({ kind: "success", text: "已复制到剪贴板" });
+      },
+      () => {
+        setMessage({ kind: "error", text: "复制失败，请手动选择文本复制" });
+      }
+    );
+  };
+
   return (
-    <div className="space-y-4 px-6 py-5">
-      <h3 className="text-sm font-medium">豆包账号常用语</h3>
-      <p className="text-xs text-muted-foreground">
-        与输入法常用语同步；不是自动学习的个人词库，不承诺语音热词增强。只在点击后读取或修改，不自动上传。
-      </p>
-      <Button
-        type="button"
-        disabled={!signedIn || busy}
-        onClick={() => void load()}
-      >
-        {busy ? "处理中…" : "读取云端常用语"}
-      </Button>
-      {!signedIn && <p>请先登录豆包账号。</p>}
-      <Input
-        aria-label="豆包常用语内容"
-        value={text}
-        disabled={busy}
-        maxLength={50}
-        onChange={(e) => {
-          setText(e.target.value);
-        }}
-      />
-      {snapshot && (
-        <>
-          <p className="text-xs text-muted-foreground">
-            已读取 {snapshot.phrases.length}{" "}
-            条。保存会修改同账号输入法常用语；其他设备并发修改可能产生冲突。
-          </p>
+    <Group
+      title="常用语"
+      description={
+        snapshot
+          ? `与豆包输入法同步的常用短语 · ${snapshot.phrases.length} 条`
+          : "与豆包输入法同步的常用短语"
+      }
+      actions={
+        snapshot ? (
           <Button
+            variant="ghost"
+            size="sm"
             type="button"
-            disabled={busy || !text.trim()}
-            onClick={() => void apply(editing, text)}
+            disabled={busy}
+            onClick={() => void load()}
           >
-            {editing ? "确认修改云端常用语" : "确认新增云端常用语"}
+            <RotateCw />
+            刷新
           </Button>
-          {editing && (
-            <Button
-              type="button"
-              variant="outline"
-              disabled={busy}
-              onClick={() => {
-                setEditing(null);
-                setText("");
+        ) : null
+      }
+    >
+      {snapshot ? (
+        <>
+          <Block>
+            <form
+              className="flex gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (text.trim()) void apply(null, text);
               }}
             >
-              取消编辑
-            </Button>
+              <Input
+                aria-label="豆包常用语内容"
+                placeholder="新常用语"
+                value={text}
+                disabled={busy}
+                maxLength={MAX_LENGTH}
+                onChange={(event) => {
+                  setText(event.target.value);
+                }}
+              />
+              <Button type="submit" disabled={busy || !text.trim()}>
+                添加
+              </Button>
+            </form>
+          </Block>
+          {snapshot.phrases.length === 0 ? (
+            <EmptyState title="还没有常用语" className="py-6" />
+          ) : (
+            <ul className="max-h-80 divide-y divide-border overflow-y-auto">
+              {snapshot.phrases.map((phrase) =>
+                editing?.id === phrase.id ? (
+                  <li key={phrase.id} className="px-4 py-2">
+                    <form
+                      className="flex items-center gap-2"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        if (editing.text.trim())
+                          void apply(phrase.id, editing.text);
+                      }}
+                    >
+                      <Input
+                        aria-label={`编辑常用语 ${phrase.text}`}
+                        value={editing.text}
+                        disabled={busy}
+                        maxLength={MAX_LENGTH}
+                        autoFocus
+                        onChange={(event) => {
+                          setEditing({ ...editing, text: event.target.value });
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === "Escape" && !busy) setEditing(null);
+                        }}
+                      />
+                      <Button
+                        type="submit"
+                        size="sm"
+                        disabled={busy || !editing.text.trim()}
+                      >
+                        保存
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        disabled={busy}
+                        onClick={() => {
+                          setEditing(null);
+                        }}
+                      >
+                        取消
+                      </Button>
+                    </form>
+                  </li>
+                ) : (
+                  <li
+                    key={phrase.id}
+                    className="group/phrase flex min-h-11 items-center gap-2 py-1.5 pr-2 pl-4"
+                  >
+                    <span className="min-w-0 flex-1 text-[13px] leading-5 wrap-break-word">
+                      {phrase.text}
+                    </span>
+                    <div className="flex shrink-0 items-center opacity-0 transition-opacity group-focus-within/phrase:opacity-100 group-hover/phrase:opacity-100">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`复制常用语 ${phrase.text}`}
+                        onClick={() => {
+                          copy(phrase);
+                        }}
+                      >
+                        <Copy />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        disabled={busy}
+                        aria-label={`编辑常用语 ${phrase.text}`}
+                        onClick={() => {
+                          setEditing(phrase);
+                        }}
+                      >
+                        <Pencil />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        disabled={busy}
+                        aria-label={`删除常用语 ${phrase.text}`}
+                        onClick={() => {
+                          setDeleting(phrase);
+                        }}
+                      >
+                        <Trash2 />
+                      </Button>
+                    </div>
+                  </li>
+                )
+              )}
+            </ul>
           )}
-          <ul className="max-h-80 space-y-2 overflow-auto">
-            {snapshot.phrases.map((phrase) => (
-              <li
-                key={phrase.id}
-                className="flex items-center gap-2 rounded-md border p-3"
-              >
-                <span className="min-w-0 flex-1 wrap-break-word">
-                  {phrase.text}
-                </span>
-                <Button
-                  type="button"
-                  variant="outline"
-                  aria-label={`复制常用语 ${phrase.text}`}
-                  onClick={() => {
-                    void invoke("copy_tool_text", { text: phrase.text }).then(
-                      () => {
-                        setMessage("常用语已复制到本机剪贴板。");
-                      },
-                      () => {
-                        setMessage("复制失败，请手动选择文本复制。");
-                      }
-                    );
-                  }}
-                >
-                  复制
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={busy}
-                  aria-label={`编辑常用语 ${phrase.text}`}
-                  onClick={() => {
-                    setEditing(phrase.id);
-                    setText(phrase.text);
-                  }}
-                >
-                  编辑
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={busy}
-                  aria-label={`删除常用语 ${phrase.text}`}
-                  onClick={() => {
-                    setDeleting(phrase);
-                  }}
-                >
-                  删除
-                </Button>
-              </li>
-            ))}
-          </ul>
         </>
+      ) : (
+        <EmptyState
+          icon={MessageSquareText}
+          title="常用语保存在豆包云端"
+          description="读取后可在这里添加、编辑和删除"
+          action={
+            <Button type="button" disabled={busy} onClick={() => void load()}>
+              {busy ? "读取中…" : "读取云端常用语"}
+            </Button>
+          }
+        />
       )}
-      {deleting && (
-        <div
-          role="alert"
-          className="space-y-2 rounded-md border border-destructive p-3"
-        >
-          <p>
-            确认从豆包账号常用语删除“{deleting.text}”？其他设备同步后也会删除。
-          </p>
-          <Button
-            type="button"
-            disabled={busy}
-            onClick={() => void apply(deleting.id, null)}
-          >
-            确认删除这条常用语
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            disabled={busy}
-            onClick={() => {
-              setDeleting(null);
-            }}
-          >
-            取消
-          </Button>
-        </div>
-      )}
-      {message && (
-        <p role="status" className="text-sm">
-          {message}
-        </p>
-      )}
-    </div>
+      {message ? (
+        <Block>
+          <Feedback message={message} />
+        </Block>
+      ) : null}
+      <AlertDialog
+        open={deleting !== null}
+        onOpenChange={(open) => {
+          if (!open && !busy) setDeleting(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogTitle>删除这条常用语？</AlertDialogTitle>
+          <AlertDialogDescription>
+            “{deleting?.text}”将从豆包账号删除。其他设备同步后也会删除。
+          </AlertDialogDescription>
+          <div className="flex flex-wrap justify-end gap-2 pt-1">
+            <AlertDialogCancel variant="ghost" disabled={busy}>
+              取消
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={busy}
+              onClick={() => {
+                if (deleting) void apply(deleting.id, null);
+              }}
+            >
+              {busy ? "删除中…" : "删除"}
+            </AlertDialogAction>
+          </div>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Group>
   );
 }

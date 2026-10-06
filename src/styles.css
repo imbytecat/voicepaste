@@ -1,6 +1,5 @@
 @import "tailwindcss";
 @import "tw-animate-css";
-@custom-variant dark (&:is(.dark *));
 @custom-variant data-open {
   &:where([data-state="open"]),
   &:where([data-open]:not([data-open="false"])) {
@@ -44,70 +43,77 @@
 
 @theme {
   --font-sans:
-    "Avenir Next", "Segoe UI Variable", "PingFang SC", "Noto Sans CJK SC",
-    "Microsoft YaHei", ui-sans-serif, sans-serif;
+    system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text",
+    "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI",
+    "Noto Sans CJK SC", "Noto Sans SC", sans-serif;
   --font-mono:
-    "SFMono-Regular", "Cascadia Code", "JetBrains Mono", ui-monospace, monospace;
+    ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", monospace;
 }
 
+/*
+ * Cool neutrals tinted toward the app icon's indigo, so grays and the accent
+ * read as one family. Indigo carries actions and selection; the per-section
+ * tile hues only label navigation. Red/amber/green carry semantic status only.
+ */
 :root {
-  color: #171a22;
+  color: var(--foreground);
   background: transparent;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
-  --background: #f5f6f8;
-  --foreground: #171a22;
+  -webkit-font-smoothing: antialiased;
+  --background: #eef0f4;
+  --foreground: #15171e;
   --card: #ffffff;
-  --card-foreground: #171a22;
+  --card-foreground: #15171e;
   --popover: #ffffff;
-  --popover-foreground: #171a22;
-  --primary: #4f61e6;
+  --popover-foreground: #15171e;
+  --primary: #4f5fe6;
   --primary-foreground: #ffffff;
   --secondary: #eceef3;
-  --secondary-foreground: #4f5665;
-  --muted: #eff1f5;
-  --muted-foreground: #69707f;
-  --accent: #eef0ff;
-  --accent-foreground: #4051d6;
-  --destructive: #b5473b;
-  --border: #e2e5eb;
-  --input: #e2e5eb;
-  --ring: #4f61e6;
-  --chart-1: #4f61e6;
-  --chart-2: #77819b;
-  --chart-3: #48536d;
-  --chart-4: #b0792e;
-  --chart-5: #9b5365;
-  --radius: 0.75rem;
-  --sidebar: #ffffff;
-  --sidebar-foreground: #171a22;
-  --sidebar-primary: #4f61e6;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #eef0ff;
-  --sidebar-accent-foreground: #4051d6;
-  --sidebar-border: #e2e5eb;
-  --sidebar-ring: #4f61e6;
-  --overlay: #171a22;
-  --overlay-foreground: #f3f5fb;
-  --overlay-muted: #9aa2b2;
-  --overlay-subtle: #7b8393;
+  --secondary-foreground: #3b3f4c;
+  --muted: #f4f5f8;
+  --muted-foreground: #6a6f7e;
+  --accent: #eef0fd;
+  --accent-foreground: #3a49cf;
+  --brand: #4f5fe6;
+  --brand-foreground: #ffffff;
+  --surface: #f8f9fb;
+  --success: #16834f;
+  --warning: #a35f00;
+  --destructive: #c23a2e;
+  --border: #e4e7ee;
+  --input: #d9dce5;
+  --ring: #4f5fe6;
+  --radius: 0.625rem;
+  --overlay: #15171e;
+  --overlay-foreground: #f3f4f8;
+  --overlay-muted: #a0a5b4;
+  --overlay-subtle: #7f8494;
   --overlay-success: #2f8a65;
   --overlay-success-foreground: #c9f3df;
   --overlay-error: #b5473b;
   --overlay-error-foreground: #ffd4d0;
+  --card-shadow:
+    0 0 0 1px rgb(21 23 40 / 0.05), 0 1px 2px rgb(21 23 40 / 0.04),
+    0 6px 20px -8px rgb(21 23 40 / 0.08);
+  --panel-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.9), 0 0 0 1px rgb(21 23 40 / 0.06),
+    0 2px 6px rgb(21 23 40 / 0.04), 0 16px 40px -16px rgb(21 23 40 / 0.12);
   --control-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.9), 0 1px 2px rgb(31 42 77 / 0.05),
-    0 8px 24px rgb(46 61 112 / 0.045);
-  --control-inset-shadow: inset 0 1px 2px rgb(39 51 91 / 0.08);
-  --primary-shadow: 0 8px 20px rgb(79 97 230 / 0.2);
-  --thumb-shadow: 0 2px 6px rgb(34 43 78 / 0.24);
-  --float-shadow: 0 18px 48px rgb(40 49 82 / 0.15);
-  --tooltip-shadow: 0 12px 32px rgb(25 30 47 / 0.22);
+    0 1px 2px rgb(21 23 40 / 0.06), inset 0 -1px 0 rgb(21 23 40 / 0.03);
+  --control-inset-shadow: inset 0 1px 2px rgb(21 23 40 / 0.08);
+  --primary-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.2), 0 1px 2px rgb(40 52 170 / 0.3),
+    0 4px 12px -4px rgb(79 95 230 / 0.55);
+  --thumb-shadow: 0 1px 3px rgb(21 23 40 / 0.25);
+  --float-shadow:
+    0 0 0 1px rgb(21 23 40 / 0.06), 0 12px 36px -8px rgb(21 23 40 / 0.22);
+  --tooltip-shadow: 0 8px 24px rgb(21 23 40 / 0.2);
   --overlay-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.06), 0 16px 44px rgb(16 21 36 / 0.34);
-  --vp-duration-fast: 180ms;
-  --vp-duration-control: 280ms;
-  --vp-duration-layout: 420ms;
+    inset 0 1px 0 rgb(255 255 255 / 0.06), 0 16px 44px rgb(16 18 30 / 0.34);
+  --vp-duration-fast: 150ms;
+  --vp-duration-control: 220ms;
+  --vp-duration-layout: 320ms;
   --vp-ease-standard: cubic-bezier(0.32, 0.72, 0, 1);
   --vp-ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
 }
@@ -134,7 +140,7 @@ textarea {
 
 ::selection {
   color: var(--foreground);
-  background: color-mix(in oklab, var(--primary) 26%, transparent);
+  background: color-mix(in oklab, var(--brand) 22%, transparent);
 }
 
 * {
@@ -159,29 +165,131 @@ textarea {
   min-height: 40px;
   border: 3px solid transparent;
   border-radius: 999px;
-  background: color-mix(in oklab, var(--foreground) 24%, transparent);
+  background: color-mix(in oklab, var(--foreground) 22%, transparent);
   background-clip: content-box;
 }
 
 .vp-stable-scroll::-webkit-scrollbar-thumb:hover {
-  background-color: color-mix(in oklab, var(--foreground) 36%, transparent);
+  background-color: color-mix(in oklab, var(--foreground) 34%, transparent);
 }
 
-.vp-segment-item,
-.vp-segment-item:hover,
-.vp-segment-item[aria-pressed="true"],
-.vp-segment-item[data-pressed] {
-  border-color: transparent;
-  background: transparent;
-  box-shadow: none;
+/*
+ * Liquid glass, CSS-only so macOS/Windows/Linux webviews render identically.
+ * The ambient backdrop is static gradients, so large panels fake frosting with
+ * translucency alone; only floating layers (.vp-glass-float) pay for a real
+ * backdrop-filter.
+ */
+.vp-ambient {
+  background-color: #eceef6;
+  background-image:
+    radial-gradient(60% 50% at 0% 0%, rgb(167 139 250 / 0.38), transparent 70%),
+    radial-gradient(
+      55% 45% at 100% 0%,
+      rgb(96 165 250 / 0.32),
+      transparent 70%
+    ),
+    radial-gradient(
+      60% 55% at 85% 100%,
+      rgb(129 140 248 / 0.3),
+      transparent 70%
+    ),
+    radial-gradient(
+      50% 45% at 10% 100%,
+      rgb(244 168 214 / 0.24),
+      transparent 70%
+    );
 }
 
-.vp-app-frame {
-  background: var(--background);
-}
+@layer components {
+  .vp-glass,
+  .vp-glass-float,
+  .vp-glass-strong {
+    position: relative;
+    isolation: isolate;
+    background: linear-gradient(
+      165deg,
+      rgb(255 255 255 / 0.66),
+      rgb(255 255 255 / 0.4)
+    );
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.95),
+      inset 0 -1px 1px rgb(255 255 255 / 0.35),
+      0 0 0 1px rgb(30 34 70 / 0.06),
+      0 1px 2px rgb(30 34 70 / 0.05),
+      0 12px 32px -14px rgb(40 46 110 / 0.22);
+  }
 
-.vp-control-surface {
-  box-shadow: var(--control-shadow);
+  .vp-glass-strong {
+    background: linear-gradient(
+      170deg,
+      rgb(255 255 255 / 0.92),
+      rgb(255 255 255 / 0.78)
+    );
+  }
+
+  .vp-glass-float {
+    background: linear-gradient(
+      165deg,
+      rgb(255 255 255 / 0.82),
+      rgb(255 255 255 / 0.66)
+    );
+    -webkit-backdrop-filter: blur(28px) saturate(1.8);
+    backdrop-filter: blur(28px) saturate(1.8);
+  }
+
+  /* Specular rim: bright on the lit top-left edge, fading across the body. */
+  .vp-glass::before,
+  .vp-glass-float::before,
+  .vp-glass-strong::before,
+  .vp-glass-dark::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    padding: 1px;
+    border-radius: inherit;
+    background: linear-gradient(
+      140deg,
+      rgb(255 255 255 / 0.95),
+      rgb(255 255 255 / 0.15) 35%,
+      rgb(255 255 255 / 0) 60%,
+      rgb(255 255 255 / 0.55)
+    );
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask:
+      linear-gradient(#000 0 0) content-box exclude,
+      linear-gradient(#000 0 0);
+    pointer-events: none;
+  }
+
+  .vp-glass-dark {
+    position: relative;
+    isolation: isolate;
+    background: linear-gradient(
+      165deg,
+      rgb(32 35 52 / 0.82),
+      rgb(18 20 32 / 0.88)
+    );
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.14),
+      0 0 0 1px rgb(10 12 24 / 0.4),
+      0 18px 44px -12px rgb(10 12 40 / 0.5);
+    -webkit-backdrop-filter: blur(24px) saturate(1.6);
+    backdrop-filter: blur(24px) saturate(1.6);
+  }
+
+  .vp-glass-dark::before {
+    background: linear-gradient(
+      140deg,
+      rgb(255 255 255 / 0.35),
+      rgb(255 255 255 / 0.04) 40%,
+      rgb(255 255 255 / 0) 60%,
+      rgb(255 255 255 / 0.18)
+    );
+  }
 }
 
 .vp-motion-fast {
@@ -199,14 +307,8 @@ textarea {
   transition-timing-function: var(--vp-ease-spring);
 }
 
-.vp-enter,
 .vp-section-enter {
   animation: vp-section-enter var(--vp-duration-layout) var(--vp-ease-spring)
-    both;
-}
-
-.vp-title-enter {
-  animation: vp-title-enter var(--vp-duration-control) var(--vp-ease-spring)
     both;
 }
 
@@ -226,19 +328,7 @@ textarea {
 @keyframes vp-section-enter {
   from {
     opacity: 0;
-    transform: translateY(8px) scale(0.995);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
-@keyframes vp-title-enter {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
+    transform: translateY(6px);
   }
 
   to {
@@ -250,12 +340,12 @@ textarea {
 @keyframes vp-feedback-enter {
   from {
     opacity: 0;
-    transform: translateY(-4px) scale(0.99);
+    transform: translateY(-3px);
   }
 
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translateY(0);
   }
 }
 
@@ -300,23 +390,15 @@ textarea {
 }
 
 @theme inline {
-  --color-sidebar-ring: var(--sidebar-ring);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar: var(--sidebar);
-  --color-chart-5: var(--chart-5);
-  --color-chart-4: var(--chart-4);
-  --color-chart-3: var(--chart-3);
-  --color-chart-2: var(--chart-2);
-  --color-chart-1: var(--chart-1);
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-border: var(--border);
   --color-destructive: var(--destructive);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-brand: var(--brand);
+  --color-surface: var(--surface);
+  --color-brand-foreground: var(--brand-foreground);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
@@ -339,52 +421,13 @@ textarea {
   --color-overlay-muted: var(--overlay-muted);
   --color-overlay-foreground: var(--overlay-foreground);
   --color-overlay: var(--overlay);
-  --radius-sm: 0.625rem;
-  --radius-md: 0.75rem;
-  --radius-lg: 0.875rem;
-  --radius-xl: 1rem;
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.625rem;
+  --radius-xl: 0.75rem;
   --radius-2xl: 1rem;
-  --radius-3xl: 1rem;
-  --radius-4xl: 1rem;
-}
-
-.dark {
-  --background: #111319;
-  --foreground: #f3f5fb;
-  --card: #191c24;
-  --card-foreground: #f3f5fb;
-  --popover: #1d2029;
-  --popover-foreground: #f3f5fb;
-  --primary: #5b6df8;
-  --primary-foreground: #080c1d;
-  --secondary: #252936;
-  --secondary-foreground: #d7dbe6;
-  --muted: #222631;
-  --muted-foreground: #a4abba;
-  --accent: #272c4c;
-  --accent-foreground: #cbd0ff;
-  --destructive: #db675b;
-  --border: #323744;
-  --input: #3a4050;
-  --ring: #5b6df8;
-  --chart-1: #7d8aff;
-  --chart-2: #a2abc0;
-  --chart-3: #697695;
-  --chart-4: #d6a457;
-  --chart-5: #d27d96;
-  --sidebar: #191c24;
-  --sidebar-foreground: #f3f5fb;
-  --sidebar-primary: #5b6df8;
-  --sidebar-primary-foreground: #080c1d;
-  --sidebar-accent: #272c4c;
-  --sidebar-accent-foreground: #cbd0ff;
-  --sidebar-border: #323744;
-  --sidebar-ring: #5b6df8;
-  --control-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.045), 0 1px 2px rgb(0 0 0 / 0.22),
-    0 8px 24px rgb(4 7 17 / 0.16);
-  --control-inset-shadow: inset 0 1px 2px rgb(0 0 0 / 0.26);
-  --float-shadow: 0 18px 48px rgb(0 0 0 / 0.38);
+  --radius-3xl: 1.25rem;
+  --radius-4xl: 1.5rem;
 }
 
 @layer base {

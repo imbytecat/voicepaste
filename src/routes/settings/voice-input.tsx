@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { VoiceInputSettingsPage } from "@/components/Settings";
+import { VoiceInputPage } from "@/components/settings/pages/VoiceInputPage";
 
 export const Route = createFileRoute("/settings/voice-input")({
-  component: VoiceInputSettingsPage,
+  component: VoiceInputPage,
 });

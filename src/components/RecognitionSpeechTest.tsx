@@ -1,10 +1,10 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { Mic, Square, X } from "lucide-react";
+import { Mic, Square } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { AudioCapture } from "@/audio";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Block, Group, Notice, Row } from "@/components/settings/kit";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { isServiceIssue, recognitionReady, safeError } from "@/recognition";
@@ -34,6 +34,7 @@ export function RecognitionSpeechTest({
   account,
   microphoneId,
   disabled = false,
+  disabledReason,
   onBusyChange,
 }: {
   recognition: RecognitionSettings;
@@ -41,6 +42,8 @@ export function RecognitionSpeechTest({
   account: AccountStatus;
   microphoneId: string;
   disabled?: boolean;
+  /** Why the test is unavailable; replaces the idle hint. */
+  disabledReason?: string;
   onBusyChange: (busy: boolean) => void;
 }) {
   const [phase, setPhase] = useState<
@@ -192,71 +195,66 @@ export function RecognitionSpeechTest({
     }
   };
 
+  const ready = recognitionReady(recognition, account);
+  const description =
+    phase === "starting"
+      ? "正在连接识别服务…"
+      : phase === "recording"
+        ? "请说话，说完点结束"
+        : phase === "finishing"
+          ? "正在识别…"
+          : (disabledReason ??
+            (ready ? "说一句话，检查识别效果" : "识别服务尚未就绪"));
+
   return (
-    <div className="space-y-3 rounded-[10px] border border-border p-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h3 className="text-[12px] font-semibold text-foreground">
-            试说一句
-          </h3>
-          <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
-            使用当前服务、麦克风与已保存的词库配置；本机草稿不参与识别。结果仅显示在这里，不执行文本处理或粘贴。
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            type="button"
-            disabled={
-              phase === "starting" ||
-              phase === "finishing" ||
-              (phase === "idle" &&
-                (disabled || !recognitionReady(recognition, account)))
-            }
-            onClick={() => void (phase === "recording" ? finish() : begin())}
-          >
-            {phase === "recording" ? <Square size={11} /> : <Mic size={11} />}
-            {phase === "recording"
-              ? "结束试说"
-              : phase === "starting"
-                ? "连接中…"
-                : phase === "finishing"
-                  ? "识别中…"
-                  : "开始试说"}
+    <Group>
+      <Row title="试说一句" description={description}>
+        {phase === "recording" ? (
+          <Progress
+            className="w-24 gap-0"
+            aria-label="试说麦克风音量"
+            value={Math.max(3, level * 100)}
+          />
+        ) : null}
+        {phase === "idle" ? null : (
+          <Button variant="ghost" type="button" onClick={() => void cancel()}>
+            取消
           </Button>
-          {phase === "idle" ? null : (
-            <Button
-              variant="ghost"
-              size="sm"
-              type="button"
-              onClick={() => void cancel()}
-            >
-              <X size={11} /> 取消
-            </Button>
-          )}
-        </div>
-      </div>
-      {phase === "recording" ? (
-        <Progress
-          aria-label="试说麦克风音量"
-          value={Math.max(3, level * 100)}
-        />
-      ) : null}
-      {text ? (
-        <p
-          className="rounded-[8px] bg-muted/55 p-3 text-[12px] leading-6 whitespace-pre-wrap"
-          role="status"
-          aria-live="polite"
+        )}
+        <Button
+          variant="outline"
+          type="button"
+          disabled={
+            phase === "starting" ||
+            phase === "finishing" ||
+            (phase === "idle" && (disabled || !ready))
+          }
+          onClick={() => void (phase === "recording" ? finish() : begin())}
         >
-          {text}
-        </p>
+          {phase === "recording" ? <Square /> : <Mic />}
+          {phase === "recording"
+            ? "结束"
+            : phase === "starting"
+              ? "连接中…"
+              : phase === "finishing"
+                ? "识别中…"
+                : "开始试说"}
+        </Button>
+      </Row>
+      {text || errorMessage ? (
+        <Block className="space-y-2">
+          {text ? (
+            <p
+              className="rounded-lg bg-muted px-3 py-2.5 text-[13px] leading-5 whitespace-pre-wrap text-foreground"
+              role="status"
+              aria-live="polite"
+            >
+              {text}
+            </p>
+          ) : null}
+          {errorMessage ? <Notice tone="error">{errorMessage}</Notice> : null}
+        </Block>
       ) : null}
-      {errorMessage ? (
-        <Alert variant="destructive" role="alert">
-          <AlertDescription>{errorMessage}</AlertDescription>
-        </Alert>
-      ) : null}
-    </div>
+    </Group>
   );
 }

@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { ProcessingSettingsPage } from "@/components/Settings";
+import { ProcessingPage } from "@/components/settings/pages/ProcessingPage";
 
 export const Route = createFileRoute("/settings/processing")({
-  component: ProcessingSettingsPage,
+  component: ProcessingPage,
 });

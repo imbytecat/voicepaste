@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { DictionarySettingsPage } from "@/components/Settings";
+import { DictionaryPage } from "@/components/settings/pages/DictionaryPage";
 
 export const Route = createFileRoute("/settings/dictionary")({
-  component: DictionarySettingsPage,
+  component: DictionaryPage,
 });
