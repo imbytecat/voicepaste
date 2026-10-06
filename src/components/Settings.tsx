@@ -2472,8 +2472,8 @@ export function Settings({
               />
               <p className="px-6 py-5 text-[12px] leading-6 text-muted-foreground">
                 {recognitionService.account.state === "signedIn"
-                  ? "豆包官方个人词库协议尚未完成安全接入；登录与语音连接成功不代表词库已同步或用于识别。"
-                  : "登录后才能管理豆包个人词库；游客语音仍可用。官方个人词库尚未接入。"}
+                  ? "上方管理账号常用语。自动学习的个人词库是另一项数据，目前尚未接入；常用语同步成功不等于语音增强已生效。"
+                  : "登录后可读取和管理账号常用语；游客语音仍可用。自动学习的个人词库尚未接入。"}
               </p>
             </SettingsSection>
           );

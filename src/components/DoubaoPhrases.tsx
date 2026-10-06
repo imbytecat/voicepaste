@@ -81,21 +81,21 @@ export function DoubaoPhrases({
         {busy ? "处理中…" : "读取云端常用语"}
       </Button>
       {!signedIn && <p>请先登录豆包账号。</p>}
+      <Input
+        aria-label="豆包常用语内容"
+        value={text}
+        disabled={busy}
+        maxLength={50}
+        onChange={(e) => {
+          setText(e.target.value);
+        }}
+      />
       {snapshot && (
         <>
           <p className="text-xs text-muted-foreground">
             已读取 {snapshot.phrases.length}{" "}
             条。保存会修改同账号输入法常用语；其他设备并发修改可能产生冲突。
           </p>
-          <Input
-            aria-label="豆包常用语内容"
-            value={text}
-            disabled={busy}
-            maxLength={50}
-            onChange={(e) => {
-              setText(e.target.value);
-            }}
-          />
           <Button
             type="button"
             disabled={busy || !text.trim()}
