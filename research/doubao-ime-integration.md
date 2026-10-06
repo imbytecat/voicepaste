@@ -428,3 +428,5 @@ Android 1.4.6 `SmartOrganizeApi#organizeTextStream` 的 Retrofit POST 注解为 
 官方 `IRequests$CrossDeviceClipboardApi` 使用 `https://ime.doubao.com/api/v2/clipboard/config`，query 为 `device_name` 与 `x_device_type`；不带设备名返回业务400。补齐本应用显示名后真实返回 code0、两个设备对象，字段为 device_id/device_type/device_name/sync_enabled/is_current_device/is_support_copy，未输出具体账号设备数据。此 GET 携带设备元数据，可能登记或更新当前设备名，不能归类为绝对无状态读取。未调用 switch、authSync、pull 或 copy，未读取或发送剪贴板内容。
 
 发送文本的实际 producer 在 `input/n/e/b/f#m`，不是 clipboard 包名下：使用 Unicode codePointCount 作为长度，UTF-8 字节经 ZstdCompress 压缩，再交 `ImeClipboardApiManager#o` POST `/api/v2/stream/clipboard/text/copy`。接收与授权边界、超限处理、设备间真实投递仍未验收，不以配置成功冒充互传完成。
+
+配置回读进一步确认：当前应用 DID 的 `sync_enabled=2`、`is_support_copy=false`。官方 `clipboard/common/w#w(Integer)` 只有值1返回 enabled，不能将非零当作启用；之前探针统计其他设备时用 bool(int)，该数量不作为可投递设备证据。没有调用 switch 或 authSync 擅自开启云剪贴板，也没有以其他设备 ID 冒充支持设备。互传尚未满足真实授权/投递前提，不能发布假发送按钮。
