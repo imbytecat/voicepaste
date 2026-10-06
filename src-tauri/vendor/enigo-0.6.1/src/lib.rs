@@ -1,3 +1,5 @@
+// VoicePaste: vendored upstream source; lint like a crates.io dependency (cap-lints).
+#![allow(warnings)]
 //! Enigo lets you simulate mouse and keyboard input-events as if they were
 //! made by the actual hardware. It is available on Linux (X11), macOS and
 //! Windows.

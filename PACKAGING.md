@@ -96,7 +96,9 @@ Tauri 的 GTK3 依赖链仍使用 `glib 0.18`。`src-tauri/vendor/glib-0.18.5` �
 
 `Cargo.toml` 的 `[patch.crates-io]` 让 GTK/WebKit 依赖统一使用这份源码，不关闭安全检查，也不伪造已发布版本号。依赖扫描器可能仍按 `0.18.5` 报告告警；扫描状态不等于补丁是否生效。等兼容 GTK3 的已修复版本发布，或 Tauri 完成依赖升级后，移除补丁和 vendored 源码。不要将项目格式化规则应用到第三方源码。
 
-2026-10-05 验证：独立 `cargo run --release` 探针通过正向/反向/混合迭代、UTF-8、空字符串及耗尽检查；`mise run check` 通过前端构建、9 项前端测试、52 项 Rust 测试与 Clippy。使用补丁重新构建原生程序，在隔离 Linux/X11 环境实际显示首次设置窗口并点击进入识别服务步骤。保留上游原有编译警告，不为消除噪声扩大源码补丁。
+Cargo 只对 crates.io 依赖自动 `--cap-lints`，path 依赖的上游警告会混入 `mise run check` 输出。因此 vendored 的 glib 与 enigo 在 crate 根部各加一行 `#![allow(warnings)]`，效果等同普通 registry 依赖；不逐条修改上游代码，也不影响项目自身 crate 的 `-D warnings`。
+
+2026-10-05 验证：独立 `cargo run --release` 探针通过正向/反向/混合迭代、UTF-8、空字符串及耗尽检查；`mise run check` 通过前端构建、9 项前端测试、52 项 Rust 测试与 Clippy。使用补丁重新构建原生程序，在隔离 Linux/X11 环境实际显示首次设置窗口并点击进入识别服务步骤。
 
 ### Windows 测试与应用清单
 
