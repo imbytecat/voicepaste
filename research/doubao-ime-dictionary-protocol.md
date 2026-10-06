@@ -196,3 +196,19 @@ freq0 context 也得到 HTTP/API 成功及 `{}` 响应。原有增强在两个�
 - 最后针对测试词发送 freq0，并等待 35 秒后确认固定音频未命中；没有云端删除回执。上述实验没有修改 canonical 记录，不能声称云端测试词已删除。
 
 用户指出的入口已明确为“辅助输入 → 词库管理 → 清空”。重新解析 1.4.6 APK，确认 `LexiconManagementFragment#q0` 绑定 `personal_lexicon_clear_title`，确认回调 `$f#invoke` 调用 `ContentResolver.call(...,"clearUsrDict",...)`，异常捕获之后仍进入成功 toast 路径。它证明按钮存在及本地调用行为；不把 toast 当成服务端清空确认，也不据此排除后续间接同步。
+
+## 15. 常用语独立同步路径与只读补验
+
+同一既有账号/设备的 `sync_type=1` version 与 full pull 请求均业务成功；返回 `data_type=full`、空 URL。仅表示该次响应没有下载对象，不推广为所有本地常用语为空。该请求没有修改同步开关或云记录。
+
+继续恢复实际 `libshell.so` 生成类与 exporter，避免将个人词库语义套给常用语：
+
+- `SyncCommonPhraseOperation` writer `0x4f6414`：field1 varint 操作类型、field2 UTF-8 record_id、field3 record 子消息、field4/5 uint64 元数据。实际 producer `0x4a59ec` 将本地操作类型 2 映射为 wire 2，其他分支为 wire 1；仅本地类型 1 构造 record。元数据具体含义仍需追踪，不能猜值写入。
+- `SyncCommonPhraseRecord` writer `0x4f54e8`：前四个字段为字符串，UTF-8 检查标签对应 record_id/input/phrase/nine_key_input；另含整数与两个布尔属性。实际 producer 从本地结构拷贝，不是任意文本数组。
+- `SyncCommonPhrasePackage` writer `0x4f700c`：field1 uint32、field2 uint64、field3 枚举、field4 repeated operation、field5 uint64。实际文件 exporter `0x4a37d8` 起写 field1=7、field2 来自本地同步状态、field3 为 1/2，回调 `0x4a59ec` 写 field4。外层 `SyncCommonPhraseFile` writer `0x4f79c4` 仅 field1 bytes；压缩与文件封装须继续沿实际消费链确认。
+
+这已找到常用语真实增删 producer，与个人词库无删除 producer 的旧结果不同；尚未执行常用语写入，不将编码器线索当成完整 CRUD 验收。
+
+无写入 ASR 重复对照：固定相同音频，以启用/禁用交错顺序运行 8 场，全部完整结束，目标词命中均为 0；未进行 context 或 canonical 写入。此结果提供稳定基线，但不解释此前个别新增/撤回后的命中时序，不能据此归因服务端缓存。
+
+元数据补充：`0x22771c` 创建 exporter source snapshot；`0x22781c..0x22783c` 从 `meta/common_phrase_sync_version` 读取版本到 snapshot+0，并以版本是否为零设置 FULL 标志；`0x227840..0x227864` 从 `meta/next_common_phrase_sync_operation_sequence` 读取值减一到 snapshot+8。`0x4a37d8..0x4a3818` 因而写 package field1=7、field2=同步版本、field3=FULL1/INCREMENTAL2。文件 exporter 使用 gzip（初始化 windowBits=31，`0x4a3698..0x4a36b4`）。这些是实际指令恢复，不是凭字段顺序推断；record ID 创建、逐操作序列和修改时间仍需完整追踪后才能安全写入。

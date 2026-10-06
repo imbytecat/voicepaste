@@ -1458,8 +1458,13 @@ async fn translate_doubao_text(
         .await
         .map_err(|issue| issue.detail)?
         .ok_or("翻译需要登录豆包账号")?;
+    let account_revision = state.account.status(&app).await.revision;
+    drop(_gate);
     let result = asr::translate_doubao(&token, &text, to_english).await?;
     require_provider(&state, RecognitionProvider::DoubaoIme, provider_revision)?;
+    if state.account.status(&app).await.revision != account_revision {
+        return Err("翻译期间账号发生变化，已丢弃结果".to_owned());
+    }
     Ok(result)
 }
 
