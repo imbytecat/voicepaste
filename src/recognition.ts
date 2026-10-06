@@ -11,6 +11,8 @@ export interface RecognitionTestAttempt {
   apiKey: string;
   providerRevision: number;
   accountRevision: number;
+  disablePunctuation: boolean;
+  disablePersonalWords: boolean;
 }
 
 export function recognitionConfigurationChanged(
@@ -19,6 +21,11 @@ export function recognitionConfigurationChanged(
 ): boolean {
   return (
     current.provider !== saved.provider ||
+    (current.provider === "doubaoIme" &&
+      (current.doubaoIme.disablePunctuation !==
+        saved.doubaoIme.disablePunctuation ||
+        current.doubaoIme.disablePersonalWords !==
+          saved.doubaoIme.disablePersonalWords)) ||
     (current.provider === "volcengine" &&
       (current.volcengine.apiKey !== saved.volcengine.apiKey ||
         current.volcengine.hotwordsEnabled !==
@@ -49,6 +56,8 @@ export function recognitionTestAttempt(
         ? recognition.volcengine.apiKey.trim()
         : "",
     providerRevision,
+    disablePunctuation: recognition.doubaoIme.disablePunctuation,
+    disablePersonalWords: recognition.doubaoIme.disablePersonalWords,
     accountRevision:
       recognition.provider === "doubaoIme" ? account.revision : 0,
   };
@@ -68,7 +77,11 @@ export function recognitionTestIsCurrent(
     attempt.providerRevision === providerRevision &&
     (recognition.provider === "volcengine"
       ? attempt.apiKey === recognition.volcengine.apiKey.trim()
-      : attempt.accountRevision === account.revision) &&
+      : attempt.accountRevision === account.revision &&
+        attempt.disablePunctuation ===
+          recognition.doubaoIme.disablePunctuation &&
+        attempt.disablePersonalWords ===
+          recognition.doubaoIme.disablePersonalWords) &&
     recognitionReady(recognition, account) &&
     (!result ||
       (result.provider === attempt.provider &&

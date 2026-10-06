@@ -21,6 +21,8 @@ pub enum SessionConfig {
     },
     DoubaoIme {
         account_token: Option<String>,
+        disable_punctuation: bool,
+        disable_personal_words: bool,
     },
 }
 
@@ -128,8 +130,19 @@ pub async fn run(
                 api_key,
                 hotword_table_id,
             } => volcengine::run(api_key, hotword_table_id, commands, &mut on_partial).await,
-            SessionConfig::DoubaoIme { account_token } => {
-                doubao_ime::run(account_token, commands, &mut on_partial).await
+            SessionConfig::DoubaoIme {
+                account_token,
+                disable_punctuation,
+                disable_personal_words,
+            } => {
+                doubao_ime::run(
+                    account_token,
+                    disable_punctuation,
+                    disable_personal_words,
+                    commands,
+                    &mut on_partial,
+                )
+                .await
             }
         }
     })
@@ -164,8 +177,13 @@ pub async fn test_connection(config: SessionConfig) -> Result<(), ServiceIssue> 
             api_key,
             hotword_table_id,
         } => volcengine::test_connection(api_key, hotword_table_id).await,
-        SessionConfig::DoubaoIme { account_token } => {
-            doubao_ime::test_connection(account_token).await
+        SessionConfig::DoubaoIme {
+            account_token,
+            disable_punctuation,
+            disable_personal_words,
+        } => {
+            doubao_ime::test_connection(account_token, disable_punctuation, disable_personal_words)
+                .await
         }
     }
 }

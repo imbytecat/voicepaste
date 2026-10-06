@@ -41,11 +41,18 @@ type Socket = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
 
 pub(super) async fn run(
     account_token: Option<String>,
+    disable_punctuation: bool,
+    disable_personal_words: bool,
     mut commands: mpsc::Receiver<AudioCommand>,
     on_partial: &mut (impl FnMut(&str) + Send),
 ) -> Result<AsrOutcome, ServiceIssue> {
     let has_account = account_token.is_some();
-    let (socket, request_id) = open(account_token.as_deref()).await?;
+    let (socket, request_id) = open(
+        account_token.as_deref(),
+        disable_punctuation,
+        disable_personal_words,
+    )
+    .await?;
     let (mut writer, mut reader) = socket.split();
     let mut audio = AudioFrames::new(&request_id)?;
     let mut transcript = Transcript::default();
@@ -114,17 +121,33 @@ pub(super) async fn run(
     }
 }
 
-pub(super) async fn test_connection(account_token: Option<String>) -> Result<(), ServiceIssue> {
+pub(super) async fn test_connection(
+    account_token: Option<String>,
+    disable_punctuation: bool,
+    disable_personal_words: bool,
+) -> Result<(), ServiceIssue> {
     let (sender, receiver) = mpsc::channel(1);
     sender
         .try_send(AudioCommand::Finish)
         .map_err(|_| ServiceIssue::unknown("无法创建语音连接测试"))?;
     // Initial acknowledgements can precede a backend failure. Require the
     // service to finish this no-audio session before reporting it as verified.
-    run(account_token, receiver, &mut |_| {}).await.map(|_| ())
+    run(
+        account_token,
+        disable_punctuation,
+        disable_personal_words,
+        receiver,
+        &mut |_| {},
+    )
+    .await
+    .map(|_| ())
 }
 
-async fn open(account_token: Option<&str>) -> Result<(Socket, String), ServiceIssue> {
+async fn open(
+    account_token: Option<&str>,
+    disable_punctuation: bool,
+    disable_personal_words: bool,
+) -> Result<(Socket, String), ServiceIssue> {
     let account_header = account_token
         .map(|token| {
             if token.trim().is_empty() || token.len() > 16 * 1024 {
@@ -183,11 +206,12 @@ async fn open(account_token: Option<&str>) -> Result<(Socket, String), ServiceIs
     let mut session = Request::control("StartSession", &request_id, APPLICATION_KEY);
     session.payload = json!({
         "audio_info": { "channel": 1, "format": "speech_opus", "sample_rate": 16000 },
-        "enable_punctuation": true,
+        "enable_punctuation": !disable_punctuation,
         "enable_speech_rejection": false,
         "extra": {
             "app_name": "com.android.chrome", "cell_compress_rate": 8,
             "did": device_id.as_ref(),
+            "disable_user_words": disable_personal_words,
             "enable_asr_threepass": true, "enable_asr_twopass": true, "input_mode": "tool"
         }
     })

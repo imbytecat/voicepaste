@@ -456,6 +456,8 @@ async fn recognition_config(
         }
         RecognitionProvider::DoubaoIme => Ok(asr::SessionConfig::DoubaoIme {
             account_token: state.account.resolve_token(app).await?,
+            disable_punctuation: recognition.doubao_ime.disable_punctuation,
+            disable_personal_words: recognition.doubao_ime.disable_personal_words,
         }),
     }
 }
@@ -1056,6 +1058,8 @@ async fn start_recognition_session(
     let llm_settings = settings.recognition.llm().clone();
     let smart_organize = provider == RecognitionProvider::DoubaoIme
         && settings.recognition.doubao_ime.smart_organize;
+    let disable_punctuation = settings.recognition.doubao_ime.disable_punctuation;
+    let disable_personal_words = settings.recognition.doubao_ime.disable_personal_words;
     let mut processing_cancelled = cancelled.clone();
     tauri::async_runtime::spawn(async move {
         let active =
@@ -1069,10 +1073,13 @@ async fn start_recognition_session(
         // Authentication must succeed before any buffered audio is uploaded.
         let config = match api_config {
             Some(config) => Ok(config),
-            None => account
-                .resolve_token(&app)
-                .await
-                .map(|account_token| asr::SessionConfig::DoubaoIme { account_token }),
+            None => account.resolve_token(&app).await.map(|account_token| {
+                asr::SessionConfig::DoubaoIme {
+                    account_token,
+                    disable_punctuation,
+                    disable_personal_words,
+                }
+            }),
         };
         if !active() {
             clear_current_session(&session_slot, &session_id);
@@ -1081,12 +1088,13 @@ async fn start_recognition_session(
         let using_account = matches!(
             &config,
             Ok(asr::SessionConfig::DoubaoIme {
-                account_token: Some(_)
+                account_token: Some(_),
+                ..
             })
         );
         let organize_token = if smart_organize {
             match &config {
-                Ok(asr::SessionConfig::DoubaoIme { account_token }) => account_token.clone(),
+                Ok(asr::SessionConfig::DoubaoIme { account_token, .. }) => account_token.clone(),
                 _ => None,
             }
         } else {
@@ -1381,7 +1389,8 @@ async fn test_recognition(
     let using_account = matches!(
         &config,
         asr::SessionConfig::DoubaoIme {
-            account_token: Some(_)
+            account_token: Some(_),
+            ..
         }
     );
     if let Err(issue) = asr::test_connection(config).await {

@@ -23,6 +23,8 @@ export interface VolcengineSettings {
 
 export interface DoubaoImeSettings {
   smartOrganize: boolean;
+  disablePunctuation: boolean;
+  disablePersonalWords: boolean;
   llm: LlmSettings;
 }
 
@@ -193,7 +195,12 @@ export const DEFAULT_SETTINGS: AppSettings = {
       hotwordsEnabled: false,
       llm: { ...DEFAULT_LLM_SETTINGS },
     },
-    doubaoIme: { smartOrganize: false, llm: { ...DEFAULT_LLM_SETTINGS } },
+    doubaoIme: {
+      smartOrganize: false,
+      disablePunctuation: false,
+      disablePersonalWords: false,
+      llm: { ...DEFAULT_LLM_SETTINGS },
+    },
   },
   launchAtStartup: false,
   openSettingsOnStartup: true,

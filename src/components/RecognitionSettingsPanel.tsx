@@ -7,6 +7,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import type { RecognitionService } from "@/components/useRecognitionService";
 import { recognitionReady } from "@/recognition";
 import type { RecognitionSettings } from "@/types";
@@ -271,6 +272,47 @@ export function RecognitionSettingsPanel({
               <AlertDescription>{service.accountError}</AlertDescription>
             </Alert>
           ) : null}
+        </div>
+      )}
+      {recognition.provider === "doubaoIme" && (
+        <div className="space-y-3 rounded-md border p-3">
+          <div className="flex items-center justify-between gap-3 text-sm">
+            自动标点
+            <Switch
+              aria-label="豆包自动标点"
+              checked={!recognition.doubaoIme.disablePunctuation}
+              disabled={busy}
+              onCheckedChange={(checked) => {
+                onChange({
+                  ...recognition,
+                  doubaoIme: {
+                    ...recognition.doubaoIme,
+                    disablePunctuation: !checked,
+                  },
+                });
+              }}
+            />
+          </div>
+          <div className="flex items-center justify-between gap-3 text-sm">
+            使用服务端个人词增强
+            <Switch
+              aria-label="豆包个人词增强"
+              checked={!recognition.doubaoIme.disablePersonalWords}
+              disabled={busy}
+              onCheckedChange={(checked) => {
+                onChange({
+                  ...recognition,
+                  doubaoIme: {
+                    ...recognition.doubaoIme,
+                    disablePersonalWords: !checked,
+                  },
+                });
+              }}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            开关只控制识别请求，不上传或删除词库。关闭自动标点不影响另行启用的文本整理。
+          </p>
         </div>
       )}
 

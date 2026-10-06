@@ -73,6 +73,8 @@ pub struct VolcengineSettings {
 #[serde(default, rename_all = "camelCase")]
 pub struct DoubaoImeSettings {
     pub smart_organize: bool,
+    pub disable_punctuation: bool,
+    pub disable_personal_words: bool,
     pub llm: LlmSettings,
 }
 

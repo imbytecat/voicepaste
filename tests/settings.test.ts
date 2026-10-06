@@ -167,3 +167,26 @@ void test("inactive credentials cannot invalidate current provider settings or p
     false
   );
 });
+
+void test("changed IME request options invalidate old connection proof", () => {
+  const attempt = recognitionTestAttempt(recognition, guest, 1, 4);
+  for (const key of ["disablePunctuation", "disablePersonalWords"] as const) {
+    const changed = {
+      ...recognition,
+      doubaoIme: { ...recognition.doubaoIme, [key]: true },
+    };
+    assert.equal(recognitionConfigurationChanged(changed, recognition), true);
+    assert.equal(
+      recognitionTestIsCurrent(attempt, changed, guest, 1, 4),
+      false
+    );
+    const inactive = { ...changed, provider: "volcengine" as const };
+    assert.equal(
+      recognitionConfigurationChanged(inactive, {
+        ...recognition,
+        provider: "volcengine",
+      }),
+      false
+    );
+  }
+});
