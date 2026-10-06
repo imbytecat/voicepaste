@@ -212,3 +212,19 @@ freq0 context 也得到 HTTP/API 成功及 `{}` 响应。原有增强在两个�
 无写入 ASR 重复对照：固定相同音频，以启用/禁用交错顺序运行 8 场，全部完整结束，目标词命中均为 0；未进行 context 或 canonical 写入。此结果提供稳定基线，但不解释此前个别新增/撤回后的命中时序，不能据此归因服务端缓存。
 
 元数据补充：`0x22771c` 创建 exporter source snapshot；`0x22781c..0x22783c` 从 `meta/common_phrase_sync_version` 读取版本到 snapshot+0，并以版本是否为零设置 FULL 标志；`0x227840..0x227864` 从 `meta/next_common_phrase_sync_operation_sequence` 读取值减一到 snapshot+8。`0x4a37d8..0x4a3818` 因而写 package field1=7、field2=同步版本、field3=FULL1/INCREMENTAL2。文件 exporter 使用 gzip（初始化 windowBits=31，`0x4a3698..0x4a36b4`）。这些是实际指令恢复，不是凭字段顺序推断；record ID 创建、逐操作序列和修改时间仍需完整追踪后才能安全写入。
+
+逐操作元数据进一步恢复：`0x22466c` 从本地 next sequence 取值并加一，原值写 operation+0xa8，对应 protobuf field4；记录修改时间写 operation+0xb0，对应 field5。DELETE 分支使用 `max(当前毫秒时间, 原记录修改时间+1)`；时钟 `0x656f70` 用 CLOCK_REALTIME 并返回微秒，调用方除以 1000。稳定 record_id 缺失时，`0x2241e4` 生成 16 个随机字节，`0x224364..0x224380` 设置 UUID v4/variant 位并输出 36 字符带连字符格式。仍须验证服务端接收/回读/删除，以及与 ASR 的关系；没有对真实云库猜测写入。
+
+## 16. 常用语真实新增、回读、删除闭环
+
+沿已恢复官方 producer 执行单条公开测试“语贴常用语验证”，仅作用于 `sync_type=1`；没有改个人词库 type2。先确认 type1 全量响应无下载对象、读窗口版本一致，保存基线、随机 UUID v4、时间戳和二进制 payload 至权限受限 `/tmp/voicepaste-common-stage-proof/`。
+
+- 上传 gzip 压缩的 package（format7、当前 sync version、FULL1、单条 UPSERT1），`Content-MD5` 为压缩明文的 Base64 MD5，X-Sync-Type1。upload 返回对象，提交前再次确认版本未变。
+- 首次 push 遗漏 X-Ss-Req-Ticket，被 HTTP200/业务400 明确拒绝；补齐已证实的毫秒头后，push 业务成功。未对结果不明的请求盲重试。
+- full pull 返回真实 CDN 文件；不向 CDN 发送账号凭据，gzip 解压并检查 protobuf。实际 125 字节 package 包含一条 UPSERT、36 字符 record_id、record 子消息、修改时间与服务端版本字段。
+- 使用同一自建 UUID 的 DELETE2，INCREMENTAL2、操作序列2、严格晚于新增的毫秒时间提交；提交前版本相符，服务成功。
+- 再次 full pull 得到 6 字节 package，仅 format7、FULL1、version2，无任何 operation/record。该常用语测试记录已通过真实全量回读确认清理，不是仅看到 HTTP200。
+
+这证明本账号本设备的单条常用语新增和删除语义可用；不证明个人词库清空、不证明并发 CAS、不证明常用语对任意音频的识别增强。此前 type2“语贴验词”和 context“语音工具”的残留边界不因本次 type1 清理而改变。
+
+多记录补验：随后用两个新建 UUID 在空 type1 基线上执行增量新增两条公开测试常用语，全量回读精确匹配两条；修改第一条后，全量回读确认第二条完全保留；最后只删除这两个 UUID，全量回读恢复原空基线。全部操作通过真实 upload/push/pull，无 context 写入，不涉及 type2 个人词库。探针 `/tmp/voicepaste-common-crud.py`，权限受限证据 `/tmp/voicepaste-common-crud-proof/`。这补齐了常用语服务层的多条新增、文本修改与删除闭环，尚非产品 UI/Rust 接入完成。
