@@ -1526,7 +1526,7 @@ async fn translate_doubao_text(
     app: AppHandle,
     state: State<'_, AppState>,
     text: String,
-    to_english: bool,
+    to_english: Option<bool>,
     provider_revision: u64,
     request_id: String,
 ) -> Result<String, String> {
@@ -1558,7 +1558,10 @@ async fn translate_doubao_text(
             .ok_or("翻译需要登录豆包账号")?;
         let account_revision = state.account.status(&app).await.revision;
         drop(_gate);
-        let result = asr::translate_doubao(&token, &text, to_english).await?;
+        let result = match to_english {
+            Some(direction) => asr::translate_doubao(&token, &text, direction).await?,
+            None => asr::organize_doubao(&token, &text).await?,
+        };
         require_provider(&state, RecognitionProvider::DoubaoIme, provider_revision)?;
         if state.account.status(&app).await.revision != account_revision {
             return Err("翻译期间账号发生变化，已丢弃结果".to_owned());

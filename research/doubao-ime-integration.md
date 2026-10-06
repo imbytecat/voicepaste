@@ -430,3 +430,7 @@ Android 1.4.6 `SmartOrganizeApi#organizeTextStream` 的 Retrofit POST 注解为 
 发送文本的实际 producer 在 `input/n/e/b/f#m`，不是 clipboard 包名下：使用 Unicode codePointCount 作为长度，UTF-8 字节经 ZstdCompress 压缩，再交 `ImeClipboardApiManager#o` POST `/api/v2/stream/clipboard/text/copy`。接收与授权边界、超限处理、设备间真实投递仍未验收，不以配置成功冒充互传完成。
 
 配置回读进一步确认：当前应用 DID 的 `sync_enabled=2`、`is_support_copy=false`。官方 `clipboard/common/w#w(Integer)` 只有值1返回 enabled，不能将非零当作启用；之前探针统计其他设备时用 bool(int)，该数量不作为可投递设备证据。没有调用 switch 或 authSync 擅自开启云剪贴板，也没有以其他设备 ID 冒充支持设备。互传尚未满足真实授权/投递前提，不能发布假发送按钮。
+
+### 手工智能整理入口
+
+原有整理服务除听写后处理外，现复用于文本工具主动预览：用户手填文本并选择“智能整理”，仍使用同一真实 scene6，不猜测新 scene。原生页面实际输入“嗯今天下午三点开会然后请把会议纪要发给我谢谢”，返回“今天下午三点开会，然后请把会议纪要发给我，谢谢。”，原文不变。复用取消与账号变更结果隔离，不自动读取剪贴板；完整检查通过。

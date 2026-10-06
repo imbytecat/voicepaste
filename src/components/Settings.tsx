@@ -39,7 +39,7 @@ import { AudioCapture } from "@/audio";
 import type { MicrophoneDevice } from "@/audio";
 import { DoubaoDictionary } from "@/components/DoubaoDictionary";
 import { DoubaoPhrases } from "@/components/DoubaoPhrases";
-import { DoubaoTranslation } from "@/components/DoubaoTranslation";
+import { DoubaoTextTools } from "@/components/DoubaoTextTools";
 import { RecognitionSettingsPanel } from "@/components/RecognitionSettingsPanel";
 import { RecognitionSpeechTest } from "@/components/RecognitionSpeechTest";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -2570,7 +2570,7 @@ export function Settings({
             description={`仅处理当前${settings.recognition.provider === "doubaoIme" ? "豆包输入法" : "火山引擎"}的识别文本；模型、提示词和凭据按使用方式独立保存。`}
           >
             {settings.recognition.provider === "doubaoIme" && (
-              <DoubaoTranslation
+              <DoubaoTextTools
                 key={`${providerRevision}-${recognitionService.account.revision}`}
                 revision={providerRevision}
                 signedIn={recognitionService.account.state === "signedIn"}

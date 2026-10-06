@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 
-export function DoubaoTranslation({
+export function DoubaoTextTools({
   revision,
   signedIn,
 }: {
@@ -15,7 +15,7 @@ export function DoubaoTranslation({
   const [result, setResult] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [toEnglish, setToEnglish] = useState(true);
+  const [action, setAction] = useState("en");
   const generation = useRef(0);
   const requestId = useRef<string | null>(null);
   useEffect(
@@ -39,14 +39,14 @@ export function DoubaoTranslation({
     try {
       const translated = await invoke<string>("translate_doubao_text", {
         text,
-        toEnglish,
+        toEnglish: action === "organize" ? null : action === "en",
         providerRevision: revision,
         requestId: id,
       });
       if (generation.current === request) setResult(translated);
     } catch {
       if (generation.current === request)
-        setError("翻译失败，原文已保留。请检查账号和网络后重试。");
+        setError("文本处理失败，原文已保留。请检查账号和网络后重试。");
     } finally {
       if (generation.current === request) {
         setBusy(false);
@@ -56,26 +56,27 @@ export function DoubaoTranslation({
   };
   return (
     <div className="space-y-3 px-6 py-5">
-      <h3 className="text-sm font-medium">豆包中英互译</h3>
+      <h3 className="text-sm font-medium">豆包文本工具</h3>
       <p className="text-xs text-muted-foreground">
-        仅在点击翻译后上传这里的文本；结果供预览，不自动替换其他应用内容。
+        仅在点击处理后上传这里的文本；整理或翻译结果供预览，不自动替换其他应用内容。
       </p>
       <select
-        aria-label="翻译方向"
+        aria-label="文本处理方式"
         className="rounded-md border border-input bg-background p-2 text-sm"
         disabled={busy}
-        value={toEnglish ? "en" : "zh"}
+        value={action}
         onChange={(e) => {
-          setToEnglish(e.target.value === "en");
+          setAction(e.target.value);
           setResult("");
           setError("");
         }}
       >
         <option value="en">中文 → 英文</option>
         <option value="zh">英文 → 中文</option>
+        <option value="organize">智能整理</option>
       </select>
       <Textarea
-        aria-label="待翻译文本"
+        aria-label="待处理文本"
         value={text}
         disabled={busy}
         onChange={(e) => {
@@ -89,7 +90,13 @@ export function DoubaoTranslation({
         disabled={!signedIn || busy || !text.trim()}
         onClick={() => void translate()}
       >
-        {busy ? "翻译中…" : toEnglish ? "翻译为英文" : "翻译为中文"}
+        {busy
+          ? "处理中…"
+          : action === "organize"
+            ? "整理文本"
+            : action === "en"
+              ? "翻译为英文"
+              : "翻译为中文"}
       </Button>
       {busy && (
         <Button
@@ -109,7 +116,7 @@ export function DoubaoTranslation({
               );
           }}
         >
-          取消翻译
+          取消处理
         </Button>
       )}
       {!signedIn && (
@@ -120,7 +127,7 @@ export function DoubaoTranslation({
           {error}
         </p>
       )}
-      {result && <Textarea aria-label="翻译结果" readOnly value={result} />}
+      {result && <Textarea aria-label="文本处理结果" readOnly value={result} />}
       {result && (
         <Button
           type="button"
@@ -136,7 +143,7 @@ export function DoubaoTranslation({
             );
           }}
         >
-          复制译文
+          复制结果
         </Button>
       )}
     </div>
