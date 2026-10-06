@@ -400,3 +400,7 @@ Android 1.4.6 `SmartOrganizeApi#organizeTextStream` 的 Retrofit POST 注解为 
 已接入豆包渠道默认关闭的 `smartOrganize` 开关及正式听写后处理，失败保留原文，取消不继续输入；与自定义 LLM 后处理互斥。浏览器实际页面已确认控件和未登录禁用状态，原生 debug 窗口已启动并进入文本处理页面。完整 `mise run check` 与新 SSE 完成/错误边界测试通过。真实录音到整理再自动粘贴、开关保存交互以及新增 OpenSSL 依赖的三平台发布构建仍待验收，不将服务 smoke 当成整项发布完成。
 
 原生交互补验：使用 tauri-driver/WebKitWebDriver 驱动实际桌面程序，在独立设置目录且保留用户已授权账号的环境打开“文本处理”，真实点击“豆包输入法智能整理”和“保存设置”。落盘 `recognition.doubaoIme.smartOrganize=true`，自定义 LLM `enabled=false`；重新加载原生 WebView 后开关仍为 true，LLM 开关为 disabled。没有使用模拟 IPC，也未修改用户原设置目录。真实账号服务 smoke 与原生配置交互分别已验证；完整语音录入链仍须补验。
+
+完整链路补验：提交 `9615118` 的[三平台未发布打包](https://github.com/imbytecat/voicepaste/actions/runs/37438383779)全部通过，包含 vendored OpenSSL；没有创建新版本或公开 Release。原生程序在 Xvfb 下使用独立配置，按真实全局快捷键录音；PulseAudio source-output 核对仅连接 `voicepaste_organize_verify.monitor`，输入公开合成音频，未采集物理麦克风。实际观察到实时识别 → “正在使用豆包输入法智能整理” → 整理完成；独立 GTK 输入框最终提交“今天下午 3 点开会，请把会议纪要发给我。”，进程退出码 0。
+
+前两次实验仅移除 WAYLAND_DISPLAY、未覆盖宿主 XDG_SESSION_TYPE，导致混合显示环境下目标框为空，不能计作粘贴成功；将验证环境显式设为 `XDG_SESSION_TYPE=x11` 后真实目标通过，未为测试修改产品输入路由。测试进程、driver 和合成音频节点已停止/卸载。其余词库、翻译、跨端能力与全项目发布仍未完成，不因智能整理单项通过而提前发版。
