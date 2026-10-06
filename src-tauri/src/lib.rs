@@ -1,6 +1,7 @@
 mod asr;
 mod audio;
 mod doubao_account;
+mod doubao_ime_transport;
 mod hotwords;
 mod llm;
 mod paste;
@@ -334,6 +335,10 @@ fn prepare_ordinary_save(next: &mut AppSettings, previous: &AppSettings) -> Resu
         }
         RecognitionProvider::DoubaoIme => {
             next.recognition.volcengine = previous.recognition.volcengine.clone();
+            if next.recognition.doubao_ime.smart_organize && next.recognition.doubao_ime.llm.enabled
+            {
+                return Err("豆包智能整理与自定义 LLM 后处理只能启用一个".to_owned());
+            }
         }
     }
     next.shortcut = next.shortcut.trim().to_owned();
@@ -1048,6 +1053,9 @@ async fn start_recognition_session(
     let session_slot = Arc::clone(&state.session);
     let input_session = Arc::clone(&state.input_session);
     let llm_settings = settings.recognition.llm().clone();
+    let smart_organize = provider == RecognitionProvider::DoubaoIme
+        && settings.recognition.doubao_ime.smart_organize;
+    let mut processing_cancelled = cancelled.clone();
     tauri::async_runtime::spawn(async move {
         let active =
             || require_provider(&app.state::<AppState>(), provider, provider_revision).is_ok();
@@ -1075,6 +1083,14 @@ async fn start_recognition_session(
                 account_token: Some(_)
             })
         );
+        let organize_token = if smart_organize {
+            match &config {
+                Ok(asr::SessionConfig::DoubaoIme { account_token }) => account_token.clone(),
+                _ => None,
+            }
+        } else {
+            None
+        };
         let result = match config {
             Ok(config) => {
                 asr::run(config, receiver, cancelled, |text| {
@@ -1103,7 +1119,25 @@ async fn start_recognition_session(
             }
             Ok(AsrOutcome::Text(text)) => {
                 emit(json!({ "kind": "final", "text": &text }));
-                let (text, completed_message) = if llm_settings.enabled {
+                let (text, completed_message) = if smart_organize {
+                    emit(json!({ "kind": "processing", "message": "正在使用豆包输入法智能整理…" }));
+                    let result = if let Some(token) = organize_token.as_deref() {
+                        tokio::select! {
+                            biased;
+                            _ = processing_cancelled.changed() => {
+                                clear_current_session(&session_slot, &session_id);
+                                return;
+                            }
+                            result = asr::organize_doubao(token, &text) => result,
+                        }
+                    } else {
+                        Err("智能整理需要已登录的豆包账号".to_owned())
+                    };
+                    match result {
+                        Ok(processed) => (processed, "豆包智能整理完成，已输入"),
+                        Err(_) => (text, "豆包智能整理失败，已输入原始识别结果"),
+                    }
+                } else if llm_settings.enabled {
                     emit(
                         json!({ "kind": "processing", "message": "正在处理识别文本，输入会比平时稍慢…" }),
                     );
@@ -1118,7 +1152,10 @@ async fn start_recognition_session(
                 } else {
                     (text, "已输入")
                 };
-                if !active() {
+                if !active()
+                    || !is_current_session(&session_slot, &session_id)
+                    || *processing_cancelled.borrow()
+                {
                     clear_current_session(&session_slot, &session_id);
                     return;
                 }

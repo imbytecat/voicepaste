@@ -353,6 +353,9 @@ function settingsChanged(
     current.launchAtStartup !== saved.launchAtStartup ||
     current.openSettingsOnStartup !== saved.openSettingsOnStartup ||
     current.overlayPosition !== saved.overlayPosition ||
+    (current.recognition.provider === "doubaoIme" &&
+      current.recognition.doubaoIme.smartOrganize !==
+        saved.recognition.doubaoIme.smartOrganize) ||
     llmSettingsChanged(
       current.recognition[current.recognition.provider].llm,
       saved.recognition[saved.recognition.provider].llm
@@ -2558,12 +2561,44 @@ export function Settings({
             title="智能文本处理"
             description={`仅处理当前${settings.recognition.provider === "doubaoIme" ? "豆包输入法" : "火山引擎"}的识别文本；模型、提示词和凭据按使用方式独立保存。`}
           >
+            {settings.recognition.provider === "doubaoIme" && (
+              <SettingRow
+                title="豆包输入法智能整理"
+                description="使用已登录账号整理最终转写，不需要 LLM API Key。与自定义 LLM 二选一；失败保留原文，试说不整理。"
+              >
+                <Switch
+                  checked={settings.recognition.doubaoIme.smartOrganize}
+                  disabled={
+                    !settings.recognition.doubaoIme.smartOrganize &&
+                    recognitionService.account.state !== "signedIn"
+                  }
+                  aria-label="豆包输入法智能整理"
+                  onCheckedChange={(checked) => {
+                    updateRecognition({
+                      ...settings.recognition,
+                      doubaoIme: {
+                        ...settings.recognition.doubaoIme,
+                        smartOrganize: checked,
+                        llm: {
+                          ...settings.recognition.doubaoIme.llm,
+                          enabled: false,
+                        },
+                      },
+                    });
+                  }}
+                />
+              </SettingRow>
+            )}
             <SettingRow
               title="启用 LLM 后处理"
               description="识别完成后将文本发送到已配置的 LLM 服务；通常会增加数秒等待时间。"
               changed={isLlmSettingChanged("enabled")}
             >
               <Switch
+                disabled={
+                  settings.recognition.provider === "doubaoIme" &&
+                  settings.recognition.doubaoIme.smartOrganize
+                }
                 checked={
                   settings.recognition[settings.recognition.provider].llm
                     .enabled

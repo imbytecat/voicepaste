@@ -101,6 +101,19 @@ pub(super) async fn device_id() -> Result<Arc<str>, ServiceIssue> {
     .map_err(|_| ServiceIssue::unknown("豆包输入法设备初始化任务中断"))?
 }
 
+pub(super) async fn organize(token: &str, text: &str) -> Result<String, String> {
+    let did = device_id().await.map_err(|issue| issue.detail)?;
+    let iid = {
+        let cached = CACHED.lock().await;
+        cached
+            .identity
+            .as_ref()
+            .and_then(|identity| identity.install_id.clone())
+            .ok_or("豆包设备身份尚未注册")?
+    };
+    crate::doubao_ime_transport::organize(token, &did, &iid, text).await
+}
+
 fn storage_issue() -> ServiceIssue {
     ServiceIssue::credential_storage("无法安全读取或保存豆包输入法设备身份；没有使用明文替代存储")
 }

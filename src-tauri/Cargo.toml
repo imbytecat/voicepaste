@@ -53,6 +53,8 @@ async-openai = { version = "0.42.1", default-features = false, features = [
   "chat-completion",
   "rustls-no-provider",
 ] }
+openssl = { version = "0.10.81", features = ["vendored"] }
+base64 = "0.23.1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 ashpd = { version = "0.13.13", default-features = false, features = [

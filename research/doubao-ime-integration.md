@@ -361,3 +361,42 @@ with ZipFile(p) as z:
 - [P2] [`asr.rs`](../src-tauri/src/asr.rs) `DOUBAO_ENDPOINT`、`build_connection_request`、`run`；[`settings.rs`](../src-tauri/src/settings.rs) `AppSettings` 与系统凭据库；[`Settings.tsx`](../src/components/Settings.tsx) 连接测试/新手引导。
 - [P3] [`capabilities/default.json`](../src-tauri/capabilities/default.json)、[`tauri.conf.json`](../src-tauri/tauri.conf.json)、[`PRIVACY.md`](../PRIVACY.md)。
 - [A1]–[A4]、[W1]–[W2]：用户提供样本的静态证据，完整文件哈希及包内类/方法/偏移见第 1、9 节，不依赖临时分析文件保留。
+
+## 扩展接入范围与发布门槛（2026-10-06）
+
+用户要求：输入法已有、可适用于独立工具的能力全部纳入接入，按 VoicePaste 场景优化后再发布新功能。以下是官网与现有安装包证据对应的功能清单，不把端点存在当成可用验收。
+
+| 能力 | VoicePaste 适配 | 当前门槛 |
+| --- | --- | --- |
+| 账号登录、退出、会话失效 | 独立账号入口，系统凭据库，账号失败不降级访客 | 已有实现；新上下文生命周期需单独验收 |
+| 流式语音、方言、中英混输、专业术语 | 保持按住/切换录音及任意输入法共存 | 基础链路已验；方言与复杂噪声不能用普通合成音频代替验收 |
+| 标点、口语整理、语音指令 | 可控识别选项，明确区分转写与改写，保留原文及失败恢复 | 需追踪官方字段和整理服务真实请求 |
+| 个人词库与常用语 | 手工维护优先，账号隔离，明确本地/同步/识别上下文三种状态 | 上传可达，稳定增强及安全删除仍在定位 |
+| 清空词库 | 对应用户指出的辅助输入入口；执行前说明实际范围 | 不能把本地清空提示当作云端清空，整库操作须另行确认 |
+| 文本整理、改写、总结、翻译 | 用户主动提供或选中文本后操作，预览确认再替换 | 接口、长度限制、取消、错误保留原文需验收 |
+| 超级互传、常用语跨端同步 | 用户主动发送/接收，避免默认上传整个剪贴板历史 | 需确认设备授权、同步类型、冲突与撤销语义 |
+| 纠错学习、场景上下文 | 仅使用工具内用户明确确认的修正；上下文上传单独开关 | 不监听其他应用全部键盘输入，不默认读取屏幕或联系人 |
+| 离线语音 | 若官方模型能合法独立运行，作为明确可选下载 | 包含模型路径不证明 Linux 可运行或允许再分发；不得用空实现替代 |
+| 拼音候选、键盘布局、皮肤、按键联想 | 属于系统输入法前端，不接管用户现有输入法 | 不作为独立语音工具功能；文本补全能力如可独立调用则按主动文本工具评估 |
+
+官网依据：https://shurufa.doubao.com/pc 。移动包资源还明确包含智能文字整理、翻译、语音标点、离线语音下载、AI 检查/重写/总结/列表及常用语操作；每项仍须追踪实际调用链。发布门槛为产品真实入口、真实服务结果、取消和错误路径、数据保留及升级验收全部通过，不以研究报告、成功状态码或构建通过代替。
+
+### 智能整理调用链定位
+
+Android 1.4.6 `SmartOrganizeApi#organizeTextStream` 的 Retrofit POST 注解为 `/api/v2/ai/text_organization`；工厂 `SmartOrganizeApi$a$a#invoke` 使用 `https://ime.doubao.com` 和两个公共网络拦截器。请求对象 `smart_organize.Z` 的 Gson 注解给出精确字段：`scene:int`、`query:string`、`space_at_cn_en_nb:int`、`space_at_newline:int`、`stream:boolean`。调用者 `a0$c#invokeSuspend +0x186..0x1b0` 构造请求并发起流式调用。
+
+响应消费者 `smart_organize.a0#a/b` 按 SSE 的 `event:`、`data:` 和空行分帧，区分 `scene.delta`、`scene.completed`、`scene.error`、`done` 与 `[DONE]`。后续接入应保留这种完成/错误区分，不能把连接结束或部分文本当成整理成功。scene 的产品操作映射、字段默认来源及真实服务验收尚待完成；本节仅记录实际 DEX 调用与注解，不宣称接口已经可用。
+
+后续真实请求已通过：`m0$g#invokeSuspend +0x10` 与 `w#invokeSuspend +0x8e` 均将 scene 设为 6。使用既有授权账号、设备和真实 TTNet 握手，发送公开测试文本“嗯今天下午三点开会然后请把会议纪要发给我谢谢”，得到 HTTP 200、`text/event-stream`、两个 `scene.delta`、一个 `scene.completed` 和 `done/[DONE]`。最终原始响应为“今天下午三点开会，然后请把会议纪要发给我，谢谢。”，没有账号或词库写入。
+
+该结果证明独立文本整理服务真实可用，不代表已经完成 Rust、设置界面、取消和失败恢复接入。探针 `/tmp/voicepaste-organize-live.py`；原始公开文本响应与脱敏摘要在 `/tmp/voicepaste-organize-live-proof/`。请求没有上传剪贴板、屏幕文字、通讯录或用户实际听写。
+
+传输必要性对照：同一已验证账号、同一公开文本、scene 6，普通 HTTPS JSON POST（无 TTNet 票据/密文）返回 HTTP 403、15 字节 `application/octet-stream`，无完成事件；带已协商 TTNet 加密的请求已返回完整整理结果。因此不能用直接 reqwest JSON 请求替代所需握手，也不能把 403 当成账号无效而反复登录。Rust 接入必须实现并验证该传输层；不能依赖临时 Python 探针作为发布运行时。
+
+### Rust 智能整理实现验证
+
+`src-tauri/src/doubao_ime_transport.rs` 已实现标准库之外所需的 P-256 签名/密钥交换、两项响应签名校验、HKDF-SHA256 和 ChaCha20 传输，使用标准 OpenSSL 实现而非手写曲线/流密码。真实 Rust smoke 通过同一账号与设备调用整理服务，返回“今天下午三点开会，然后请把会议纪要发给我，谢谢。”；该 smoke 已移除，不作为常驻凭据读取入口。
+
+已接入豆包渠道默认关闭的 `smartOrganize` 开关及正式听写后处理，失败保留原文，取消不继续输入；与自定义 LLM 后处理互斥。浏览器实际页面已确认控件和未登录禁用状态，原生 debug 窗口已启动并进入文本处理页面。完整 `mise run check` 与新 SSE 完成/错误边界测试通过。真实录音到整理再自动粘贴、开关保存交互以及新增 OpenSSL 依赖的三平台发布构建仍待验收，不将服务 smoke 当成整项发布完成。
+
+原生交互补验：使用 tauri-driver/WebKitWebDriver 驱动实际桌面程序，在独立设置目录且保留用户已授权账号的环境打开“文本处理”，真实点击“豆包输入法智能整理”和“保存设置”。落盘 `recognition.doubaoIme.smartOrganize=true`，自定义 LLM `enabled=false`；重新加载原生 WebView 后开关仍为 true，LLM 开关为 disabled。没有使用模拟 IPC，也未修改用户原设置目录。真实账号服务 smoke 与原生配置交互分别已验证；完整语音录入链仍须补验。

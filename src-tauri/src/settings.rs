@@ -72,6 +72,7 @@ pub struct VolcengineSettings {
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct DoubaoImeSettings {
+    pub smart_organize: bool,
     pub llm: LlmSettings,
 }
 

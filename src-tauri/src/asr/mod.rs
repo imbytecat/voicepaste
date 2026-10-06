@@ -1,6 +1,10 @@
 mod doubao_ime;
 mod volcengine;
 
+pub async fn organize_doubao(token: &str, text: &str) -> Result<String, String> {
+    doubao_ime::organize(token, text).await
+}
+
 use std::{fmt, future::Future};
 
 use serde::Serialize;

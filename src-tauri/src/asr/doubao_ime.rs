@@ -1,6 +1,10 @@
 mod device;
 mod protocol;
 
+pub(super) async fn organize(token: &str, text: &str) -> Result<String, String> {
+    device::organize(token, text).await
+}
+
 use std::{fmt::Write, time::Duration};
 
 use futures_util::{Sink, SinkExt, StreamExt};
