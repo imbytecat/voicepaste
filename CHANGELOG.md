@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.3.0](https://github.com/imbytecat/voicepaste/compare/v2.2.0...v2.3.0) (2026-10-06)
+
+
+### 新增
+
+* **dictionary:** 火山常用词改为自动三方合并同步 ([91e673c](https://github.com/imbytecat/voicepaste/commit/91e673cd651b2a2058e2c345279838bbd267679b))
+
+
+### 修复
+
+* **doubao:** 账号一次网络校验失败后不再持续拦截听写 ([91e673c](https://github.com/imbytecat/voicepaste/commit/91e673cd651b2a2058e2c345279838bbd267679b))
+* **onboarding:** 首次引导测试连接前先保存识别配置，修复无法继续 ([91e673c](https://github.com/imbytecat/voicepaste/commit/91e673cd651b2a2058e2c345279838bbd267679b))
+* **paste:** 自动粘贴失败后可重新授权并区分目标窗口拒绝输入 ([91e673c](https://github.com/imbytecat/voicepaste/commit/91e673cd651b2a2058e2c345279838bbd267679b))
+* **settings:** 修复切换识别服务时选择不保存必然失败 ([91e673c](https://github.com/imbytecat/voicepaste/commit/91e673cd651b2a2058e2c345279838bbd267679b))
+* **settings:** 外部链接在后台打开，不再阻塞设置窗口 ([91e673c](https://github.com/imbytecat/voicepaste/commit/91e673cd651b2a2058e2c345279838bbd267679b))
+* **shortcut:** 修复 Wayland 下全局快捷键因缺少应用 ID 无法注册 ([91e673c](https://github.com/imbytecat/voicepaste/commit/91e673cd651b2a2058e2c345279838bbd267679b))
+* **startup:** 设置文件无法读取时提示原因而非直接退出 ([91e673c](https://github.com/imbytecat/voicepaste/commit/91e673cd651b2a2058e2c345279838bbd267679b))
+
 ## [2.2.0](https://github.com/imbytecat/voicepaste/compare/v2.1.0...v2.2.0) (2026-10-06)
 
 
