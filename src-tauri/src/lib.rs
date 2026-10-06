@@ -1437,6 +1437,32 @@ async fn recheck_doubao_account(
 }
 
 #[tauri::command]
+async fn translate_doubao_text(
+    window: WebviewWindow,
+    app: AppHandle,
+    state: State<'_, AppState>,
+    text: String,
+    provider_revision: u64,
+) -> Result<String, String> {
+    require_window(&window, "settings")?;
+    let _gate = state.recognition_gate.lock().await;
+    require_provider(&state, RecognitionProvider::DoubaoIme, provider_revision)?;
+    require_recognition_idle(&state)?;
+    if text.trim().is_empty() || text.len() > 32000 {
+        return Err("请输入待翻译文本，且不超过 32000 UTF-8 字节".to_owned());
+    }
+    let token = state
+        .account
+        .resolve_token(&app)
+        .await
+        .map_err(|issue| issue.detail)?
+        .ok_or("翻译需要登录豆包账号")?;
+    let result = asr::translate_doubao(&token, &text).await?;
+    require_provider(&state, RecognitionProvider::DoubaoIme, provider_revision)?;
+    Ok(result)
+}
+
+#[tauri::command]
 async fn login_doubao(
     window: WebviewWindow,
     app: AppHandle,
@@ -2037,6 +2063,7 @@ pub fn run() {
             login_doubao,
             cancel_doubao_login,
             logout_doubao,
+            translate_doubao_text,
             list_llm_models,
             system_diagnostics,
             retry_input_access,

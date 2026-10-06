@@ -404,3 +404,9 @@ Android 1.4.6 `SmartOrganizeApi#organizeTextStream` 的 Retrofit POST 注解为 
 完整链路补验：提交 `9615118` 的[三平台未发布打包](https://github.com/imbytecat/voicepaste/actions/runs/37438383779)全部通过，包含 vendored OpenSSL；没有创建新版本或公开 Release。原生程序在 Xvfb 下使用独立配置，按真实全局快捷键录音；PulseAudio source-output 核对仅连接 `voicepaste_organize_verify.monitor`，输入公开合成音频，未采集物理麦克风。实际观察到实时识别 → “正在使用豆包输入法智能整理” → 整理完成；独立 GTK 输入框最终提交“今天下午 3 点开会，请把会议纪要发给我。”，进程退出码 0。
 
 前两次实验仅移除 WAYLAND_DISPLAY、未覆盖宿主 XDG_SESSION_TYPE，导致混合显示环境下目标框为空，不能计作粘贴成功；将验证环境显式设为 `XDG_SESSION_TYPE=x11` 后真实目标通过，未为测试修改产品输入路由。测试进程、driver 和合成音频节点已停止/卸载。其余词库、翻译、跨端能力与全项目发布仍未完成，不因智能整理单项通过而提前发版。
+
+### 手工中译英真实接入
+
+从 Android `libkeyboard.so` 的 `TranslateRequest::TryRequestServer`（`0x2afae0`）恢复 `source_language`、`target_language`、`text_list` 请求字段，语言编号 185/38 的实际请求将“今天下午三点开会。”译为 “The meeting will be held at 3 o'clock this afternoon.”，HTTP 200、业务 code 0。
+
+已复用 Rust 加密传输并接入设置中的独立“豆包中译英”文本框和预览结果，只有用户点击后才发送，原文保持不变，不读取剪贴板。实际 tauri-driver 驱动原生界面输入该公开句、点击“翻译为英文”，Rust 返回上述译文并在结果框显示，错误列表为空。完整检查通过；该新增切片仍在未发布功能分支，不代表反向翻译、全部语言或其他输入法能力已交付。

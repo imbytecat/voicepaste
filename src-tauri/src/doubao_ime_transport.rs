@@ -17,7 +17,7 @@ use reqwest::{Client, Response, redirect::Policy};
 use serde_json::{Value, json};
 
 const LIMIT: usize = 2 * 1024 * 1024;
-const ERROR: &str = "豆包智能整理请求失败；保留原始识别结果";
+const ERROR: &str = "豆包文本服务请求失败；原文已保留";
 
 fn checked<T, E>(result: Result<T, E>) -> Result<T, String> {
     result.map_err(|_| ERROR.to_owned())
@@ -85,6 +85,20 @@ fn decompress(input: &[u8], encoding: &str) -> Result<Vec<u8>, String> {
 /// Uses only this application's registered device and explicitly selected account.
 /// No remote context, dictionary, clipboard or login state is mutated here.
 pub async fn organize(token: &str, did: &str, iid: &str, text: &str) -> Result<String, String> {
+    request_text(token, did, iid, text, false).await
+}
+
+pub async fn translate(token: &str, did: &str, iid: &str, text: &str) -> Result<String, String> {
+    request_text(token, did, iid, text, true).await
+}
+
+async fn request_text(
+    token: &str,
+    did: &str,
+    iid: &str,
+    text: &str,
+    translate: bool,
+) -> Result<String, String> {
     if token.is_empty()
         || token.len() > 16384
         || text.trim().is_empty()
@@ -185,8 +199,20 @@ pub async fn organize(token: &str, did: &str, iid: &str, text: &str) -> Result<S
     let key = hmac(&prk, b"4e30514609050cd3\x01")?;
     let mut nonce = [0; 12];
     checked(rand_bytes(&mut nonce))?;
-    let payload = checked(serde_json::to_vec(&json!({"scene":6,"query":text,
-        "space_at_cn_en_nb":1,"space_at_newline":1,"stream":true})))?;
+    let (endpoint, payload) = if translate {
+        (
+            "https://ime.doubao.com/api/v1/translate",
+            json!({"source_language":185,
+            "target_language":38,"text_list":[text]}),
+        )
+    } else {
+        (
+            "https://ime.doubao.com/api/v2/ai/text_organization",
+            json!({"scene":6,"query":text,
+            "space_at_cn_en_nb":1,"space_at_newline":1,"stream":true}),
+        )
+    };
+    let payload = checked(serde_json::to_vec(&payload))?;
     let mut auth = checked(reqwest::header::HeaderValue::from_str(token))?;
     auth.set_sensitive(true);
     let mut ticket = checked(reqwest::header::HeaderValue::from_str(field(
@@ -195,7 +221,7 @@ pub async fn organize(token: &str, did: &str, iid: &str, text: &str) -> Result<S
     ticket.set_sensitive(true);
     let response = checked(
         client
-            .post("https://ime.doubao.com/api/v2/ai/text_organization")
+            .post(endpoint)
             .query(&[
                 ("aid", "401734"),
                 ("device_platform", "android"),
@@ -241,7 +267,20 @@ pub async fn organize(token: &str, did: &str, iid: &str, text: &str) -> Result<S
             raw = decompress(&raw, encoding)?;
         }
     }
-    parse_result(checked(std::str::from_utf8(&raw))?)
+    if translate {
+        let value: Value = checked(serde_json::from_slice(&raw))?;
+        if value["code"] != 0 {
+            return Err(ERROR.to_owned());
+        }
+        let result = value
+            .pointer("/data/translation_list/0/translation")
+            .and_then(Value::as_str)
+            .filter(|s| !s.trim().is_empty())
+            .ok_or(ERROR)?;
+        Ok(result.to_owned())
+    } else {
+        parse_result(checked(std::str::from_utf8(&raw))?)
+    }
 }
 
 fn parse_result(text: &str) -> Result<String, String> {

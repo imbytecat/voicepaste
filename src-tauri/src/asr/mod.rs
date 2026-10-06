@@ -5,6 +5,10 @@ pub async fn organize_doubao(token: &str, text: &str) -> Result<String, String> 
     doubao_ime::organize(token, text).await
 }
 
+pub async fn translate_doubao(token: &str, text: &str) -> Result<String, String> {
+    doubao_ime::translate(token, text).await
+}
+
 use std::{fmt, future::Future};
 
 use serde::Serialize;

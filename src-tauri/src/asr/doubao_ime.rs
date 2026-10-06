@@ -5,6 +5,10 @@ pub(super) async fn organize(token: &str, text: &str) -> Result<String, String> 
     device::organize(token, text).await
 }
 
+pub(super) async fn translate(token: &str, text: &str) -> Result<String, String> {
+    device::translate(token, text).await
+}
+
 use std::{fmt::Write, time::Duration};
 
 use futures_util::{Sink, SinkExt, StreamExt};

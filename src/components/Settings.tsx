@@ -37,6 +37,7 @@ import { Toaster, toast } from "sonner";
 
 import { AudioCapture } from "@/audio";
 import type { MicrophoneDevice } from "@/audio";
+import { DoubaoTranslation } from "@/components/DoubaoTranslation";
 import { RecognitionSettingsPanel } from "@/components/RecognitionSettingsPanel";
 import { RecognitionSpeechTest } from "@/components/RecognitionSpeechTest";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -2561,6 +2562,13 @@ export function Settings({
             title="智能文本处理"
             description={`仅处理当前${settings.recognition.provider === "doubaoIme" ? "豆包输入法" : "火山引擎"}的识别文本；模型、提示词和凭据按使用方式独立保存。`}
           >
+            {settings.recognition.provider === "doubaoIme" && (
+              <DoubaoTranslation
+                key={`${providerRevision}-${recognitionService.account.revision}`}
+                revision={providerRevision}
+                signedIn={recognitionService.account.state === "signedIn"}
+              />
+            )}
             {settings.recognition.provider === "doubaoIme" && (
               <SettingRow
                 title="豆包输入法智能整理"
