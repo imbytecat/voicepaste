@@ -442,3 +442,9 @@ Android 1.4.6 `SmartOrganizeApi#organizeTextStream` 的 Retrofit POST 注解为 
 已接入文本工具动作选择，前后文与额外指令为空，不抓取输入框外信息。真实原生总结返回保留会议时间、分工和截止时间的短段落；重写返回扩展表达，原文均保留。两接口完整收到 scene.completed 和 done，未用 partial 当成功。重写实际会增加修饰性内容，UI 明示需核对，不自动替换。共享取消、账号校验、响应上限与明确复制；完整检查通过。
 
 官方 `A/C/d` 和 `A/C/e` 的静态初始化分别给出要点 scene2、列表 scene4。两者已接入同一工具并通过实际原生页面请求：要点返回会议时间、人员分工、提交时间三条编号项；列表返回会议安排和截止要求的项目符号文本。SSE 还包含 format.completed HTML，产品仅取 scene.completed 纯文本，不执行/渲染 HTML；已加入此优先级的回归断言。原文保持不变。
+
+### 离线识别平台前提
+
+补查 Android 实际运行链：`speech/c0/k#E` 设置下载模型路径并发送进程广播；`SdkImpl#y +0x99c..0x9b6` 仅在离线分支填 `SAMICoreAsrContextCreateParameter.asr_model_path`，随后 `+0xa8e` 创建 `SAMICoreIdentify_Streaming_ASR_V2` 原生 handle。`file` 确认目标 libaudioeffect.so 是 Android21 AArch64/NDK r21b；`llvm-readelf --needed-libs` 确认依赖 libandroid.so/liblog.so/libsscronet.so/libttcrypto.so 等。当前给定包不提供可直接链接的 Linux x86_64 离线引擎；在没有兼容引擎和模型使用条件前，不将在线服务或其他厂商模型冒充豆包离线能力。
+
+提交 `ce949d9` 的[三平台未发布构建](https://github.com/imbytecat/voicepaste/actions/runs/37461465873)全部通过，包含手工整理、总结、重写、要点与列表。该证据仅覆盖构建和既述原生操作，不替代整套新功能的三平台升级验收；未发布新版本。
