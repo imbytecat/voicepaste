@@ -37,6 +37,7 @@ import { Toaster, toast } from "sonner";
 
 import { AudioCapture } from "@/audio";
 import type { MicrophoneDevice } from "@/audio";
+import { DoubaoDictionary } from "@/components/DoubaoDictionary";
 import { DoubaoPhrases } from "@/components/DoubaoPhrases";
 import { DoubaoTranslation } from "@/components/DoubaoTranslation";
 import { RecognitionSettingsPanel } from "@/components/RecognitionSettingsPanel";
@@ -2470,11 +2471,11 @@ export function Settings({
                 revision={providerRevision}
                 signedIn={recognitionService.account.state === "signedIn"}
               />
-              <p className="px-6 py-5 text-[12px] leading-6 text-muted-foreground">
-                {recognitionService.account.state === "signedIn"
-                  ? "上方管理账号常用语。自动学习的个人词库是另一项数据，目前尚未接入；常用语同步成功不等于语音增强已生效。"
-                  : "登录后可读取和管理账号常用语；游客语音仍可用。自动学习的个人词库尚未接入。"}
-              </p>
+              <DoubaoDictionary
+                key={`personal-${providerRevision}-${recognitionService.account.revision}`}
+                revision={providerRevision}
+                signedIn={recognitionService.account.state === "signedIn"}
+              />
             </SettingsSection>
           );
         return (

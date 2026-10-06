@@ -1,6 +1,7 @@
 mod asr;
 mod audio;
 mod doubao_account;
+mod doubao_dictionary;
 mod doubao_ime_transport;
 mod doubao_phrases;
 mod hotwords;
@@ -1449,6 +1450,33 @@ async fn recheck_doubao_account(
 }
 
 #[tauri::command]
+async fn doubao_dictionary_snapshot(
+    window: WebviewWindow,
+    app: AppHandle,
+    state: State<'_, AppState>,
+    provider_revision: u64,
+) -> Result<doubao_dictionary::Snapshot, String> {
+    require_window(&window, "settings")?;
+    let _gate = state.recognition_gate.lock().await;
+    require_provider(&state, RecognitionProvider::DoubaoIme, provider_revision)?;
+    let token = state
+        .account
+        .resolve_token(&app)
+        .await
+        .map_err(|i| i.detail)?
+        .ok_or("请先登录豆包账号")?;
+    let account_revision = state.account.status(&app).await.revision;
+    drop(_gate);
+    let (did, iid) = asr::doubao_ime::device::sync_identity().await?;
+    let result = doubao_dictionary::snapshot(&token, &did, &iid).await?;
+    require_provider(&state, RecognitionProvider::DoubaoIme, provider_revision)?;
+    if state.account.status(&app).await.revision != account_revision {
+        return Err("账号变化，已丢弃旧词库结果".to_owned());
+    }
+    Ok(result)
+}
+
+#[tauri::command]
 async fn doubao_phrase_snapshot(
     window: WebviewWindow,
     app: AppHandle,
@@ -2188,6 +2216,7 @@ pub fn run() {
             translate_doubao_text,
             cancel_doubao_translation,
             doubao_phrase_snapshot,
+            doubao_dictionary_snapshot,
             apply_doubao_phrase,
             list_llm_models,
             system_diagnostics,
