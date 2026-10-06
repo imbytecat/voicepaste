@@ -422,3 +422,9 @@ Android 1.4.6 `SmartOrganizeApi#organizeTextStream` 的 Retrofit POST 注解为 
 已将官方 `enable_punctuation`、`disable_user_words` 接入豆包识别设置、持久化配置、正式录音及连接测试。默认保留自动标点和个人词增强启用行为；选项修改使旧连接证明失效，不继承火山渠道配置。原生页面实际关闭两个开关、保存后检查落盘布尔值均为 true（disable 字段），再点击测试连接，真实服务会话完成并显示“当前语音识别连接已验证”。该无音频证明不等于标点效果或个人词准确率对照；未上传/清空词库。
 
 翻译取消已接入原生请求生命周期：请求 ID 绑定 watch 取消信号，覆盖账号验证、握手、上传和响应等待；取消时丢弃整个网络 future，前端不显示晚到结果。真实原生页面发起后立即点击取消，原文保留、结果为空、busy=false；随后重新翻译成功。离开翻译组件也发送同一请求取消。已发出的远端文本不可撤回，取消不宣称删除服务端数据。
+
+### 超级互传继续追踪
+
+官方 `IRequests$CrossDeviceClipboardApi` 使用 `https://ime.doubao.com/api/v2/clipboard/config`，query 为 `device_name` 与 `x_device_type`；不带设备名返回业务400。补齐本应用显示名后真实返回 code0、两个设备对象，字段为 device_id/device_type/device_name/sync_enabled/is_current_device/is_support_copy，未输出具体账号设备数据。此 GET 携带设备元数据，可能登记或更新当前设备名，不能归类为绝对无状态读取。未调用 switch、authSync、pull 或 copy，未读取或发送剪贴板内容。
+
+发送文本的实际 producer 在 `input/n/e/b/f#m`，不是 clipboard 包名下：使用 Unicode codePointCount 作为长度，UTF-8 字节经 ZstdCompress 压缩，再交 `ImeClipboardApiManager#o` POST `/api/v2/stream/clipboard/text/copy`。接收与授权边界、超限处理、设备间真实投递仍未验收，不以配置成功冒充互传完成。

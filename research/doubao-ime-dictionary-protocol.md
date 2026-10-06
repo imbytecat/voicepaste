@@ -244,3 +244,9 @@ freq0 context 也得到 HTTP/API 成功及 `{}` 响应。原有增强在两个�
 Rust `doubao_dictionary` 已实现 type2 快照读取、布局边界/MD5 校验、UTF-16 与输入编码解析、节点排序及记录数检查，前后版本一致才交付页面。实际桌面点击读取后显示 654 条记录；按公开实验词“语贴验词”搜索得到1条。没有记录或输出其他个人词内容，没有写入/删除/重置云库，也不把654与之前611条差异归因本工具；这是当前读取快照，不是历史恢复结果。完整检查通过，隐私说明同步更新。
 
 ASR 实验计分发现一项确定缺陷：原 `hit_final` 对历次 final 消息做 OR，同一 index 后续修订可能已经移除命中词，却仍被标记命中。探针已改为会话结束后对最终 index 拼接文本判断；这影响旧“命中”的证明强度，但尚不能证明它解释所有不稳定现象，不据此宣称根因完全解决。
+
+修正计分后的真实对照仍复现反直觉时序：先读取原测试词真实元数据，freq2 上传后等待20秒，启用/禁用/禁用/启用四场最终结果均不命中；finally 中发送 freq0 后等待35秒，最终结果反而命中。各会话完整结束。**freq0 不可再称为已验证的撤回协议**；官方原生 collector 明确过滤 freq0，不发送零频 tombstone。停止把实验清理状态等同于 ASR 效果撤回，不向产品加入该错误语义。未执行账号或设备整库 reset。
+
+移动端清空链已继续实证到实际加载引擎：`ImeContentProvider#call +0x428` → `Jni_ClearUsrDicts 0x290cbc` → `InputModel::Impl::ClearUserDict 0x25bd4c` → shell vtable+0xe0 `SimpleMessage(5,0,0)` → 跳表实际分支 `0x1a16cc` → `ClearAllEngineUsrDict(true)` → pinyin vtable+0x78 `0x293614`。该实现调用 `0x3a938c`，对状态计数加一并调用 `0x3a41b4(...,2)` 遍历/移除匹配类型任务；还存在需解析的虚调用。证据仅限定已解析路径，不能再泛称“官方不存在云清空”。
+
+提交 `7652a11` 的[三平台未发布构建](https://github.com/imbytecat/voicepaste/actions/runs/37455031805)全部通过，包含个人词库只读入口。
