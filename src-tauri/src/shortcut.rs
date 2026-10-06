@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 use tauri::AppHandle;
 use tauri::async_runtime::JoinHandle;
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Shortcut};
+use tauri_plugin_log::log;
 
 #[derive(Default)]
 pub struct ShortcutManager {
@@ -10,7 +11,7 @@ pub struct ShortcutManager {
 }
 
 fn uses_portal() -> bool {
-    cfg!(target_os = "linux") && std::env::var_os("WAYLAND_DISPLAY").is_some()
+    crate::paste::is_wayland_session()
 }
 const PORTABLE_SINGLE_KEY_ERROR: &str = "无修饰单键仅支持 F13–F20；其他按键请搭配修饰键";
 
@@ -47,6 +48,15 @@ impl ShortcutManager {
         if uses_portal() {
             #[cfg(target_os = "linux")]
             {
+                let listening = self
+                    .backend_task
+                    .lock()
+                    .map_err(|_| "快捷键状态已损坏，请重启应用".to_owned())?
+                    .as_ref()
+                    .is_some_and(|task| !task.inner().is_finished());
+                if previous == Some(shortcut) && listening {
+                    return Ok(());
+                }
                 let task = register_portal(app.clone(), shortcut).await?;
                 let old_task = self
                     .backend_task
@@ -86,11 +96,15 @@ impl ShortcutManager {
     pub fn register_initial(self: Arc<Self>, app: AppHandle, shortcut: String) {
         tauri::async_runtime::spawn(async move {
             match self.replace(&app, &shortcut, None).await {
-                Ok(()) => crate::set_shortcut_status(&app, "全局快捷键已启用"),
-                Err(error) => crate::set_shortcut_status(
-                    &app,
-                    &format!("保存的快捷键不可用，设置未被改写：{error}"),
-                ),
+                Ok(()) => crate::set_shortcut_status(&app, true, "全局快捷键已启用"),
+                Err(error) => {
+                    log::warn!("shortcut: initial registration failed: {error}");
+                    crate::set_shortcut_status(
+                        &app,
+                        false,
+                        &format!("快捷键注册失败，请在设置中换一个快捷键：{error}"),
+                    );
+                }
             }
         });
     }
@@ -102,6 +116,7 @@ async fn register_portal(app: AppHandle, shortcut: &str) -> Result<JoinHandle<()
     use futures_util::StreamExt;
     let preferred_trigger = to_xdg_shortcut(shortcut)?;
     let shortcut_id = portal_shortcut_id(shortcut);
+    crate::app_identity::register_with_portals(&app).await;
     let global_shortcuts = GlobalShortcuts::new()
         .await
         .map_err(|error| format!("连接系统快捷键服务失败：{error}"))?;

@@ -21,7 +21,7 @@ import {
 } from "@/components/settings/controller";
 import type { SettingsController } from "@/components/settings/controller";
 import { SettingsDialogs } from "@/components/settings/dialogs";
-import { Feedback, IconTile } from "@/components/settings/kit";
+import { Feedback, IconTile, Notice } from "@/components/settings/kit";
 import type { TileHue } from "@/components/settings/kit";
 import { Onboarding } from "@/components/settings/Onboarding";
 import { Button } from "@/components/ui/button";
@@ -55,7 +55,7 @@ const SECTIONS: Record<SettingsSectionId, SectionMeta> = {
     hue: "amber",
     icon: BookText,
     label: "词库",
-    subtitle: "让人名、术语和专有名词识别得更准",
+    subtitle: "管理常用词与常用语",
   },
   general: {
     hue: "graphite",
@@ -198,21 +198,28 @@ function SettingsShell({
   const {
     activeSection,
     discardChanges,
-    hasUnsavedSettings,
+    dismissNotice,
+    hasUnsavedChanges,
     isSectionChanged,
     message,
+    notice,
     recognitionPreviewBusy,
     recognitionService,
     save,
+    saveError,
     saving,
   } = controller;
-  const saveBlocked =
-    saving ||
+  const busyElsewhere =
     recognitionService.testing ||
     recognitionService.accountBusy ||
     recognitionPreviewBusy;
+  const saveBlocked = saving || busyElsewhere;
   const section = SECTIONS[activeSection];
   const [scrolled, setScrolled] = useState(false);
+  let barText = "有未保存的修改";
+  if (saveError) barText = saveError;
+  else if (busyElsewhere && !saving)
+    barText = "测试或账号操作进行中，结束后可保存";
 
   return (
     <div className="vp-ambient grid h-screen w-screen grid-cols-[208px_minmax(0,1fr)] overflow-hidden text-foreground">
@@ -280,6 +287,24 @@ function SettingsShell({
                   </p>
                 </div>
               </header>
+              {notice ? (
+                <Notice
+                  tone="warning"
+                  className="mt-5"
+                  action={
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      type="button"
+                      onClick={dismissNotice}
+                    >
+                      知道了
+                    </Button>
+                  }
+                >
+                  {notice}
+                </Notice>
+              ) : null}
               <Feedback
                 message={message?.kind === "error" ? message : null}
                 className="mt-5"
@@ -293,18 +318,23 @@ function SettingsShell({
             </div>
           </div>
 
-          {hasUnsavedSettings ? (
+          {hasUnsavedChanges ? (
             <div className="pointer-events-none absolute inset-x-0 bottom-5 flex justify-center px-4">
               <section
                 aria-label="未保存的修改"
                 className="vp-glass-dark pointer-events-auto flex animate-in items-center gap-1 rounded-full py-1.5 pr-1.5 pl-5 text-overlay-foreground duration-300 ease-(--vp-ease-spring) fade-in slide-in-from-bottom-3"
               >
-                <span className="mr-3 flex items-center gap-2 text-[13px]">
+                <span
+                  className={`mr-3 flex max-w-[44ch] items-center gap-2 text-[13px] ${saveError ? "text-[#ffb4b4]" : ""}`}
+                  role={saveError ? "alert" : undefined}
+                >
                   <span
-                    className="size-1.5 rounded-full bg-[#9aa5ff] shadow-[0_0_8px_rgb(154_165_255/0.9)]"
+                    className={`size-1.5 shrink-0 rounded-full ${saveError ? "bg-[#ff8a8a] shadow-[0_0_8px_rgb(255_138_138/0.9)]" : "bg-[#9aa5ff] shadow-[0_0_8px_rgb(154_165_255/0.9)]"}`}
                     aria-hidden="true"
                   />
-                  有未保存的修改
+                  <span className="truncate" title={barText}>
+                    {barText}
+                  </span>
                 </span>
                 <Button
                   variant="ghost"

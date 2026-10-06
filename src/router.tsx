@@ -1,8 +1,11 @@
+import { QueryClientProvider } from "@tanstack/react-query";
 import {
   createHashHistory,
   createRouter,
   RouterProvider,
 } from "@tanstack/react-router";
+
+import { queryClient } from "@/components/settings/queries";
 
 import { routeTree } from "./routeTree.gen";
 
@@ -21,5 +24,9 @@ declare module "@tanstack/react-router" {
 }
 
 export function SettingsRouter() {
-  return <RouterProvider router={router} />;
+  return (
+    <QueryClientProvider client={queryClient}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>
+  );
 }

@@ -1,3 +1,4 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import {
   Copy,
@@ -10,6 +11,11 @@ import { useState } from "react";
 
 import { Block, EmptyState, Feedback, Group } from "@/components/settings/kit";
 import type { Message } from "@/components/settings/kit";
+import { settingsQueries } from "@/components/settings/queries";
+import type {
+  DoubaoPhrase as Phrase,
+  DoubaoPhraseSnapshot as Snapshot,
+} from "@/components/settings/queries";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -21,74 +27,74 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-interface Phrase {
-  id: string;
-  text: string;
-}
-interface Snapshot {
-  version: string;
-  phrases: Phrase[];
-}
-
 const MAX_LENGTH = 50;
 
-export function DoubaoPhrases({ revision }: { revision: number }) {
-  const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+export function DoubaoPhrases({
+  revision,
+  accountRevision,
+}: {
+  revision: number;
+  accountRevision: number;
+}) {
+  const queryClient = useQueryClient();
+  // Rendered only while signed in, so the snapshot loads as the page opens.
+  const phrasesQuery = useQuery(
+    settingsQueries.doubaoPhrases({
+      accountRevision,
+      providerRevision: revision,
+    })
+  );
+  const snapshot = phrasesQuery.data ?? null;
   const [text, setText] = useState("");
   const [editing, setEditing] = useState<Phrase | null>(null);
   const [deleting, setDeleting] = useState<Phrase | null>(null);
-  const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<Message>(null);
 
-  const load = async () => {
-    setBusy(true);
-    setMessage(null);
-    try {
-      setSnapshot(
-        await invoke<Snapshot>("doubao_phrase_snapshot", {
-          providerRevision: revision,
-        })
-      );
-    } catch {
-      setSnapshot(null);
+  // id null = add, text null = delete; otherwise edit.
+  const applyMutation = useMutation({
+    mutationFn: async (change: { id: string | null; text: string | null }) =>
+      await invoke<Snapshot>("apply_doubao_phrase", {
+        id: change.id,
+        providerRevision: revision,
+        text: change.text,
+        version: snapshot?.version,
+      }),
+    onError: (error) => {
+      // The write may have landed: re-read before anything is resubmitted.
+      setDeleting(null);
       setMessage({
         kind: "error",
-        text: "无法读取豆包常用语，请检查账号和网络",
+        text: `${String(error)}。已重新读取云端，请核对后再提交；输入内容已保留`,
       });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  // id null = add, value null = delete; otherwise edit.
-  const apply = async (id: string | null, value: string | null) => {
-    if (!snapshot) return;
-    setBusy(true);
-    setMessage(null);
-    try {
-      const next = await invoke<Snapshot>("apply_doubao_phrase", {
-        providerRevision: revision,
-        version: snapshot.version,
-        id,
-        text: value,
-      });
-      setSnapshot(next);
-      if (id === null) setText("");
-      else if (editing?.id === id) setEditing(null);
+      void phrasesQuery.refetch();
+    },
+    onSuccess: (next, change) => {
+      queryClient.setQueryData(
+        settingsQueries.doubaoPhrases({
+          accountRevision,
+          providerRevision: revision,
+        }).queryKey,
+        next
+      );
+      if (change.id === null) setText("");
+      else if (editing?.id === change.id) setEditing(null);
       setDeleting(null);
       setMessage({ kind: "success", text: "已同步，云端回读确认" });
-    } catch (error) {
-      // The write may have landed; force a fresh read before any retry.
-      setSnapshot(null);
-      setDeleting(null);
-      setMessage({
-        kind: "error",
-        text: `${String(error)}。请重新读取后核对，避免重复提交；输入内容已保留`,
-      });
-    } finally {
-      setBusy(false);
-    }
+    },
+  });
+  const busy = phrasesQuery.isFetching || applyMutation.isPending;
+  const apply = (id: string | null, value: string | null) => {
+    if (!snapshot) return;
+    setMessage(null);
+    applyMutation.mutate({ id, text: value });
   };
+  const load = () => {
+    setMessage(null);
+    void phrasesQuery.refetch();
+  };
+  const loadError: Message = phrasesQuery.error
+    ? { kind: "error", text: "无法读取豆包常用语，请检查账号和网络" }
+    : null;
 
   const copy = (phrase: Phrase) => {
     void invoke("copy_tool_text", { text: phrase.text }).then(
@@ -116,7 +122,7 @@ export function DoubaoPhrases({ revision }: { revision: number }) {
             size="sm"
             type="button"
             disabled={busy}
-            onClick={() => void load()}
+            onClick={load}
           >
             <RotateCw />
             刷新
@@ -131,7 +137,7 @@ export function DoubaoPhrases({ revision }: { revision: number }) {
               className="flex gap-2"
               onSubmit={(event) => {
                 event.preventDefault();
-                if (text.trim()) void apply(null, text);
+                if (text.trim()) apply(null, text);
               }}
             >
               <Input
@@ -145,7 +151,7 @@ export function DoubaoPhrases({ revision }: { revision: number }) {
                 }}
               />
               <Button type="submit" disabled={busy || !text.trim()}>
-                添加
+                添加到豆包
               </Button>
             </form>
           </Block>
@@ -160,8 +166,7 @@ export function DoubaoPhrases({ revision }: { revision: number }) {
                       className="flex items-center gap-2"
                       onSubmit={(event) => {
                         event.preventDefault();
-                        if (editing.text.trim())
-                          void apply(phrase.id, editing.text);
+                        if (editing.text.trim()) apply(phrase.id, editing.text);
                       }}
                     >
                       <Input
@@ -182,7 +187,7 @@ export function DoubaoPhrases({ revision }: { revision: number }) {
                         size="sm"
                         disabled={busy || !editing.text.trim()}
                       >
-                        保存
+                        更新到豆包
                       </Button>
                       <Button
                         type="button"
@@ -251,18 +256,19 @@ export function DoubaoPhrases({ revision }: { revision: number }) {
       ) : (
         <EmptyState
           icon={MessageSquareText}
-          title="常用语保存在豆包云端"
-          description="读取后可在这里添加、编辑和删除"
+          title={busy ? "正在读取常用语…" : "未能读取常用语"}
           action={
-            <Button type="button" disabled={busy} onClick={() => void load()}>
-              {busy ? "读取中…" : "读取云端常用语"}
-            </Button>
+            busy ? undefined : (
+              <Button type="button" onClick={load}>
+                重新读取
+              </Button>
+            )
           }
         />
       )}
-      {message ? (
+      {message || loadError ? (
         <Block>
-          <Feedback message={message} />
+          <Feedback message={message ?? loadError} />
         </Block>
       ) : null}
       <AlertDialog
@@ -284,7 +290,7 @@ export function DoubaoPhrases({ revision }: { revision: number }) {
               variant="destructive"
               disabled={busy}
               onClick={() => {
-                if (deleting) void apply(deleting.id, null);
+                if (deleting) apply(deleting.id, null);
               }}
             >
               {busy ? "删除中…" : "删除"}

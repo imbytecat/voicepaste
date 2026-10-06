@@ -1,3 +1,5 @@
+#[cfg(target_os = "linux")]
+mod app_identity;
 mod asr;
 mod audio;
 mod doubao_account;
@@ -19,13 +21,13 @@ use std::{
 };
 
 use asr::{AsrOutcome, AudioCommand, ServiceIssue};
-use hotwords::{Binding as HotwordBinding, SyncOutcome};
+use hotwords::Binding as HotwordBinding;
 use paste::{InputStatus, PasteOutcome};
 use serde::Serialize;
 use serde_json::json;
 use settings::{
     ActivationMode, AppSettings, CredentialStorage, OverlayPosition, RecognitionProvider,
-    RecognitionSettings, VolcengineSettings,
+    RecognitionSettings,
 };
 use shortcut::ShortcutManager;
 use tauri::{
@@ -35,8 +37,9 @@ use tauri::{
 };
 use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_clipboard_manager::ClipboardExt as _;
-use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_global_shortcut::ShortcutState;
+use tauri_plugin_log::log;
 use tauri_plugin_updater::UpdaterExt as _;
 use tokio::sync::{mpsc, watch};
 
@@ -96,15 +99,15 @@ struct ShortcutEventPayload {
 
 struct AppState {
     provider_revision: AtomicU64,
-    hotword_review: Mutex<Option<HotwordReview>>,
     settings: RwLock<AppSettings>,
     account: Arc<doubao_account::AccountManager>,
     recognition_gate: tokio::sync::Mutex<()>,
     translation_cancel: Mutex<Option<(String, watch::Sender<bool>)>>,
     hotword_binding: RwLock<Option<HotwordBinding>>,
+    hotword_sync: tokio::sync::Mutex<()>,
     session: Arc<Mutex<Option<RecognitionSession>>>,
     shortcut_manager: Arc<ShortcutManager>,
-    shortcut_status: RwLock<String>,
+    shortcut_status: RwLock<(bool, String)>,
     startup_notice: Mutex<Option<String>>,
     overlay_ready: AtomicBool,
     pending_shortcut: Mutex<Option<ShortcutEventPayload>>,
@@ -119,15 +122,15 @@ impl Default for AppState {
     fn default() -> Self {
         Self {
             provider_revision: AtomicU64::new(1),
-            hotword_review: Mutex::new(None),
             settings: RwLock::new(AppSettings::default()),
             account: Arc::new(doubao_account::AccountManager::new()),
             recognition_gate: tokio::sync::Mutex::new(()),
             translation_cancel: Mutex::new(None),
             hotword_binding: RwLock::new(None),
+            hotword_sync: tokio::sync::Mutex::new(()),
             session: Arc::new(Mutex::new(None)),
             shortcut_manager: Arc::new(ShortcutManager::default()),
-            shortcut_status: RwLock::new("正在注册快捷键…".to_owned()),
+            shortcut_status: RwLock::new((false, "正在注册快捷键…".to_owned())),
             startup_notice: Mutex::new(None),
             overlay_ready: AtomicBool::new(false),
             pending_shortcut: Mutex::new(None),
@@ -145,42 +148,16 @@ impl Default for AppState {
 struct LoadSettingsResult {
     settings: AppSettings,
     notice: Option<String>,
-    hotword_status: Option<HotwordSyncStatus>,
     account: Option<doubao_account::AccountStatus>,
     provider_revision: u64,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct HotwordSyncStatus {
-    state: &'static str,
-    count: usize,
-    cloud_count: usize,
+struct HotwordSyncResult {
+    hotwords: Vec<String>,
     limit: usize,
-    table_id: Option<String>,
     foreign_tables: Vec<hotwords::ForeignTable>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct HotwordSnapshotResult {
-    hotword_status: HotwordSyncStatus,
-    cloud_hotwords: Vec<String>,
-    confirmed_hotwords: Vec<String>,
-    hotword_draft: Option<Vec<String>>,
-    review_token: String,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct SaveSettingsResult {
-    kind: &'static str,
-    credential_storage: Option<CredentialStorage>,
-    hotword_status: Option<HotwordSyncStatus>,
-    hotword_action: Option<&'static str>,
-    cloud_hotwords: Vec<String>,
-    hotword_limit: usize,
-    review_token: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -189,99 +166,6 @@ struct TestRecognitionResult {
     provider: RecognitionProvider,
     provider_revision: u64,
     account_revision: u64,
-    hotword_status: Option<HotwordSyncStatus>,
-    warning: Option<String>,
-}
-
-/// Status backed by a fresh cloud snapshot: the cloud is the truth.
-fn hotword_status(
-    settings: &VolcengineSettings,
-    snapshot: &hotwords::Snapshot,
-) -> HotwordSyncStatus {
-    HotwordSyncStatus {
-        state: if settings.hotword_pending.is_some() {
-            "confirming"
-        } else if snapshot.words != settings.hotwords {
-            "pending"
-        } else if !settings.hotwords_enabled {
-            "disabled"
-        } else if settings.hotwords.is_empty() {
-            "empty"
-        } else {
-            "synced"
-        },
-        count: settings.hotwords.len(),
-        cloud_count: snapshot.words.len(),
-        limit: snapshot.limit,
-        table_id: snapshot
-            .binding
-            .as_ref()
-            .map(|binding| binding.table_id.clone()),
-        foreign_tables: snapshot.foreign_tables.clone(),
-    }
-}
-
-/// Status from the local store alone; the cloud has not been contacted yet.
-fn unverified_hotword_status(
-    settings: &VolcengineSettings,
-    binding: Option<&HotwordBinding>,
-) -> HotwordSyncStatus {
-    HotwordSyncStatus {
-        state: if settings.hotword_pending.is_some() {
-            "confirming"
-        } else if !settings.hotwords_enabled {
-            "disabled"
-        } else if settings.hotwords.is_empty() && binding.is_none() {
-            "empty"
-        } else if binding.is_some() {
-            "unknown"
-        } else {
-            "pending"
-        },
-        count: settings.hotwords.len(),
-        cloud_count: 0,
-        limit: binding.map_or(hotwords::DEFAULT_TABLE_LIMIT, |binding| binding.limit),
-        table_id: binding.map(|binding| binding.table_id.clone()),
-        foreign_tables: Vec::new(),
-    }
-}
-
-impl SaveSettingsResult {
-    fn saved(
-        credential_storage: CredentialStorage,
-        settings: &VolcengineSettings,
-        snapshot: hotwords::Snapshot,
-        action: &'static str,
-    ) -> Self {
-        Self {
-            kind: "saved",
-            credential_storage: Some(credential_storage),
-            hotword_status: Some(hotword_status(settings, &snapshot)),
-            hotword_action: Some(action),
-            hotword_limit: snapshot.limit,
-            cloud_hotwords: snapshot.words,
-            review_token: None,
-        }
-    }
-
-    fn conflict(snapshot: hotwords::Snapshot, review_token: String) -> Self {
-        Self {
-            kind: "conflict",
-            credential_storage: None,
-            hotword_status: None,
-            hotword_action: None,
-            hotword_limit: snapshot.limit,
-            cloud_hotwords: snapshot.words,
-            review_token: Some(review_token),
-        }
-    }
-}
-
-struct HotwordReview {
-    token: String,
-    provider_revision: u64,
-    api_key: String,
-    snapshot: hotwords::Snapshot,
 }
 
 fn require_provider(
@@ -296,32 +180,32 @@ fn require_provider(
         .recognition
         .provider;
     if active != provider || state.provider_revision.load(Ordering::Acquire) != revision {
-        return Err("当前渠道或配置已改变，请重新加载后再试".to_owned());
+        return Err("当前识别服务或配置已改变，请重新加载后再试".to_owned());
     }
     Ok(())
 }
 
-fn remember_hotword_review(
-    state: &AppState,
-    api_key: &str,
-    snapshot: &hotwords::Snapshot,
-) -> Result<String, String> {
-    let token = uuid::Uuid::new_v4().to_string();
-    *state
-        .hotword_review
-        .lock()
-        .map_err(|_| "常用词审阅状态已损坏")? = Some(HotwordReview {
-        token: token.clone(),
-        provider_revision: state.provider_revision.load(Ordering::Acquire),
-        api_key: api_key.to_owned(),
-        snapshot: snapshot.clone(),
-    });
-    Ok(token)
+/// Applies list edits as operations, not as a replacement list, so edits made
+/// against a stale view never drop words a concurrent sync just pulled in.
+fn edit_hotwords(
+    words: &[String],
+    add: Vec<String>,
+    remove: &[String],
+) -> Result<Vec<String>, String> {
+    let removed: std::collections::HashSet<String> = remove
+        .iter()
+        .map(|word| word.trim().to_lowercase())
+        .collect();
+    let kept = words
+        .iter()
+        .filter(|word| !removed.contains(&word.to_lowercase()))
+        .cloned();
+    hotwords::normalize(kept.chain(add).collect())
 }
 
 fn prepare_ordinary_save(next: &mut AppSettings, previous: &AppSettings) -> Result<(), String> {
     if next.recognition.provider != previous.recognition.provider {
-        return Err("请使用切换渠道操作，更改设置不能切换渠道".to_owned());
+        return Err("请使用切换识别服务操作，更改设置不能切换识别服务".to_owned());
     }
     match next.recognition.provider {
         RecognitionProvider::Volcengine => {
@@ -329,13 +213,10 @@ fn prepare_ordinary_save(next: &mut AppSettings, previous: &AppSettings) -> Resu
             let profile = &mut next.recognition.volcengine;
             let old = &previous.recognition.volcengine;
             profile.api_key = profile.api_key.trim().to_owned();
-            if profile.api_key != old.api_key && old.hotword_pending.is_some() {
-                return Err("常用词提交结果待确认，请先检查云端，再更换 API Key".to_owned());
-            }
-            // Confirmed words, drafts and recovery records have dedicated commands.
+            // The word list and its sync record have dedicated commands.
             profile.hotwords = old.hotwords.clone();
-            profile.hotword_draft = old.hotword_draft.clone();
-            profile.hotword_pending = old.hotword_pending.clone();
+            profile.hotwords_enabled = old.hotwords_enabled;
+            profile.hotword_base = old.hotword_base.clone();
         }
         RecognitionProvider::DoubaoIme => {
             next.recognition.volcengine = previous.recognition.volcengine.clone();
@@ -386,6 +267,7 @@ async fn persist_active_settings(
 #[serde(rename_all = "camelCase")]
 struct SystemDiagnostics {
     shortcut_status: String,
+    shortcut_ready: bool,
     input_ready: bool,
     input_status: String,
     app_version: String,
@@ -418,23 +300,15 @@ fn require_recognition_idle(state: &AppState) -> Result<(), String> {
     Ok(())
 }
 
+/// The cloud table recognition should boost with. Unsynced local edits are
+/// simply not in it yet; dictation never waits on a sync.
 fn applied_hotword_table(
     recognition: &RecognitionSettings,
     binding: Option<&HotwordBinding>,
-) -> Result<Option<String>, String> {
-    let profile = &recognition.volcengine;
-    if recognition.provider != RecognitionProvider::Volcengine || !profile.hotwords_enabled {
-        return Ok(None);
-    }
-    if profile.hotword_pending.is_some() {
-        return Err("常用词提交结果待确认，请先检查云端，或明确关闭听写时使用常用词".to_owned());
-    }
-    if profile.hotwords.is_empty() {
-        return Ok(None);
-    }
-    binding
-        .map(|binding| Some(binding.table_id.clone()))
-        .ok_or_else(|| "常用词尚未确认，请先进入词库检查并应用".to_owned())
+) -> Option<String> {
+    (recognition.provider == RecognitionProvider::Volcengine
+        && recognition.volcengine.hotwords_enabled)
+        .then_some(binding?.table_id.clone())
 }
 
 async fn recognition_config(
@@ -489,8 +363,21 @@ fn initialize_input_session(input_session: Arc<paste::InputSession>) {
     });
 }
 
-fn tray_ready_text(settings: &AppSettings) -> String {
-    format!("就绪 · {}", settings.shortcut)
+fn tray_ready_text(state: &AppState) -> String {
+    if !state.shortcut_status.read().is_ok_and(|status| status.0) {
+        return "快捷键不可用".to_owned();
+    }
+    let shortcut = state
+        .settings
+        .read()
+        .map(|settings| settings.shortcut.clone())
+        .unwrap_or_default();
+    let modifier = if cfg!(target_os = "macos") {
+        "⌘"
+    } else {
+        "Ctrl"
+    };
+    format!("就绪 · {}", shortcut.replace("CommandOrControl", modifier))
 }
 
 fn set_tray_status(state: &AppState, text: impl AsRef<str>) {
@@ -527,10 +414,6 @@ async fn close_settings(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     require_window(&window, "settings")?;
-    let _gate = state
-        .recognition_gate
-        .try_lock()
-        .map_err(|_| "正在处理设置或词库，请稍后再关闭")?;
     if state.settings_dirty.load(Ordering::Acquire) {
         return Err("请先保存或放弃未保存的更改".to_owned());
     }
@@ -565,30 +448,18 @@ fn set_settings_dirty(
 
 async fn settings_result(app: &AppHandle, state: &AppState) -> Result<LoadSettingsResult, String> {
     let settings = state.settings.read().map_err(|_| "设置状态已损坏")?.clone();
-    let binding = state
-        .hotword_binding
-        .read()
-        .map_err(|_| "常用词状态已损坏")?
-        .clone();
     let notice = state
         .startup_notice
         .lock()
         .map_err(|_| "设置提示状态已损坏")?
         .take();
-    let (hotword_status, account) = match settings.recognition.provider {
-        RecognitionProvider::Volcengine => (
-            Some(unverified_hotword_status(
-                &settings.recognition.volcengine,
-                binding.as_ref(),
-            )),
-            None,
-        ),
-        RecognitionProvider::DoubaoIme => (None, Some(state.account.status(app).await)),
+    let account = match settings.recognition.provider {
+        RecognitionProvider::Volcengine => None,
+        RecognitionProvider::DoubaoIme => Some(state.account.status(app).await),
     };
     Ok(LoadSettingsResult {
         settings,
         notice,
-        hotword_status,
         account,
         provider_revision: state.provider_revision.load(Ordering::Acquire),
     })
@@ -616,10 +487,10 @@ async fn select_recognition_provider(
     let _gate = state
         .recognition_gate
         .try_lock()
-        .map_err(|_| "当前渠道操作进行中，请完成后再切换")?;
+        .map_err(|_| "识别服务切换进行中，请完成后再切换")?;
     require_recognition_idle(&state)?;
     if state.settings_dirty.load(Ordering::Acquire) {
-        return Err("请先保存或放弃未保存的设置和词库草稿，再切换渠道".to_owned());
+        return Err("请先保存或放弃未保存的设置，再切换识别服务".to_owned());
     }
     let old = state.settings.read().map_err(|_| "设置状态已损坏")?.clone();
     if old.recognition.provider == provider {
@@ -641,10 +512,6 @@ async fn select_recognition_provider(
         .startup_notice
         .lock()
         .map_err(|_| "设置提示状态已损坏")? = loaded.notice;
-    *state
-        .hotword_review
-        .lock()
-        .map_err(|_| "常用词审阅状态已损坏")? = None;
     state.provider_revision.fetch_add(1, Ordering::AcqRel);
     settings_result(&app, &state).await
 }
@@ -656,7 +523,7 @@ async fn save_settings(
     state: State<'_, AppState>,
     mut settings: AppSettings,
     provider_revision: u64,
-) -> Result<SaveSettingsResult, String> {
+) -> Result<CredentialStorage, String> {
     require_window(&window, "settings")?;
     let _gate = state.recognition_gate.lock().await;
     require_provider(&state, settings.recognition.provider, provider_revision)?;
@@ -666,12 +533,9 @@ async fn save_settings(
     let key_changed = settings.recognition.provider == RecognitionProvider::Volcengine
         && settings.recognition.volcengine.api_key != old.recognition.volcengine.api_key;
     let binding = if key_changed {
-        // A new key is a new target. Keep old words only as a local draft, never as its confirmed data.
-        let profile = &mut settings.recognition.volcengine;
-        if profile.hotword_draft.is_none() && !profile.hotwords.is_empty() {
-            profile.hotword_draft = Some(profile.hotwords.clone());
-        }
-        profile.hotwords.clear();
+        // A new key is a new account: nothing there is known yet, so the next
+        // sync merges the local words with whatever that account holds.
+        settings.recognition.volcengine.hotword_base.clear();
         None
     } else {
         state
@@ -704,10 +568,6 @@ async fn save_settings(
             }
         };
     if key_changed {
-        *state
-            .hotword_review
-            .lock()
-            .map_err(|_| "常用词审阅状态已损坏")? = None;
         // Key changes invalidate queued requests even though the provider name did not change.
         state.provider_revision.fetch_add(1, Ordering::AcqRel);
     }
@@ -715,20 +575,8 @@ async fn save_settings(
     if settings.onboarding_completed {
         initialize_input_session(Arc::clone(&state.input_session));
     }
-    set_shortcut_status(&app, "全局快捷键已启用");
-    set_tray_status(&state, tray_ready_text(&settings));
-    Ok(SaveSettingsResult {
-        kind: "saved",
-        credential_storage: Some(credential_storage),
-        hotword_status: (settings.recognition.provider == RecognitionProvider::Volcengine)
-            .then(|| unverified_hotword_status(&settings.recognition.volcengine, binding.as_ref())),
-        hotword_action: Some("none"),
-        cloud_hotwords: Vec::new(),
-        hotword_limit: binding
-            .as_ref()
-            .map_or(hotwords::DEFAULT_TABLE_LIMIT, |binding| binding.limit),
-        review_token: None,
-    })
+    set_shortcut_status(&app, true, "全局快捷键已启用");
+    Ok(credential_storage)
 }
 
 #[tauri::command]
@@ -767,184 +615,78 @@ async fn export_volcengine_hotwords(
 }
 
 #[tauri::command]
-async fn save_volcengine_hotword_draft(
+async fn edit_volcengine_hotwords(
     window: WebviewWindow,
     app: AppHandle,
     state: State<'_, AppState>,
-    words: Vec<String>,
+    add: Vec<String>,
+    remove: Vec<String>,
+    enabled: Option<bool>,
     provider_revision: u64,
-) -> Result<(), String> {
+) -> Result<Vec<String>, String> {
     require_window(&window, "settings")?;
     let _gate = state.recognition_gate.lock().await;
     require_provider(&state, RecognitionProvider::Volcengine, provider_revision)?;
     let mut settings = state.settings.read().map_err(|_| "设置状态已损坏")?.clone();
-    settings.recognition.volcengine.hotword_draft = Some(hotwords::normalize(words)?);
+    let profile = &mut settings.recognition.volcengine;
+    profile.hotwords = edit_hotwords(&profile.hotwords, add, &remove)?;
+    if let Some(enabled) = enabled {
+        profile.hotwords_enabled = enabled;
+    }
     let binding = state
         .hotword_binding
         .read()
         .map_err(|_| "常用词状态已损坏")?
         .clone();
-    persist_active_settings(&app, &state, settings, binding).await?;
-    Ok(())
-}
-
-fn confirm_hotword_snapshot(
-    profile: &mut VolcengineSettings,
-    snapshot: &hotwords::Snapshot,
-) -> bool {
-    let Some(pending) = profile.hotword_pending.as_ref() else {
-        return false;
-    };
-    if pending != &snapshot.words {
-        return false;
-    }
-    if profile.hotword_draft.as_ref() == Some(pending) {
-        profile.hotword_draft = None;
-    }
-    profile.hotwords = snapshot.words.clone();
-    profile.hotword_pending = None;
-    true
+    persist_active_settings(&app, &state, settings.clone(), binding).await?;
+    Ok(settings.recognition.volcengine.hotwords)
 }
 
 #[tauri::command]
-async fn apply_volcengine_hotwords(
-    window: WebviewWindow,
-    app: AppHandle,
-    state: State<'_, AppState>,
-    words: Vec<String>,
-    force_overwrite: bool,
-    review_token: Option<String>,
-    provider_revision: u64,
-) -> Result<SaveSettingsResult, String> {
-    require_window(&window, "settings")?;
-    let _gate = state.recognition_gate.lock().await;
-    require_provider(&state, RecognitionProvider::Volcengine, provider_revision)?;
-    require_recognition_idle(&state)?;
-    let words = hotwords::normalize(words)?;
-    let mut settings = state.settings.read().map_err(|_| "设置状态已损坏")?.clone();
-    let binding = state
-        .hotword_binding
-        .read()
-        .map_err(|_| "常用词状态已损坏")?
-        .clone();
-    let profile = &settings.recognition.volcengine;
-    if profile.api_key.is_empty() {
-        return Err("请先保存当前火山引擎 API Key".to_owned());
-    }
-    let reviewed = if force_overwrite {
-        let review = state
-            .hotword_review
-            .lock()
-            .map_err(|_| "常用词审阅状态已损坏")?;
-        let review = review
-            .as_ref()
-            .filter(|review| {
-                review_token.as_deref() == Some(review.token.as_str())
-                    && review.provider_revision == provider_revision
-                    && review.api_key == profile.api_key
-            })
-            .ok_or("请先重新检查并审阅当前云端词表，再确认覆盖")?;
-        Some(review.snapshot.clone())
-    } else {
-        None
-    };
-    if profile.hotword_pending.is_some() && reviewed.is_none() {
-        return Err("上次提交结果待确认，请先检查云端；不要重复提交".to_owned());
-    }
-    let previous_pending = profile.hotword_pending.clone();
-    // Persist both the draft and write-ahead record before even inspecting the remote.
-    settings.recognition.volcengine.hotword_draft = Some(words.clone());
-    settings.recognition.volcengine.hotword_pending = Some(words.clone());
-    persist_active_settings(&app, &state, settings.clone(), binding.clone()).await?;
-    *state
-        .hotword_review
-        .lock()
-        .map_err(|_| "常用词审阅状态已损坏")? = None;
-    let profile = &settings.recognition.volcengine;
-    let outcome = hotwords::sync(
-        &profile.api_key,
-        &profile.hotwords,
-        &words,
-        binding.as_ref(),
-        reviewed.as_ref(),
-    )
-    .await
-    .map_err(|error| format!("常用词提交结果待确认，草稿已保留。请检查云端后再操作：{error}"))?;
-    require_provider(&state, RecognitionProvider::Volcengine, provider_revision)?;
-    match outcome {
-        SyncOutcome::Rejected(error) => {
-            settings.recognition.volcengine.hotword_pending = previous_pending;
-            persist_active_settings(&app, &state, settings, binding).await?;
-            Err(format!("常用词未提交，草稿已保留：{error}"))
-        }
-        SyncOutcome::Conflict(snapshot) => {
-            settings.recognition.volcengine.hotword_pending = previous_pending;
-            persist_active_settings(&app, &state, settings.clone(), binding).await?;
-            let token = remember_hotword_review(
-                &state,
-                &settings.recognition.volcengine.api_key,
-                &snapshot,
-            )?;
-            Ok(SaveSettingsResult::conflict(snapshot, token))
-        }
-        SyncOutcome::Saved { snapshot, action } => {
-            confirm_hotword_snapshot(&mut settings.recognition.volcengine, &snapshot);
-            let storage =
-                persist_active_settings(&app, &state, settings.clone(), snapshot.binding.clone())
-                    .await
-                    .map_err(|error| {
-                        format!(
-                            "云端已确认，但本机确认信息保存失败；请检查云端，勿重复创建：{error}"
-                        )
-                    })?;
-            *state
-                .hotword_review
-                .lock()
-                .map_err(|_| "常用词审阅状态已损坏")? = None;
-            Ok(SaveSettingsResult::saved(
-                storage,
-                &settings.recognition.volcengine,
-                snapshot,
-                action.label(),
-            ))
-        }
-    }
-}
-
-#[tauri::command]
-async fn refresh_hotwords(
+async fn sync_volcengine_hotwords(
     window: WebviewWindow,
     app: AppHandle,
     state: State<'_, AppState>,
     provider_revision: u64,
-) -> Result<HotwordSnapshotResult, String> {
+) -> Result<HotwordSyncResult, String> {
     require_window(&window, "settings")?;
+    // One sync at a time; edits keep landing locally while it talks to the cloud.
+    let _sync = state.hotword_sync.lock().await;
+    let (api_key, base, local, binding) = {
+        let _gate = state.recognition_gate.lock().await;
+        require_provider(&state, RecognitionProvider::Volcengine, provider_revision)?;
+        let settings = state.settings.read().map_err(|_| "设置状态已损坏")?;
+        let profile = &settings.recognition.volcengine;
+        if profile.api_key.is_empty() {
+            return Err("保存火山引擎 API Key 后才能同步常用词".to_owned());
+        }
+        let binding = state
+            .hotword_binding
+            .read()
+            .map_err(|_| "常用词状态已损坏")?
+            .clone();
+        (
+            profile.api_key.clone(),
+            profile.hotword_base.clone(),
+            profile.hotwords.clone(),
+            binding,
+        )
+    };
+    let snapshot = hotwords::sync(&api_key, &base, &local, binding.as_ref())
+        .await
+        .map_err(|error| format!("常用词同步失败，修改已保存在本机：{error}"))?;
     let _gate = state.recognition_gate.lock().await;
     require_provider(&state, RecognitionProvider::Volcengine, provider_revision)?;
-    require_recognition_idle(&state)?;
     let mut settings = state.settings.read().map_err(|_| "设置状态已损坏")?.clone();
-    if settings.recognition.volcengine.api_key.is_empty() {
-        return Err("请先保存当前火山引擎 API Key".to_owned());
-    }
-    let snapshot = hotwords::inspect(&settings.recognition.volcengine.api_key).await?;
-    require_provider(&state, RecognitionProvider::Volcengine, provider_revision)?;
-    let confirmed_pending =
-        confirm_hotword_snapshot(&mut settings.recognition.volcengine, &snapshot);
-    // A read may recover a write, but never turn unrelated cloud words into applied local words.
-    if confirmed_pending
-        || (settings.recognition.volcengine.hotword_pending.is_none()
-            && settings.recognition.volcengine.hotwords == snapshot.words)
-    {
-        persist_active_settings(&app, &state, settings.clone(), snapshot.binding.clone()).await?;
-    }
-    let review_token =
-        remember_hotword_review(&state, &settings.recognition.volcengine.api_key, &snapshot)?;
-    Ok(HotwordSnapshotResult {
-        hotword_status: hotword_status(&settings.recognition.volcengine, &snapshot),
-        cloud_hotwords: snapshot.words,
-        confirmed_hotwords: settings.recognition.volcengine.hotwords,
-        hotword_draft: settings.recognition.volcengine.hotword_draft,
-        review_token,
+    let profile = &mut settings.recognition.volcengine;
+    // Edits that landed while the sync was in flight are rebased onto its result.
+    profile.hotwords = hotwords::merge(&local, &profile.hotwords, &snapshot.words);
+    profile.hotword_base = snapshot.words;
+    persist_active_settings(&app, &state, settings.clone(), snapshot.binding).await?;
+    Ok(HotwordSyncResult {
+        hotwords: settings.recognition.volcengine.hotwords,
+        limit: snapshot.limit,
+        foreign_tables: snapshot.foreign_tables,
     })
 }
 
@@ -1002,7 +744,7 @@ async fn start_recognition_session(
             && recognition.volcengine.api_key.trim() != settings.recognition.volcengine.api_key
         {
             return Err(
-                "试说使用已保存的渠道和词库，请先保存 API Key；未保存的 Key 可使用测试连接"
+                "试说使用已保存的识别服务和词库，请先保存 API Key；未保存的 Key 可使用测试连接"
                     .to_owned(),
             );
         }
@@ -1016,7 +758,7 @@ async fn start_recognition_session(
             .read()
             .map_err(|_| "常用词状态已损坏")?
             .as_ref(),
-    )?;
+    );
     let api_config = match settings.recognition.provider {
         RecognitionProvider::Volcengine => Some(
             recognition_config(&app, state, &settings.recognition, hotword_table_id)
@@ -1025,9 +767,11 @@ async fn start_recognition_session(
         ),
         RecognitionProvider::DoubaoIme => {
             let status = state.account.status(&app).await;
-            if !matches!(
+            // Unavailable (e.g. offline at wake) is retried by resolve_token below;
+            // only states that need the user block here.
+            if matches!(
                 status.state,
-                doubao_account::AccountState::Guest | doubao_account::AccountState::SignedIn
+                doubao_account::AccountState::SigningIn | doubao_account::AccountState::Expired
             ) {
                 return Err(status
                     .message
@@ -1131,7 +875,7 @@ async fn start_recognition_session(
             }
             Ok(AsrOutcome::Text(text)) => {
                 emit(json!({ "kind": "final", "text": &text }));
-                let (text, completed_message) = if smart_organize {
+                let (text, completed_message, fallback) = if smart_organize {
                     emit(json!({ "kind": "processing", "message": "正在使用豆包输入法智能整理…" }));
                     let result = if let Some(token) = organize_token.as_deref() {
                         tokio::select! {
@@ -1146,8 +890,11 @@ async fn start_recognition_session(
                         Err("智能整理需要已登录的豆包账号".to_owned())
                     };
                     match result {
-                        Ok(processed) => (processed, "豆包智能整理完成，已输入"),
-                        Err(_) => (text, "豆包智能整理失败，已输入原始识别结果"),
+                        Ok(processed) => (processed, "豆包智能整理完成，已输入", false),
+                        Err(error) => {
+                            log::warn!("postprocess: doubao organize failed: {error}");
+                            (text, "豆包智能整理失败，已输入原始识别结果", true)
+                        }
                     }
                 } else if llm_settings.enabled {
                     emit(
@@ -1158,11 +905,14 @@ async fn start_recognition_session(
                     })
                     .await
                     {
-                        Ok(processed) => (processed, "文本处理完成，已输入"),
-                        Err(_) => (text, "文本处理失败，已输入原始识别结果"),
+                        Ok(processed) => (processed, "文本处理完成，已输入", false),
+                        Err(error) => {
+                            log::warn!("postprocess: LLM failed: {error}");
+                            (text, "文本处理失败，已输入原始识别结果", true)
+                        }
                     }
                 } else {
-                    (text, "已输入")
+                    (text, "已输入", false)
                 };
                 if !active()
                     || !is_current_session(&session_slot, &session_id)
@@ -1172,16 +922,22 @@ async fn start_recognition_session(
                     return;
                 }
                 match paste::paste(&app, input_session, text).await {
-                    Ok(PasteOutcome::Pasted) => {
-                        emit(json!({ "kind": "completed", "message": completed_message }))
-                    }
+                    Ok(PasteOutcome::Pasted) => emit(json!({
+                        "kind": if fallback { "fallback" } else { "completed" },
+                        "message": completed_message
+                    })),
                     Ok(PasteOutcome::Copied(error)) => {
+                        log::warn!("paste: simulated input failed: {error}");
                         let _ = show_overlay(&app);
-                        emit(
-                            json!({ "kind": "copied", "message": "已复制到剪贴板；自动粘贴暂不可用，请在设置中重试系统授权", "detail": error }),
-                        );
+                        let message = if error.contains("UIPI") {
+                            "已复制到剪贴板；目标窗口拒绝模拟输入（如管理员窗口），请手动粘贴"
+                        } else {
+                            "已复制到剪贴板；输入授权不可用，请在设置中重试系统授权"
+                        };
+                        emit(json!({ "kind": "copied", "message": message, "detail": error }));
                     }
                     Err(error) => {
+                        log::warn!("paste: failed: {error}");
                         let _ = show_overlay(&app);
                         emit(json!({ "kind": "error", "message": error }));
                     }
@@ -1191,6 +947,7 @@ async fn start_recognition_session(
                 if using_account && issue.kind == "loginRequired" {
                     account.mark_expired(&app).await;
                 }
+                log::warn!("recognition: failed ({}): {}", issue.kind, issue.title);
                 emit(
                     json!({ "kind": "error", "message": issue.message(), "detail": issue.detail }),
                 );
@@ -1198,20 +955,18 @@ async fn start_recognition_session(
         }
         clear_current_session(&session_slot, &session_id);
         let state = app.state::<AppState>();
-        if let Ok(settings) = state.settings.read() {
-            set_tray_status(&state, tray_ready_text(&settings));
-        }
+        set_tray_status(&state, tray_ready_text(&state));
     });
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn list_microphones(window: WebviewWindow) -> Result<Vec<audio::MicrophoneDevice>, String> {
     require_window(&window, "settings")?;
     audio::microphones()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn start_audio_capture(
     window: WebviewWindow,
     app: AppHandle,
@@ -1284,7 +1039,7 @@ fn start_audio_capture(
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn stop_audio_capture(
     window: WebviewWindow,
     state: State<'_, AppState>,
@@ -1383,11 +1138,11 @@ async fn test_recognition(
     recognition: RecognitionSettings,
     provider_revision: u64,
 ) -> Result<TestRecognitionResult, ServiceIssue> {
-    require_window(&window, "settings").map_err(ServiceIssue::unknown)?;
+    require_window(&window, "settings").map_err(ServiceIssue::busy)?;
     let _gate = state.recognition_gate.lock().await;
     require_provider(&state, recognition.provider, provider_revision)
-        .map_err(ServiceIssue::unknown)?;
-    require_recognition_idle(&state).map_err(ServiceIssue::unknown)?;
+        .map_err(ServiceIssue::busy)?;
+    require_recognition_idle(&state).map_err(ServiceIssue::busy)?;
     let config = recognition_config(&app, &state, &recognition, None).await?;
     let using_account = matches!(
         &config,
@@ -1403,7 +1158,7 @@ async fn test_recognition(
         return Err(issue);
     }
     require_provider(&state, recognition.provider, provider_revision)
-        .map_err(ServiceIssue::unknown)?;
+        .map_err(ServiceIssue::busy)?;
     Ok(TestRecognitionResult {
         provider: recognition.provider,
         provider_revision,
@@ -1412,8 +1167,6 @@ async fn test_recognition(
         } else {
             0
         },
-        hotword_status: None,
-        warning: None,
     })
 }
 
@@ -1492,8 +1245,15 @@ async fn doubao_phrase_snapshot(
         .await
         .map_err(|i| i.detail)?
         .ok_or("请先登录豆包账号")?;
+    let account_revision = state.account.status(&app).await.revision;
+    drop(_gate);
     let (did, iid) = asr::doubao_ime::device::sync_identity().await?;
-    doubao_phrases::snapshot(&token, &did, &iid).await
+    let result = doubao_phrases::snapshot(&token, &did, &iid).await?;
+    require_provider(&state, RecognitionProvider::DoubaoIme, provider_revision)?;
+    if state.account.status(&app).await.revision != account_revision {
+        return Err("账号变化，已丢弃旧常用语结果".to_owned());
+    }
+    Ok(result)
 }
 
 #[tauri::command]
@@ -1537,15 +1297,15 @@ async fn translate_doubao_text(
     ) {
         return Err("不支持的文本操作".to_owned());
     }
-    uuid::Uuid::parse_str(&request_id).map_err(|_| "翻译请求标识无效")?;
+    uuid::Uuid::parse_str(&request_id).map_err(|_| "文本处理请求标识无效")?;
     let (cancel, mut cancelled) = watch::channel(false);
     {
         let mut current = state
             .translation_cancel
             .lock()
-            .map_err(|_| "翻译状态损坏")?;
+            .map_err(|_| "文本处理状态损坏")?;
         if current.is_some() {
-            return Err("已有翻译请求正在处理".to_owned());
+            return Err("已有文本处理任务正在进行".to_owned());
         }
         *current = Some((request_id.clone(), cancel));
     }
@@ -1553,15 +1313,15 @@ async fn translate_doubao_text(
         let _gate = state.recognition_gate.lock().await;
         require_provider(&state, RecognitionProvider::DoubaoIme, provider_revision)?;
         require_recognition_idle(&state)?;
-        if text.trim().is_empty() || text.len() > 32000 {
-            return Err("请输入待翻译文本，且不超过 32000 UTF-8 字节".to_owned());
+        if text.trim().is_empty() || text.chars().count() > 8000 {
+            return Err("请输入待处理文本，且不超过 8000 字".to_owned());
         }
         let token = state
             .account
             .resolve_token(&app)
             .await
             .map_err(|issue| issue.detail)?
-            .ok_or("翻译需要登录豆包账号")?;
+            .ok_or("文本处理需要登录豆包账号")?;
         let account_revision = state.account.status(&app).await.revision;
         drop(_gate);
         let result = match action.as_str() {
@@ -1581,20 +1341,20 @@ async fn translate_doubao_text(
         };
         require_provider(&state, RecognitionProvider::DoubaoIme, provider_revision)?;
         if state.account.status(&app).await.revision != account_revision {
-            return Err("翻译期间账号发生变化，已丢弃结果".to_owned());
+            return Err("文本处理期间账号发生变化，已丢弃结果".to_owned());
         }
         Ok(result)
     };
     let result = tokio::select! {
         biased;
-        _ = cancelled.changed() => Err("翻译已取消，原文已保留".to_owned()),
+        _ = cancelled.changed() => Err("文本处理已取消，原文已保留".to_owned()),
         result = operation => result,
     };
     {
         let mut current = state
             .translation_cancel
             .lock()
-            .map_err(|_| "翻译状态损坏")?;
+            .map_err(|_| "文本处理状态损坏")?;
         if current.as_ref().is_some_and(|(id, _)| id == &request_id) {
             *current = None;
         }
@@ -1612,7 +1372,7 @@ fn cancel_doubao_translation(
     if let Some((id, cancel)) = state
         .translation_cancel
         .lock()
-        .map_err(|_| "翻译状态损坏")?
+        .map_err(|_| "文本处理状态损坏")?
         .as_ref()
         && id == &request_id
     {
@@ -1671,21 +1431,24 @@ async fn list_llm_models(
     api_key: String,
 ) -> Result<Vec<String>, String> {
     require_window(&window, "settings")?;
-    let _gate = state.recognition_gate.lock().await;
-    let provider = state
-        .settings
-        .read()
-        .map_err(|_| "设置状态已损坏")?
-        .recognition
-        .provider;
-    require_provider(&state, provider, provider_revision)?;
+    let provider = {
+        let _gate = state.recognition_gate.lock().await;
+        let provider = state
+            .settings
+            .read()
+            .map_err(|_| "设置状态已损坏")?
+            .recognition
+            .provider;
+        require_provider(&state, provider, provider_revision)?;
+        provider
+    };
     let models = llm::list_models(&base_url, &api_key).await?;
     require_provider(&state, provider, provider_revision)?;
     Ok(models)
 }
 
 #[tauri::command]
-fn system_diagnostics(
+async fn system_diagnostics(
     window: WebviewWindow,
     app: AppHandle,
     state: State<'_, AppState>,
@@ -1693,15 +1456,18 @@ fn system_diagnostics(
     require_window(&window, "settings")?;
     let (input_ready, input_status) = match state.input_session.status()? {
         InputStatus::Uninitialized => (false, "尚未检查".to_owned()),
+        InputStatus::Pending => (false, "正在请求授权…".to_owned()),
         InputStatus::Ready => (true, "可用".to_owned()),
         InputStatus::Unavailable(error) => (false, format!("暂不可用：{error}")),
     };
+    let (shortcut_ready, shortcut_status) = state
+        .shortcut_status
+        .read()
+        .map_err(|_| "快捷键诊断状态已损坏，请重启应用".to_owned())?
+        .clone();
     Ok(SystemDiagnostics {
-        shortcut_status: state
-            .shortcut_status
-            .read()
-            .map_err(|_| "快捷键诊断状态已损坏，请重启应用".to_owned())?
-            .clone(),
+        shortcut_status,
+        shortcut_ready,
         input_ready,
         input_status,
         app_version: app.package_info().version.to_string(),
@@ -1725,12 +1491,6 @@ async fn retry_input_access(
 }
 
 #[tauri::command]
-fn open_api_key_console(window: WebviewWindow) -> Result<(), String> {
-    require_window(&window, "settings")?;
-    open::that(API_KEY_CONSOLE_URL).map_err(|error| format!("打开火山引擎控制台失败：{error}"))
-}
-
-#[tauri::command]
 fn open_product_link(window: WebviewWindow, target: String) -> Result<(), String> {
     require_window(&window, "settings")?;
     let (url, label) = match target.as_str() {
@@ -1742,7 +1502,9 @@ fn open_product_link(window: WebviewWindow, target: String) -> Result<(), String
         "serviceDocs" => (SERVICE_DOCS_URL, "接入文档"),
         _ => return Err("未知链接".to_owned()),
     };
-    open::that(url).map_err(|error| format!("打开{label}失败：{error}"))
+    // Detached: these sync commands run on the main thread, and some launchers
+    // (e.g. xdg-open falling back to $BROWSER) block until the browser exits.
+    open::that_detached(url).map_err(|error| format!("打开{label}失败：{error}"))
 }
 
 #[tauri::command]
@@ -1756,7 +1518,10 @@ async fn check_for_update(
         .map_err(|error| format!("初始化更新检查失败：{error}"))?
         .check()
         .await
-        .map_err(|error| format!("检查更新失败：{error}"))?;
+        .map_err(|error| {
+            log::warn!("update: check failed: {error}");
+            format!("检查更新失败：{error}")
+        })?;
     Ok(update.map(|update| UpdateInfo {
         version: update.version,
     }))
@@ -1767,7 +1532,7 @@ async fn install_update(
     window: WebviewWindow,
     app: AppHandle,
     state: State<'_, AppState>,
-) -> Result<bool, String> {
+) -> Result<(), String> {
     require_window(&window, "settings")?;
     require_saved_settings(state.settings_dirty.load(Ordering::Acquire))?;
     let update = app
@@ -1777,27 +1542,12 @@ async fn install_update(
         .await
         .map_err(|error| format!("检查更新失败：{error}"))?
         .ok_or_else(|| "当前已是最新版本".to_owned())?;
-    let confirmed = app
-        .dialog()
-        .message(format!(
-            "发现 VoicePaste {}，立即下载并安装？应用将在完成后重启。",
-            update.version
-        ))
-        .title("安装 VoicePaste 更新")
-        .buttons(MessageDialogButtons::OkCancelCustom(
-            "安装更新".to_owned(),
-            "稍后".to_owned(),
-        ))
-        .blocking_show();
-    if !confirmed {
-        return Ok(false);
-    }
     update
         .download_and_install(|_, _| {}, || {})
         .await
         .map_err(|error| format!("安装更新失败：{error}"))?;
     #[cfg(target_os = "windows")]
-    return Ok(true);
+    return Ok(());
     #[cfg(not(target_os = "windows"))]
     app.restart();
 }
@@ -1810,7 +1560,7 @@ fn open_log_dir(window: WebviewWindow, app: AppHandle) -> Result<(), String> {
         .app_log_dir()
         .map_err(|error| format!("读取日志目录失败：{error}"))?;
     fs::create_dir_all(&path).map_err(|error| format!("创建日志目录失败：{error}"))?;
-    open::that(path).map_err(|error| format!("打开日志目录失败：{error}"))
+    open::that_detached(path).map_err(|error| format!("打开日志目录失败：{error}"))
 }
 
 #[tauri::command]
@@ -1825,13 +1575,13 @@ fn copy_tool_text(window: WebviewWindow, app: AppHandle, text: String) -> Result
 }
 
 #[tauri::command]
-fn copy_diagnostics(
+async fn copy_diagnostics(
     window: WebviewWindow,
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     require_window(&window, "settings")?;
-    let diagnostics = system_diagnostics(window, app.clone(), state)?;
+    let diagnostics = system_diagnostics(window, app.clone(), state).await?;
     let text = format!(
         "VoicePaste {}\n快捷键：{}\n自动粘贴：{}\n系统：{} {}",
         diagnostics.app_version,
@@ -1914,10 +1664,12 @@ fn take_window_capture(state: &AppState, window_label: &str) -> Option<ActiveAud
     }
 }
 
-pub(crate) fn set_shortcut_status(app: &AppHandle, status: &str) {
-    if let Ok(mut current) = app.state::<AppState>().shortcut_status.write() {
-        status.clone_into(&mut current);
+pub(crate) fn set_shortcut_status(app: &AppHandle, ready: bool, status: &str) {
+    let state = app.state::<AppState>();
+    if let Ok(mut current) = state.shortcut_status.write() {
+        *current = (ready, status.to_owned());
     }
+    set_tray_status(&state, tray_ready_text(&state));
 }
 
 pub(crate) fn handle_shortcut_event(app: &AppHandle, pressed: bool) {
@@ -2026,18 +1778,6 @@ fn should_show_settings_on_launch(settings: &AppSettings) -> bool {
     !settings.onboarding_completed || settings.open_settings_on_startup
 }
 
-fn show_settings_on_launch(app: &AppHandle) {
-    let should_show = app
-        .state::<AppState>()
-        .settings
-        .read()
-        .map(|settings| should_show_settings_on_launch(&settings))
-        .unwrap_or(true);
-    if should_show {
-        show_settings(app);
-    }
-}
-
 fn show_settings(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("settings") {
         let _ = window.show();
@@ -2070,7 +1810,25 @@ fn request_quit(app: &AppHandle) {
 }
 
 fn setup_app(app: &mut tauri::App) -> Result<(), String> {
-    let mut loaded = settings::load(app.handle())?;
+    let mut loaded = match settings::load(app.handle()) {
+        Ok(loaded) => loaded,
+        Err(error) => {
+            log::error!("setup: settings load failed: {error}");
+            let directory = app
+                .path()
+                .app_data_dir()
+                .map(|directory| directory.display().to_string())
+                .unwrap_or_default();
+            let handle = app.handle().clone();
+            app.dialog()
+                .message(format!("{error}\n\n设置目录：{directory}"))
+                .title("VoicePaste 无法读取设置")
+                .kind(MessageDialogKind::Error)
+                .buttons(MessageDialogButtons::OkCustom("退出".to_owned()))
+                .show(move |_| handle.exit(1));
+            return Ok(());
+        }
+    };
     loaded.settings.launch_at_startup = app.autolaunch().is_enabled().unwrap_or(false);
     let app_state = app.state::<AppState>();
     *app_state
@@ -2088,17 +1846,9 @@ fn setup_app(app: &mut tauri::App) -> Result<(), String> {
     if loaded.settings.onboarding_completed {
         initialize_input_session(Arc::clone(&app_state.input_session));
     }
-    Arc::clone(&app_state.shortcut_manager)
-        .register_initial(app.handle().clone(), loaded.settings.shortcut.clone());
 
-    let status = MenuItem::with_id(
-        app,
-        TRAY_STATUS_ID,
-        tray_ready_text(&loaded.settings),
-        false,
-        None::<&str>,
-    )
-    .map_err(|error| format!("创建托盘状态失败：{error}"))?;
+    let status = MenuItem::with_id(app, TRAY_STATUS_ID, "正在注册快捷键…", false, None::<&str>)
+        .map_err(|error| format!("创建托盘状态失败：{error}"))?;
     let open_settings = MenuItem::with_id(app, TRAY_OPEN_ID, "打开 VoicePaste", true, None::<&str>)
         .map_err(|error| format!("创建托盘菜单失败：{error}"))?;
     let update = MenuItem::with_id(app, TRAY_UPDATE_ID, "检查更新…", true, None::<&str>)
@@ -2113,6 +1863,8 @@ fn setup_app(app: &mut tauri::App) -> Result<(), String> {
         .tray_status
         .lock()
         .map_err(|_| "托盘状态已损坏，请重启应用".to_owned())? = Some(status);
+    Arc::clone(&app_state.shortcut_manager)
+        .register_initial(app.handle().clone(), loaded.settings.shortcut.clone());
     let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png"))
         .map_err(|error| format!("加载托盘图标失败：{error}"))?;
     if let Some(window) = app.get_webview_window("settings") {
@@ -2180,7 +1932,7 @@ pub fn run() {
     let _ = rustls::crypto::ring::default_provider().install_default();
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            show_settings_on_launch(app);
+            show_settings(app);
         }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -2207,16 +1959,20 @@ pub fn run() {
                 })
                 .build(),
         )
-        .setup(|app| Ok(setup_app(app).map_err(std::io::Error::other)?))
+        .setup(|app| {
+            setup_app(app).map_err(|error| {
+                log::error!("setup: {error}");
+                Box::new(std::io::Error::other(error)) as Box<dyn std::error::Error>
+            })
+        })
         .invoke_handler(tauri::generate_handler![
             load_settings,
             select_recognition_provider,
             close_settings,
             set_settings_dirty,
             save_settings,
-            save_volcengine_hotword_draft,
-            apply_volcengine_hotwords,
-            refresh_hotwords,
+            edit_volcengine_hotwords,
+            sync_volcengine_hotwords,
             start_recognition,
             start_recognition_preview,
             list_microphones,
@@ -2241,7 +1997,6 @@ pub fn run() {
             list_llm_models,
             system_diagnostics,
             retry_input_access,
-            open_api_key_console,
             open_product_link,
             check_for_update,
             install_update,
@@ -2257,10 +2012,9 @@ pub fn run() {
 mod tests {
     use super::{
         AppState, AudioCaptureKind, AudioCommand, RecognitionSession, can_replace_audio_capture,
-        confirm_hotword_snapshot, hotword_status,
-        hotwords::Snapshot,
-        offload_blocking_result, prepare_ordinary_save, require_provider, require_saved_settings,
-        settings::{AppSettings, RecognitionProvider, VolcengineSettings},
+        edit_hotwords, offload_blocking_result, prepare_ordinary_save, require_provider,
+        require_saved_settings,
+        settings::{AppSettings, RecognitionProvider},
         should_show_settings_on_launch, signal_cancel,
     };
     use std::sync::Mutex;
@@ -2279,45 +2033,46 @@ mod tests {
     }
 
     #[test]
-    fn recognition_uses_only_confirmed_words_and_blocks_uncertain_submissions() {
+    fn recognition_boosts_with_the_synced_table_only_when_enabled() {
         let mut recognition = super::RecognitionSettings {
             provider: RecognitionProvider::Volcengine,
-            volcengine: super::VolcengineSettings {
+            volcengine: super::settings::VolcengineSettings {
                 hotwords_enabled: true,
-                hotword_draft: Some(vec!["not-applied".to_owned()]),
                 ..Default::default()
             },
             ..Default::default()
         };
         let binding = super::HotwordBinding {
-            table_id: "confirmed-table".to_owned(),
+            table_id: "synced-table".to_owned(),
             limit: 5000,
         };
+        let table = |recognition: &super::RecognitionSettings, binding| {
+            super::applied_hotword_table(recognition, binding)
+        };
         assert_eq!(
-            super::applied_hotword_table(&recognition, Some(&binding)).unwrap(),
-            None
+            table(&recognition, Some(&binding)).as_deref(),
+            Some("synced-table")
         );
-        recognition.volcengine.hotwords = vec!["confirmed".to_owned()];
-        assert_eq!(
-            super::applied_hotword_table(&recognition, Some(&binding))
-                .unwrap()
-                .as_deref(),
-            Some("confirmed-table")
-        );
-        assert!(super::applied_hotword_table(&recognition, None).is_err());
-        recognition.volcengine.hotword_pending = Some(Vec::new());
-        assert!(super::applied_hotword_table(&recognition, Some(&binding)).is_err());
+        // Never synced: dictate without boosting rather than fail.
+        assert_eq!(table(&recognition, None), None);
         recognition.volcengine.hotwords_enabled = false;
-        assert_eq!(
-            super::applied_hotword_table(&recognition, Some(&binding)).unwrap(),
-            None
-        );
+        assert_eq!(table(&recognition, Some(&binding)), None);
         recognition.provider = RecognitionProvider::DoubaoIme;
         recognition.volcengine.hotwords_enabled = true;
-        assert_eq!(
-            super::applied_hotword_table(&recognition, Some(&binding)).unwrap(),
-            None
-        );
+        assert_eq!(table(&recognition, Some(&binding)), None);
+    }
+
+    #[test]
+    fn edits_apply_as_operations_on_the_current_list() {
+        let current = vec!["VoicePaste".to_owned(), "Tauri".to_owned()];
+        let edited = edit_hotwords(
+            &current,
+            vec![" TanStack ".to_owned(), "tauri".to_owned()],
+            &["voicepaste".to_owned()],
+        )
+        .unwrap();
+        assert_eq!(edited, ["Tauri", "TanStack"]);
+        assert!(edit_hotwords(&current, vec!["has space".to_owned()], &[]).is_err());
     }
 
     #[test]
@@ -2333,62 +2088,22 @@ mod tests {
     }
 
     #[test]
-    fn disabled_hotwords_still_surface_remote_drift() {
-        let settings = VolcengineSettings::default();
-        let snapshot = Snapshot {
-            words: vec!["VoicePaste".to_owned()],
-            ..Snapshot::default()
-        };
-
-        assert_eq!(hotword_status(&settings, &snapshot).state, "pending");
-    }
-
-    #[test]
-    fn ordinary_saves_preserve_confirmed_words_pending_writes_and_inactive_profile() {
+    fn ordinary_saves_ignore_word_list_sync_record_and_inactive_profile() {
         let mut previous = AppSettings::default();
         previous.recognition.provider = RecognitionProvider::Volcengine;
-        previous.recognition.volcengine.hotwords = vec!["confirmed".to_owned()];
-        previous.recognition.volcengine.hotword_pending = Some(vec!["submitted".to_owned()]);
-        previous.recognition.volcengine.hotword_draft = Some(vec!["draft".to_owned()]);
+        previous.recognition.volcengine.hotwords = vec!["local".to_owned()];
+        previous.recognition.volcengine.hotwords_enabled = true;
+        previous.recognition.volcengine.hotword_base = vec!["cloud".to_owned()];
         previous.recognition.doubao_ime.llm.model = "private-model".to_owned();
         let mut next = previous.clone();
         next.recognition.volcengine.hotwords.clear();
-        next.recognition.volcengine.hotword_draft = None;
-        next.recognition.volcengine.hotword_pending = None;
+        next.recognition.volcengine.hotwords_enabled = false;
+        next.recognition.volcengine.hotword_base.clear();
         next.recognition.doubao_ime.llm.model.clear();
         prepare_ordinary_save(&mut next, &previous).unwrap();
         assert_eq!(next.recognition, previous.recognition);
-        next.recognition.volcengine.api_key = "new-target".to_owned();
-        assert!(prepare_ordinary_save(&mut next, &previous).is_err());
         next.recognition.provider = RecognitionProvider::DoubaoIme;
         assert!(prepare_ordinary_save(&mut next, &previous).is_err());
-    }
-
-    #[test]
-    fn refresh_recovers_submitted_words_but_preserves_newer_local_draft() {
-        let mut profile = VolcengineSettings {
-            hotwords: vec!["old".to_owned()],
-            hotword_pending: Some(vec!["submitted".to_owned()]),
-            hotword_draft: Some(vec!["newer".to_owned()]),
-            ..VolcengineSettings::default()
-        };
-        let mut snapshot = Snapshot {
-            words: vec!["old".to_owned()],
-            ..Snapshot::default()
-        };
-        assert!(!confirm_hotword_snapshot(&mut profile, &snapshot));
-        assert_eq!(hotword_status(&profile, &snapshot).state, "confirming");
-        snapshot.words = vec!["submitted".to_owned()];
-        assert!(confirm_hotword_snapshot(&mut profile, &snapshot));
-        assert_eq!(profile.hotwords, ["submitted"]);
-        assert_eq!(profile.hotword_draft, Some(vec!["newer".to_owned()]));
-        assert!(profile.hotword_pending.is_none());
-        profile.hotword_pending = Some(Vec::new());
-        profile.hotword_draft = Some(Vec::new());
-        snapshot.words.clear();
-        assert!(confirm_hotword_snapshot(&mut profile, &snapshot));
-        assert!(profile.hotwords.is_empty());
-        assert!(profile.hotword_draft.is_none());
     }
 
     #[test]

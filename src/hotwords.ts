@@ -1,5 +1,3 @@
-import type { HotwordAction } from "@/types";
-
 const UTF8_ENCODER = new TextEncoder();
 const CHARACTER_SEGMENTER = new Intl.Segmenter("zh", {
   granularity: "grapheme",
@@ -35,34 +33,6 @@ export function normalizeHotwords(value: string, limit: number): string[] {
       throw new Error(`常用词“${word}”过长：最多 10 个字符且不超过 30 字节`);
   }
   return hotwords;
-}
-
-/** Case-insensitive comparison; the original spelling is kept in the result. */
-export function hotwordDiff(
-  local: string[],
-  cloud: string[]
-): { onlyLocal: string[]; onlyCloud: string[] } {
-  const localKeys = new Set(local.map((word) => word.toLocaleLowerCase()));
-  const cloudKeys = new Set(cloud.map((word) => word.toLocaleLowerCase()));
-  return {
-    onlyCloud: cloud.filter((word) => !localKeys.has(word.toLocaleLowerCase())),
-    onlyLocal: local.filter((word) => !cloudKeys.has(word.toLocaleLowerCase())),
-  };
-}
-
-export function replayHotwordChanges(
-  baseline: string[],
-  draft: string[],
-  cloud: string[]
-): string[] {
-  const { onlyLocal: added, onlyCloud: removed } = hotwordDiff(draft, baseline);
-  const removedKeys = new Set(removed.map((word) => word.toLocaleLowerCase()));
-  return uniqueHotwords(
-    [
-      ...cloud.filter((word) => !removedKeys.has(word.toLocaleLowerCase())),
-      ...added,
-    ].join("\n")
-  );
 }
 
 export interface HotwordImportRow {
@@ -105,15 +75,4 @@ export function previewHotwordImport(
     rows.push(row);
   }
   return rows;
-}
-
-export function hotwordActionMessage(
-  action: HotwordAction,
-  cloudCount: number
-): string {
-  if (action === "created") return `已创建云端词表，共 ${cloudCount} 个常用词`;
-  if (action === "updated") return `云端词表已更新，共 ${cloudCount} 个常用词`;
-  if (action === "deleted") return "云端词表已删除";
-  if (action === "unchanged") return "云端词表已是最新";
-  return "已保存";
 }

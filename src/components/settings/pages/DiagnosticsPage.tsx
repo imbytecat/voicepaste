@@ -1,10 +1,18 @@
+import { useQuery } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import { ClipboardPaste, Keyboard, Mic, RefreshCw } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { useState } from "react";
 
 import { useSettings } from "@/components/settings/controller";
-import { Group, IconTile, StatusText } from "@/components/settings/kit";
+import {
+  Feedback,
+  Group,
+  IconTile,
+  StatusText,
+} from "@/components/settings/kit";
 import type { TileHue, Tone } from "@/components/settings/kit";
+import { settingsQueries } from "@/components/settings/queries";
 import { Button } from "@/components/ui/button";
 
 type CheckState = "granted" | "unavailable" | "preview";
@@ -53,18 +61,18 @@ function CheckRow({
 }
 
 export function DiagnosticsPage() {
-  const {
-    diagnostics,
-    errorText,
-    microphones,
-    refreshDiagnostics,
-    setMessage,
-    showMessage,
-  } = useSettings();
+  const { errorText, setMessage, showMessage } = useSettings();
+  // Observed here too so every visit re-checks (the queries are always stale).
+  const diagnosticsQuery = useQuery(settingsQueries.diagnostics());
+  const microphonesQuery = useQuery(settingsQueries.microphones());
+  const microphones = microphonesQuery.data ?? [];
+  const [retryingInput, setRetryingInput] = useState(false);
+  const checking = diagnosticsQuery.isFetching || microphonesQuery.isFetching;
+  const diagnostics = diagnosticsQuery.data ?? null;
   const preview = diagnostics === null;
   const shortcutState: CheckState = preview
     ? "preview"
-    : diagnostics.shortcutStatus === "全局快捷键已启用"
+    : diagnostics.shortcutReady
       ? "granted"
       : "unavailable";
   const microphoneState: CheckState = preview
@@ -92,8 +100,8 @@ export function DiagnosticsPage() {
         <CheckRow
           icon={Mic}
           hue="rose"
-          title="麦克风"
-          description="采集你的声音"
+          title="麦克风设备"
+          description="检测输入设备；麦克风权限在首次听写时申请"
           state={microphoneState}
           detail="未检测到可用的麦克风"
         />
@@ -106,28 +114,42 @@ export function DiagnosticsPage() {
           detail={diagnostics?.inputStatus}
         />
       </Group>
+      <Feedback
+        message={
+          diagnosticsQuery.error
+            ? { kind: "error", text: errorText(diagnosticsQuery.error) }
+            : null
+        }
+      />
       <div className="flex gap-2 px-1">
         <Button
           variant="outline"
           type="button"
+          disabled={checking}
           onClick={() => {
             setMessage(null);
-            void refreshDiagnostics();
+            void diagnosticsQuery.refetch();
+            void microphonesQuery.refetch();
           }}
         >
-          <RefreshCw /> 重新检查
+          <RefreshCw className={checking ? "animate-spin" : undefined} />{" "}
+          重新检查
         </Button>
         {diagnostics && !diagnostics.inputReady ? (
           <Button
             type="button"
+            disabled={retryingInput}
             onClick={() => {
               void (async () => {
                 setMessage(null);
+                setRetryingInput(true);
                 try {
                   await invoke("retry_input_access");
-                  await refreshDiagnostics();
+                  await diagnosticsQuery.refetch();
                 } catch (error) {
                   showMessage({ kind: "error", text: errorText(error) });
+                } finally {
+                  setRetryingInput(false);
                 }
               })();
             }}

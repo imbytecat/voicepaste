@@ -60,13 +60,14 @@ impl RecognitionProvider {
 #[serde(default, rename_all = "camelCase")]
 pub struct VolcengineSettings {
     pub api_key: String,
+    /// The words the user wants; edits land here and sync to the cloud.
     pub hotwords: Vec<String>,
     pub hotwords_enabled: bool,
-    pub hotword_draft: Option<Vec<String>>,
     pub llm: LlmSettings,
-    // Internal recovery record, never accepted from a frontend settings save.
+    /// Cloud words as of the last sync: the three-way merge base. Internal,
+    /// never accepted from a frontend settings save.
     #[serde(skip)]
-    pub hotword_pending: Option<Vec<String>>,
+    pub hotword_base: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -224,7 +225,7 @@ fn decode_document(value: &Value) -> Result<(AppSettings, Option<Binding>), Stri
             .cloned()
             .unwrap_or(json!("doubaoIme")),
     )
-    .map_err(|error| format!("识别渠道无效：{error}"))?;
+    .map_err(|error| format!("识别服务无效：{error}"))?;
     let mut active = value.clone();
     if active.get("recognition").is_none() {
         active["recognition"] = json!({});
@@ -248,16 +249,29 @@ fn decode_document(value: &Value) -> Result<(AppSettings, Option<Binding>), Stri
     } else {
         None
     };
-    let mut settings: AppSettings =
-        serde_json::from_value(active).map_err(|error| format!("解析当前渠道设置失败：{error}"))?;
+    let mut settings: AppSettings = serde_json::from_value(active)
+        .map_err(|error| format!("解析当前识别服务设置失败：{error}"))?;
     if provider == RecognitionProvider::Volcengine {
-        settings.recognition.volcengine.hotword_pending = value
-            .pointer("/recognition/volcengine/hotwordPending")
-            .filter(|value| !value.is_null())
-            .cloned()
-            .map(serde_json::from_value)
-            .transpose()
-            .map_err(|error| format!("解析常用词未决提交失败：{error}"))?;
+        let raw = value.pointer("/recognition/volcengine");
+        let field = |key: &str| {
+            raw.and_then(|profile| profile.get(key))
+                .filter(|v| !v.is_null())
+        };
+        let profile = &mut settings.recognition.volcengine;
+        if let Some(base) = field("hotwordBase") {
+            profile.hotword_base = serde_json::from_value(base.clone())
+                .map_err(|error| format!("解析常用词同步记录失败：{error}"))?;
+        } else {
+            // Stores before 2.2.1 kept the confirmed cloud words in `hotwords`
+            // and unapplied edits in `hotwordDraft`.
+            if binding.is_some() {
+                profile.hotword_base = profile.hotwords.clone();
+            }
+            if let Some(draft) = field("hotwordDraft") {
+                profile.hotwords = serde_json::from_value(draft.clone())
+                    .map_err(|error| format!("解析常用词草稿失败：{error}"))?;
+            }
+        }
     }
     settings.recognition.volcengine.api_key.clear();
     settings.recognition.llm_mut().api_key.clear();
@@ -287,7 +301,7 @@ fn encode_document(
     let profile = &mut value["recognition"][provider.profile()];
     if provider == RecognitionProvider::Volcengine {
         profile["hotwordBinding"] = json!(binding);
-        profile["hotwordPending"] = json!(settings.recognition.volcengine.hotword_pending);
+        profile["hotwordBase"] = json!(settings.recognition.volcengine.hotword_base);
     }
     strip_document_secrets(&mut value);
     Ok(value)
@@ -374,7 +388,7 @@ fn load_document(value: &Value) -> Result<LoadedSettings, String> {
                 settings.recognition.volcengine.api_key = key.unwrap_or_default();
             }
             Ok(key) => settings.recognition.llm_mut().api_key = key.unwrap_or_default(),
-            Err(error) => notices.push(format!("当前渠道凭据暂不可用，已保留原凭据：{error}")),
+            Err(error) => notices.push(format!("当前识别服务凭据暂不可用，已保留原凭据：{error}")),
         }
     }
     Ok(LoadedSettings {
@@ -491,13 +505,13 @@ pub fn save(
     hotword_binding: Option<&Binding>,
 ) -> Result<CredentialStorage, String> {
     if settings.recognition.provider != previous.recognition.provider {
-        return Err("请使用切换渠道操作，更改设置不能切换渠道".to_owned());
+        return Err("请使用切换识别服务操作，更改设置不能切换识别服务".to_owned());
     }
     let store = read_store(app)?;
     let raw = document(&store)?;
     let (stored, _) = decode_document(&raw)?;
     if stored.recognition.provider != settings.recognition.provider {
-        return Err("当前渠道已改变，请重新加载设置".to_owned());
+        return Err("当前识别服务已改变，请重新加载设置".to_owned());
     }
     let provider = settings.recognition.provider;
     let mut changes = vec![(
@@ -629,15 +643,14 @@ mod tests {
     }
 
     #[test]
-    fn pending_submission_and_newer_draft_are_independently_persisted_without_secrets() {
+    fn sync_base_round_trips_and_legacy_draft_becomes_the_word_list() {
         let raw =
             validate_document(json!({"version": 3, "recognition": {"provider": "volcengine"}}))
                 .unwrap();
         let (mut settings, _) = decode_document(&raw).unwrap();
         settings.recognition.volcengine.api_key = "secret".to_owned();
         settings.recognition.llm_mut().api_key = "llm-secret".to_owned();
-        settings.recognition.volcengine.hotword_pending = Some(vec!["submitted".to_owned()]);
-        settings.recognition.volcengine.hotword_draft = Some(vec!["newer".to_owned()]);
+        settings.recognition.volcengine.hotword_base = vec!["cloud".to_owned()];
         let saved = encode_document(&settings, None, &raw).unwrap();
         assert!(saved.pointer("/recognition/volcengine/apiKey").is_none());
         assert!(
@@ -646,14 +659,18 @@ mod tests {
                 .is_none()
         );
         let (restored, _) = decode_document(&saved).unwrap();
-        assert_eq!(
-            restored.recognition.volcengine.hotword_pending,
-            Some(vec!["submitted".to_owned()])
-        );
-        assert_eq!(
-            restored.recognition.volcengine.hotword_draft,
-            Some(vec!["newer".to_owned()])
-        );
+        assert_eq!(restored.recognition.volcengine.hotword_base, ["cloud"]);
+
+        let legacy = validate_document(json!({"version": 3, "recognition": {
+            "provider": "volcengine", "volcengine": {
+                "hotwords": ["confirmed"], "hotwordDraft": ["confirmed", "edited"],
+                "hotwordPending": ["confirmed", "edited"],
+                "hotwordBinding": {"tableId": "t", "limit": 5000}}}}))
+        .unwrap();
+        let (migrated, _) = decode_document(&legacy).unwrap();
+        let profile = &migrated.recognition.volcengine;
+        assert_eq!(profile.hotword_base, ["confirmed"]);
+        assert_eq!(profile.hotwords, ["confirmed", "edited"]);
     }
 
     #[test]

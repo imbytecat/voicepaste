@@ -17,7 +17,6 @@ export interface VolcengineSettings {
   apiKey: string;
   hotwords: string[];
   hotwordsEnabled: boolean;
-  hotwordDraft: string[] | null;
   llm: LlmSettings;
 }
 
@@ -59,6 +58,7 @@ export interface AsrEvent {
     | "processing"
     | "completed"
     | "copied"
+    | "fallback"
     | "empty"
     | "error";
   sessionId: string;
@@ -72,68 +72,21 @@ export interface ShortcutEvent {
   microphoneId: string;
 }
 
-export type HotwordSyncState =
-  | "empty"
-  | "synced"
-  | "pending"
-  | "confirming"
-  | "disabled"
-  | "unknown";
-
 export interface ForeignHotwordTable {
   name: string;
   wordCount: number;
 }
 
-export interface HotwordSyncStatus {
-  state: HotwordSyncState;
-  count: number;
-  cloudCount: number;
+export interface HotwordSyncResult {
+  hotwords: string[];
   limit: number;
-  tableId: string | null;
   foreignTables: ForeignHotwordTable[];
 }
-
-export type HotwordAction =
-  | "created"
-  | "updated"
-  | "deleted"
-  | "unchanged"
-  | "none";
-
-export interface HotwordSnapshotResult {
-  hotwordStatus: HotwordSyncStatus;
-  cloudHotwords: string[];
-  reviewToken: string;
-  confirmedHotwords: string[];
-  hotwordDraft: string[] | null;
-}
-
-export type SaveSettingsResult =
-  | {
-      kind: "saved";
-      credentialStorage: "keyring" | "removed";
-      hotwordStatus: HotwordSyncStatus | null;
-      hotwordAction: HotwordAction;
-      cloudHotwords: string[];
-      hotwordLimit: number;
-    }
-  | {
-      kind: "conflict";
-      credentialStorage: null;
-      hotwordStatus: null;
-      hotwordAction: null;
-      cloudHotwords: string[];
-      hotwordLimit: number;
-      reviewToken: string;
-    };
 
 export interface TestRecognitionResult {
   provider: RecognitionProvider;
   providerRevision: number;
   accountRevision: number;
-  hotwordStatus: HotwordSyncStatus | null;
-  warning: string | null;
 }
 
 export type ServiceIssueKind =
@@ -144,6 +97,7 @@ export type ServiceIssueKind =
   | "server"
   | "loginRequired"
   | "credentialStorage"
+  | "busy"
   | "unknown";
 
 export interface ServiceIssueLink {
@@ -161,6 +115,7 @@ export interface ServiceIssue {
 
 export interface SystemDiagnostics {
   shortcutStatus: string;
+  shortcutReady: boolean;
   inputReady: boolean;
   inputStatus: string;
   appVersion: string;
@@ -191,7 +146,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
     volcengine: {
       apiKey: "",
       hotwords: [],
-      hotwordDraft: null,
       hotwordsEnabled: false,
       llm: { ...DEFAULT_LLM_SETTINGS },
     },

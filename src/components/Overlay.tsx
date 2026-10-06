@@ -13,6 +13,7 @@ type Phase =
   | "finishing"
   | "processing"
   | "success"
+  | "warning"
   | "error";
 const WAVE_WEIGHTS = [0.45, 0.7, 1, 0.62, 0.84, 0.52, 0.92, 0.66, 0.4] as const;
 
@@ -98,7 +99,7 @@ export function Overlay() {
       if (phaseRef.current !== "recording") return;
       updatePhase("finishing");
       setLevel(0);
-      setText((current) => current || "正在整理刚才的话…");
+      setText((current) => current || "正在识别刚才的话…");
 
       try {
         await stopCapture();
@@ -117,6 +118,7 @@ export function Overlay() {
       if (
         phaseRef.current !== "idle" &&
         phaseRef.current !== "success" &&
+        phaseRef.current !== "warning" &&
         phaseRef.current !== "error"
       )
         return;
@@ -207,6 +209,13 @@ export function Overlay() {
           hideLater(payload.kind === "completed" ? 900 : 2600);
           return;
         }
+        if (payload.kind === "fallback") {
+          sessionRef.current = null;
+          setText(payload.message ?? "文本处理失败，已输入原始识别结果");
+          updatePhase("warning");
+          hideLater(3200);
+          return;
+        }
         if (payload.kind === "empty") {
           sessionRef.current = null;
           setText(payload.message ?? "没有听到可输入的内容");
@@ -269,16 +278,18 @@ export function Overlay() {
     phase === "recording"
       ? "正在听写"
       : phase === "finishing"
-        ? "正在整理"
+        ? "正在识别"
         : phase === "processing"
           ? "文本处理中"
           : phase === "starting"
             ? "连接麦克风"
             : phase === "success"
               ? "已完成"
-              : phase === "error"
-                ? "发生错误"
-                : "VoicePaste";
+              : phase === "warning"
+                ? "已输入原文"
+                : phase === "error"
+                  ? "发生错误"
+                  : "VoicePaste";
   const displayText =
     phase === "processing"
       ? text || "正在等待文本处理结果…"
@@ -288,19 +299,23 @@ export function Overlay() {
   const indicatorClass =
     phase === "success"
       ? "bg-overlay-success text-overlay-foreground"
-      : phase === "error"
-        ? "bg-overlay-error text-overlay-foreground"
-        : phase === "recording"
-          ? "bg-brand/15 text-brand"
-          : "bg-overlay-foreground/8 text-brand";
+      : phase === "warning"
+        ? "bg-amber-600 text-overlay-foreground"
+        : phase === "error"
+          ? "bg-overlay-error text-overlay-foreground"
+          : phase === "recording"
+            ? "bg-brand/15 text-brand"
+            : "bg-overlay-foreground/8 text-brand";
   const statusColor =
     phase === "success"
       ? "text-overlay-success-foreground"
-      : phase === "error"
-        ? "text-overlay-error-foreground"
-        : phase === "recording"
-          ? "text-overlay-foreground"
-          : "text-overlay-muted";
+      : phase === "warning"
+        ? "text-amber-200"
+        : phase === "error"
+          ? "text-overlay-error-foreground"
+          : phase === "recording"
+            ? "text-overlay-foreground"
+            : "text-overlay-muted";
 
   return (
     <main className="grid size-full place-items-center overflow-hidden bg-transparent p-1 select-none">
@@ -316,7 +331,7 @@ export function Overlay() {
               <LoaderCircle className="size-5 animate-spin" strokeWidth={1.9} />
             ) : phase === "success" ? (
               <Check className="size-5 text-current" strokeWidth={2.1} />
-            ) : phase === "error" ? (
+            ) : phase === "error" || phase === "warning" ? (
               <TriangleAlert className="size-5 text-current" strokeWidth={2} />
             ) : (
               <Mic className="size-5 text-current" strokeWidth={1.9} />
@@ -345,7 +360,7 @@ export function Overlay() {
           </div>
           <p
             ref={previewRef}
-            className={`m-0 overflow-hidden text-[13px] leading-[1.3] font-medium tracking-[-0.012em] whitespace-nowrap ${phase === "error" ? "text-overlay-error-foreground" : phase === "success" ? "text-overlay-success-foreground" : "text-overlay-foreground"}`}
+            className={`m-0 overflow-hidden text-[13px] leading-[1.3] font-medium tracking-[-0.012em] whitespace-nowrap ${phase === "error" ? "text-overlay-error-foreground" : phase === "warning" ? "text-amber-200" : phase === "success" ? "text-overlay-success-foreground" : "text-overlay-foreground"}`}
             title={displayText}
           >
             {displayText}
@@ -353,7 +368,7 @@ export function Overlay() {
         </div>
 
         <div
-          className={`vp-motion-fast flex h-8 items-center justify-end gap-1 transition-opacity ${phase === "success" || phase === "error" ? "opacity-0" : "opacity-90"}`}
+          className={`vp-motion-fast flex h-8 items-center justify-end gap-1 transition-opacity ${phase === "success" || phase === "warning" || phase === "error" ? "opacity-0" : "opacity-90"}`}
           aria-hidden="true"
         >
           {WAVE_WEIGHTS.map((weight, index) => (

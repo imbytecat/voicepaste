@@ -5,10 +5,12 @@ import { useEffect, useRef, useState } from "react";
 import {
   Block,
   EmptyState,
+  Feedback,
   Group,
   Notice,
   Row,
 } from "@/components/settings/kit";
+import type { Message } from "@/components/settings/kit";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -18,6 +20,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { safeError } from "@/recognition";
 
 // review: generative actions may add or drop information.
 const ACTIONS = [
@@ -84,8 +87,9 @@ export function DoubaoTextTools({
 }) {
   const [text, setText] = useState("");
   const [result, setResult] = useState("");
-  const [error, setError] = useState("");
+  const [failure, setFailure] = useState("");
   const [busy, setBusy] = useState(false);
+  const [copyMessage, setCopyMessage] = useState<Message>(null);
   const [action, setAction] = useState<TextAction>("en");
   const generation = useRef(0);
   const requestId = useRef<string | null>(null);
@@ -105,8 +109,9 @@ export function DoubaoTextTools({
     const id = crypto.randomUUID();
     requestId.current = id;
     setBusy(true);
-    setError("");
+    setFailure("");
     setResult("");
+    setCopyMessage(null);
     try {
       const translated = await invoke<string>("translate_doubao_text", {
         text,
@@ -115,9 +120,9 @@ export function DoubaoTextTools({
         requestId: id,
       });
       if (generation.current === request) setResult(translated);
-    } catch {
+    } catch (error) {
       if (generation.current === request)
-        setError("处理失败，原文已保留。请检查账号和网络后重试。");
+        setFailure(`处理失败，原文已保留：${safeError(error)}`);
     } finally {
       if (generation.current === request) {
         setBusy(false);
@@ -130,19 +135,19 @@ export function DoubaoTextTools({
     generation.current += 1;
     requestId.current = null;
     setBusy(false);
-    setError("");
+    setFailure("");
     if (id)
       void invoke("cancel_doubao_translation", { requestId: id }).catch(() => {
-        setError("取消请求失败，晚到的结果不会显示。");
+        setFailure("取消请求失败，晚到的结果不会显示。");
       });
   };
   const copy = () => {
     void invoke("copy_tool_text", { text: result }).then(
       () => {
-        setError("");
+        setCopyMessage({ kind: "success", text: "已复制到剪贴板" });
       },
       () => {
-        setError("复制失败，请手动选择文本复制。");
+        setCopyMessage({ kind: "error", text: "复制失败，请手动选择文本复制" });
       }
     );
   };
@@ -164,7 +169,7 @@ export function DoubaoTextTools({
                 if (!next) return;
                 setAction(next.value);
                 setResult("");
-                setError("");
+                setFailure("");
               }}
               disabled={busy}
             >
@@ -184,13 +189,14 @@ export function DoubaoTextTools({
             <Textarea
               aria-label="待处理文本"
               className="min-h-24 resize-y"
-              placeholder="输入或粘贴要处理的文本"
+              placeholder="输入或粘贴要处理的文本（最多 8000 字）"
+              maxLength={8000}
               value={text}
               disabled={busy}
               onChange={(event) => {
                 setText(event.target.value);
                 setResult("");
-                setError("");
+                setFailure("");
               }}
             />
             <div className="flex justify-end gap-2">
@@ -207,7 +213,7 @@ export function DoubaoTextTools({
                 {busy ? "处理中…" : current.run}
               </Button>
             </div>
-            {error ? <Notice tone="error">{error}</Notice> : null}
+            {failure ? <Notice tone="error">{failure}</Notice> : null}
           </Block>
           {result ? (
             <Block className="space-y-2">
@@ -231,6 +237,7 @@ export function DoubaoTextTools({
                   结果可能增删信息，请核对后使用
                 </p>
               ) : null}
+              <Feedback message={copyMessage} />
             </Block>
           ) : null}
         </>
@@ -240,7 +247,7 @@ export function DoubaoTextTools({
           title="登录豆包账号后可用"
           action={
             <Button type="button" variant="outline" onClick={onSignIn}>
-              去登录
+              前往识别服务
             </Button>
           }
         />

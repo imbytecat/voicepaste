@@ -30,6 +30,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { formatShortcutLabel } from "@/shortcut";
 
 import appIconUrl from "../../../src-tauri/icons/app-icon.svg";
 
@@ -176,7 +177,7 @@ function WelcomeStep() {
         说话，文字就出现在光标处
       </h1>
       <p className="mt-3 text-[14px] text-muted-foreground">
-        三步完成设置，之后在任何应用里都能听写。
+        设置识别服务、快捷键和麦克风，之后在任何应用里都能听写。
       </p>
       <ol className="mt-10 grid w-full grid-cols-3 gap-2.5">
         {FEATURES.map(([Icon, hue, title, description]) => (
@@ -211,9 +212,10 @@ function WelcomeStep() {
 
 function RecognitionStep() {
   const {
+    dismissNotice,
     goToOnboardingStep,
+    notice,
     onboardingMessage,
-    recognitionChanged,
     recognitionPreviewBusy,
     recognitionService,
   } = useSettings();
@@ -225,17 +227,31 @@ function RecognitionStep() {
       <StepHeading label="识别服务" title="选择识别服务">
         豆包输入法可直接使用，也可以填写自己的火山引擎 API Key。
       </StepHeading>
+      {notice ? (
+        <Notice
+          tone="warning"
+          className="mb-4"
+          action={
+            <Button
+              variant="ghost"
+              size="sm"
+              type="button"
+              onClick={dismissNotice}
+            >
+              知道了
+            </Button>
+          }
+        >
+          {notice}
+        </Notice>
+      ) : null}
       <RecognitionServicePanel />
       <Feedback message={onboardingMessage} className="mt-4" />
       <StepFooter
         onBack={() => {
           goToOnboardingStep(0);
         }}
-        hint={
-          !busy && (!verified || recognitionChanged)
-            ? "测试连接通过后继续"
-            : undefined
-        }
+        hint={!busy && !verified ? "测试连接通过后继续" : undefined}
       >
         <Button
           size="lg"
@@ -243,7 +259,7 @@ function RecognitionStep() {
           onClick={() => {
             goToOnboardingStep(2);
           }}
-          disabled={!verified || recognitionChanged || busy}
+          disabled={!verified || busy}
         >
           继续
         </Button>
@@ -279,7 +295,11 @@ function ShortcutStep() {
               : ""
           }`}
           type="button"
-          aria-label={isRecording ? "正在录制快捷键" : "修改快捷键"}
+          aria-label={
+            isRecording
+              ? "正在录制快捷键"
+              : `修改快捷键，当前为 ${formatShortcutLabel(settings.shortcut)}`
+          }
           onClick={() => {
             setOnboardingMessage(null);
             startRecording();

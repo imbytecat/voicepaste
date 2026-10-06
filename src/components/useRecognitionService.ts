@@ -40,7 +40,7 @@ export interface RecognitionService {
   issue: ServiceIssue | null;
   result: TestRecognitionResult | null;
   testing: boolean;
-  testConnection: () => Promise<void>;
+  testConnection: (revision?: number) => Promise<void>;
   verified: boolean;
 }
 
@@ -163,7 +163,8 @@ export function useRecognitionService(
     }
   };
 
-  const testConnection = async () => {
+  /** `revision` overrides the rendered one right after a save bumped it. */
+  const testConnection = async (revision = providerRevision) => {
     if (testingRef.current || accountBusyRef.current) return;
     const recognition = getRecognition();
     invalidate();
@@ -171,7 +172,7 @@ export function useRecognitionService(
       recognition,
       accountRef.current,
       generationRef.current,
-      providerRevision
+      revision
     );
     testingRef.current = true;
     setTesting(true);
@@ -185,7 +186,7 @@ export function useRecognitionService(
         );
       const response = await invoke<TestRecognitionResult>("test_recognition", {
         recognition,
-        providerRevision,
+        providerRevision: revision,
       });
       if (
         !recognitionTestIsCurrent(

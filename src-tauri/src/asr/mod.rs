@@ -76,6 +76,11 @@ impl ServiceIssue {
         Self::new("unknown", "语音服务返回了未预期的结果", detail)
     }
 
+    /// A local precondition failed; no request reached the service.
+    pub fn busy(detail: impl Into<String>) -> Self {
+        Self::new("busy", "暂时无法测试", detail)
+    }
+
     pub fn network(detail: impl Into<String>) -> Self {
         Self::new("network", "无法连接语音服务", detail).with_guidance(
             vec![

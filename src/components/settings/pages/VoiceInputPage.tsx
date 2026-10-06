@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query";
 import { Mic } from "lucide-react";
 
 import {
@@ -12,6 +13,7 @@ import {
   Row,
   Segmented,
 } from "@/components/settings/kit";
+import { settingsQueries } from "@/components/settings/queries";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import {
@@ -22,6 +24,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { recognitionReady } from "@/recognition";
+import { formatShortcutLabel } from "@/shortcut";
 
 export function VoiceInputPage() {
   const {
@@ -42,6 +45,8 @@ export function VoiceInputPage() {
     updateSetting,
     voiceInputIsDefault,
   } = useSettings();
+  // Mounting a fresh observer refetches the device list each time the page opens.
+  useQuery(settingsQueries.microphones());
 
   return (
     <>
@@ -84,7 +89,9 @@ export function VoiceInputPage() {
             }`}
             type="button"
             aria-label={
-              shortcutRecorder.isRecording ? "正在录制快捷键" : "修改快捷键"
+              shortcutRecorder.isRecording
+                ? "正在录制快捷键"
+                : `修改快捷键，当前为 ${formatShortcutLabel(settings.shortcut)}`
             }
             onClick={() => {
               setMessage(null);

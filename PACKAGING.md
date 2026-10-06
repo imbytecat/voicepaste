@@ -114,6 +114,14 @@ Cargo 只对 crates.io 依赖自动 `--cap-lints`，path 依赖的上游警告�
 
 修复后的本地优化构建已经在真实 X11 上分别验证按住、切换两种快捷键模式：定向采集仅含合成语音的 PulseAudio monitor，经真实 ASR 后，独立 GTK 输入框均收到“今天下午 3 点开会，请把会议纪要发给我。”。没有用 `xdotool type` 或直接写入输入框制造结果；Wayland/GDK 设置和合成源只作用于测试进程，虚拟音频节点已清理。
 
+### 应用身份与 Wayland 门户 App ID
+
+应用身份只有一个来源：`tauri.conf.json` 的 `identifier`（`com.imbytecat.voicepaste`）。Tauri 自动用于 macOS Bundle ID、应用数据目录与单实例；Tauri 未覆盖的 Linux 部分集中在 `src-tauri/src/app_identity.rs`，同样从 `identifier` 与包信息派生，不另写字符串。
+
+非沙盒应用的门户 App ID 由 xdg-desktop-portal 从 systemd 单元名推断。KDE 启动 AppImage 时单元名形如 `app-/home/…/VoicePaste.AppImage@….service`；deb/rpm 的启动项被 Tauri 命名为 `VoicePaste.desktop`（按产品名而非 `identifier`，见 [tauri-apps/tauri#11300](https://github.com/tauri-apps/tauri/issues/11300)），推断出不含点号的 `VoicePaste`。两者都不是合法 ID，GlobalShortcuts 会以 `An app id is required` 拒绝创建会话。xdg-desktop-portal 1.19 起提供 `org.freedesktop.host.portal.Registry`，但只接受存在同名 `.desktop` 的 ID。
+
+因此 Wayland 下首次使用门户前，`app_identity::register_with_portals` 在 `$XDG_DATA_HOME/applications`（默认 `~/.local/share/applications`）写入隐藏的 `<identifier>.desktop`（`NoDisplay=true`，AppImage 指向 `$APPIMAGE`，其余指向当前可执行文件），再以该 ID 调用 Registry；之后新增的门户调用也应先经过它。内容不变时不重写；卸载软件包不会删除此用户级文件。旧版门户没有 Registry 时仅记录警告，沿用推断的 ID。Tauri 修复启动项命名后，deb/rpm 可不再依赖该文件，AppImage 仍需要。2026-10-06 在 NixOS KDE Wayland（xdg-desktop-portal 1.22.1）用同类单元名复现了原错误，并验证写入条目并注册后会话创建成功。
+
 ## 未签名平台提示
 
 - macOS 使用 `bundle.macOS.signingIdentity = "-"` 做 Apple Silicon 必需的 ad-hoc 签名，不代表已验证开发者身份，也不包含公证票据。用户可能需要右键应用并选择“打开”，或在“隐私与安全性”中允许打开。

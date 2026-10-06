@@ -49,8 +49,6 @@ void test("connection proofs reject stale provider epochs, account identities an
     provider: "doubaoIme",
     providerRevision: 12,
     accountRevision: guest.revision,
-    hotwordStatus: null,
-    warning: null,
   };
   assert.equal(
     recognitionTestIsCurrent(attempt, recognition, guest, 7, 12, result),
@@ -120,7 +118,6 @@ void test("inactive credentials cannot invalidate current provider settings or p
     volcengine: {
       ...recognition.volcengine,
       apiKey: "different-key",
-      hotwordsEnabled: true,
     },
   };
   assert.equal(
@@ -141,8 +138,6 @@ void test("inactive credentials cannot invalidate current provider settings or p
     provider: "volcengine",
     providerRevision: 6,
     accountRevision: 0,
-    hotwordStatus: null,
-    warning: null,
   };
   assert.equal(
     recognitionTestIsCurrent(

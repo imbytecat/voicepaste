@@ -44,7 +44,7 @@ pub fn validate(settings: &LlmSettings) -> Result<(), String> {
         return Ok(());
     }
     if settings.base_url.is_empty() {
-        return Err("启用 LLM 后处理时必须填写 API 地址".to_owned());
+        return Err("启用 LLM 后处理时必须填写接口地址".to_owned());
     }
     if settings.model.is_empty() {
         return Err("启用 LLM 后处理时必须填写模型名称".to_owned());
@@ -223,9 +223,9 @@ fn api_base(base_url: &str) -> Result<String, String> {
         .strip_suffix("/chat/completions")
         .unwrap_or(base_url)
         .trim_end_matches('/');
-    let url = Url::parse(base_url).map_err(|error| format!("LLM API 地址无效：{error}"))?;
+    let url = Url::parse(base_url).map_err(|error| format!("LLM 接口地址无效：{error}"))?;
     if !matches!(url.scheme(), "http" | "https") {
-        return Err("LLM API 地址必须使用 http 或 https".to_owned());
+        return Err("LLM 接口地址必须使用 http 或 https".to_owned());
     }
     Ok(base_url.to_owned())
 }

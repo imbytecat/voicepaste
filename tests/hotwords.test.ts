@@ -1,21 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import {
-  hotwordDiff,
-  normalizeHotwords,
-  previewHotwordImport,
-  replayHotwordChanges,
-} from "../src/hotwords.ts";
-
-void test("hotwordDiff compares case-insensitively and keeps original spelling", () => {
-  const diff = hotwordDiff(["Tauri", "voicepaste"], ["tauri", "TanStack"]);
-  assert.deepEqual(diff.onlyLocal, ["voicepaste"]);
-  assert.deepEqual(diff.onlyCloud, ["TanStack"]);
-
-  const same = hotwordDiff(["ABC"], ["abc"]);
-  assert.deepEqual(same, { onlyCloud: [], onlyLocal: [] });
-});
+import { normalizeHotwords, previewHotwordImport } from "../src/hotwords.ts";
 
 void test("normalizeHotwords trims, deduplicates and rejects invalid words", () => {
   assert.deepEqual(normalizeHotwords("  Tauri \n\n tauri\nVoicePaste\n", 10), [
@@ -29,13 +15,6 @@ void test("normalizeHotwords trims, deduplicates and rejects invalid words", () 
   assert.deepEqual(normalizeHotwords("十个汉字刚刚好没问题", 10), [
     "十个汉字刚刚好没问题",
   ]);
-});
-
-void test("replaying explicit draft deletions preserves unrelated remote edits without resurrecting words", () => {
-  assert.deepEqual(
-    replayHotwordChanges(["Old", "Keep"], ["Keep", "Local"], ["old", "Remote"]),
-    ["Remote", "Local"]
-  );
 });
 
 void test("TXT preview reports duplicate, invalid and over-limit rows without truncation", () => {

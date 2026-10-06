@@ -10,40 +10,30 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
-import type { ReactNode } from "react";
 
+import { useSettings } from "@/components/settings/controller";
 import {
   Block,
-  ChangedDot,
   EmptyState,
-  Feedback,
   Group,
   Notice,
   Row,
+  StatusText,
 } from "@/components/settings/kit";
-import type { Message } from "@/components/settings/kit";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { hotwordDiff, previewHotwordImport, uniqueHotwords } from "@/hotwords";
+import { previewHotwordImport } from "@/hotwords";
 import type { HotwordImportRow } from "@/hotwords";
 import { cn } from "@/lib/utils";
-import type { HotwordSyncStatus } from "@/types";
 
 const MAX_IMPORT_BYTES = 2 * 1024 * 1024;
+const DEFAULT_LIMIT = 5000;
 const CHECKBOX = "size-3.5 shrink-0 accent-primary";
 
 /** `normalizeHotwords` errors stringify as "Error: …"; show only the message. */
 function issueText(row: HotwordImportRow, limit: number): string {
-  if (row.state === "duplicate") return "重复，只保留第一个";
+  if (row.state === "duplicate") return "已在词库中";
   if (row.state === "overLimit") return `超出 ${limit} 个上限`;
   return row.reason?.replace(/^Error: /u, "") ?? "格式不符合要求";
 }
@@ -52,82 +42,48 @@ function isBlocking(row: HotwordImportRow) {
   return row.state === "invalid" || row.state === "overLimit";
 }
 
-function Stat({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="flex items-center gap-1.5">
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className="flex items-center gap-1.5 font-medium text-foreground tabular-nums">
-        {children}
-      </dd>
-    </div>
-  );
-}
+const key = (word: string) => word.toLocaleLowerCase();
 
-export function VolcengineDictionary({
-  text,
-  onChange,
-  status,
-  cloudWords,
-  cloudVerified,
-  confirmedAt,
-  localDirty,
-  canDiscard,
-  enabled,
-  savedEnabled,
-  onEnabledChange,
-  busy,
-  configured,
-  confirming,
-  message,
-  onSave,
-  onApply,
-  onRefresh,
-  onDiscard,
-  onReview,
-  onConfigure,
-  providerRevision,
-  canReview,
-}: {
-  text: string;
-  providerRevision: number;
-  onChange: (text: string) => void;
-  status: HotwordSyncStatus;
-  cloudWords: string[];
-  cloudVerified: boolean;
-  confirmedAt: string | null;
-  /** Draft differs from what is saved on this device. */
-  localDirty: boolean;
-  /** Draft (saved or not) differs from the last confirmed cloud words. */
-  canDiscard: boolean;
-  enabled: boolean;
-  savedEnabled: boolean;
-  onEnabledChange: (enabled: boolean) => void;
-  busy: boolean;
-  configured: boolean;
-  confirming: boolean;
-  canReview: boolean;
-  message: Message;
-  onSave: () => void;
-  onApply: () => void;
-  onRefresh: () => void;
-  onDiscard: () => void;
-  onReview: () => void;
-  onConfigure: () => void;
-}) {
+/**
+ * The Volcengine word list. Every edit is saved on this device at once and
+ * merged into the cloud table in the background, so there is nothing to
+ * apply, review or resolve.
+ */
+export function VolcengineDictionary() {
+  const {
+    editHotwords,
+    errorText,
+    hotwordSync,
+    hotwordSyncQueued,
+    providerRevision,
+    savedSettingsRef,
+    selectSection,
+    settings,
+    syncHotwords,
+  } = useSettings();
+  const { hotwords: words, hotwordsEnabled: enabled } =
+    settings.recognition.volcengine;
+  const configured = Boolean(
+    savedSettingsRef.current.recognition.volcengine.apiKey
+  );
+  const limit = hotwordSync.data?.limit ?? DEFAULT_LIMIT;
+
   const [search, setSearch] = useState("");
   const [addingWord, setAddingWord] = useState("");
-  const [discarding, setDiscarding] = useState(false);
-  // Selection is tied to the text it was made on; any edit clears it.
-  const [selection, setSelection] = useState<{
-    text: string;
-    rows: Set<number>;
-  }>({ text: "", rows: new Set() });
+  const [addError, setAddError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [importText, setImportText] = useState<string | null>(null);
-  const [fileError, setFileError] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const importGeneration = useRef(0);
   const selectAllId = useId();
+
+  // Opening the page pulls edits made on other devices.
+  useEffect(() => {
+    syncHotwords();
+  }, [syncHotwords, providerRevision]);
   useEffect(
     () => () => {
       importGeneration.current += 1;
@@ -135,47 +91,58 @@ export function VolcengineDictionary({
     []
   );
 
-  const selected = selection.text === text ? selection.rows : new Set<number>();
-  const lines = text ? text.split("\n") : [];
-  const words = uniqueHotwords(text);
-  const validation = previewHotwordImport(text, [], status.limit);
-  const issues = new Map(
-    validation
-      .filter((row) => row.state !== "added")
-      .map((row) => [row.line - 1, row])
+  const wordKeys = new Set(words.map(key));
+  const selection = [...selected].filter((word) => wordKeys.has(word));
+  const filtered = words.filter((word) =>
+    key(word).includes(key(search.trim()))
   );
-  const invalidCount = validation.filter(isBlocking).length;
+  const allSelected =
+    filtered.length > 0 && filtered.every((word) => selected.has(key(word)));
   const imported =
-    importText === null
-      ? []
-      : previewHotwordImport(importText, words, status.limit);
+    importText === null ? [] : previewHotwordImport(importText, words, limit);
   const importBlocked = imported.some(isBlocking);
   const importedWords = imported
     .filter((row) => row.state === "added")
     .map((row) => row.word);
   const importCount = (state: HotwordImportRow["state"]) =>
     imported.filter((row) => row.state === state).length;
-  const changes = hotwordDiff(words, cloudWords);
-  const filtered = lines
-    .map((word, index) => ({ word, index }))
-    .filter(({ word }) =>
-      word.toLocaleLowerCase().includes(search.toLocaleLowerCase())
-    );
-  const allSelected =
-    filtered.length > 0 && filtered.every(({ index }) => selected.has(index));
 
-  const updateLines = (next: string[]) => {
-    onChange(next.join("\n"));
+  const edit = async (change: Parameters<typeof editHotwords>[0]) => {
+    setEditError(null);
+    setEditing(true);
+    try {
+      await editHotwords(change);
+      return true;
+    } catch (error) {
+      setEditError(errorText(error));
+      return false;
+    } finally {
+      setEditing(false);
+    }
+  };
+
+  const addWord = async () => {
+    const [row] = previewHotwordImport(addingWord, words, limit);
+    if (!row) return;
+    if (row.state !== "added") {
+      setAddError(issueText(row, limit));
+      return;
+    }
+    if (await edit({ add: [row.word] })) setAddingWord("");
+  };
+
+  const removeWords = async (remove: string[]) => {
+    if (await edit({ remove })) setSelected(new Set());
   };
 
   const pickFile = (file: File | undefined) => {
     if (!file) return;
     importGeneration.current += 1;
     const generation = importGeneration.current;
-    setFileError(null);
+    setEditError(null);
     setImportText(null);
     if (file.size > MAX_IMPORT_BYTES) {
-      setFileError("TXT 文件不能超过 2 MiB，请拆分后导入");
+      setEditError("TXT 文件不能超过 2 MiB，请拆分后导入");
       return;
     }
     void file
@@ -186,12 +153,12 @@ export function VolcengineDictionary({
       })
       .catch((error: unknown) => {
         if (generation === importGeneration.current)
-          setFileError(`无法读取 UTF-8 TXT：${String(error)}`);
+          setEditError(`无法读取 UTF-8 TXT：${String(error)}`);
       });
   };
 
   const exportWords = () => {
-    setFileError(null);
+    setEditError(null);
     if (isTauri()) {
       setExporting(true);
       void invoke<boolean>("export_volcengine_hotwords", {
@@ -199,7 +166,7 @@ export function VolcengineDictionary({
         providerRevision,
       })
         .catch((error: unknown) => {
-          setFileError(`导出失败，草稿仍保留：${String(error)}`);
+          setEditError(`导出失败：${String(error)}`);
         })
         .finally(() => {
           setExporting(false);
@@ -213,39 +180,22 @@ export function VolcengineDictionary({
     );
     const link = document.createElement("a");
     link.href = url;
-    link.download = "voicepaste-volcengine-words.txt";
+    link.download = "voicepaste-volcengine-hotwords.txt";
     link.click();
     window.setTimeout(() => {
       URL.revokeObjectURL(url);
     }, 1000);
   };
 
-  let usageHint = "识别时不使用词条";
-  if (enabled)
-    usageHint = confirming
-      ? "上次提交待确认，请先刷新云端"
-      : status.tableId
-        ? "识别时使用已应用到火山的词条"
-        : "词条应用到火山后生效";
-  const cloudState = confirming ? (
-    <span className="text-warning">待确认</span>
-  ) : cloudVerified ? (
-    `${cloudWords.length} 词`
-  ) : confirmedAt ? (
-    <span className="text-warning">需重新检查</span>
-  ) : (
-    <span className="text-muted-foreground">未检查</span>
-  );
-  let applyHint: string | null = "需先保存火山 Key";
-  if (configured)
-    applyHint =
-      invalidCount > 0
-        ? `有 ${invalidCount} 个词条需修正`
-        : confirming
-          ? "提交结果待确认，请先刷新云端"
-          : cloudVerified
-            ? null
-            : "请先刷新云端";
+  let syncStatus = null;
+  if (!configured)
+    syncStatus = <StatusText tone="warning">未同步：尚未保存 Key</StatusText>;
+  else if (hotwordSyncQueued || hotwordSync.isPending)
+    syncStatus = <StatusText tone="info">正在同步…</StatusText>;
+  else if (hotwordSync.isError)
+    syncStatus = <StatusText tone="error">同步失败</StatusText>;
+  else if (hotwordSync.isSuccess)
+    syncStatus = <StatusText tone="success">已同步到火山</StatusText>;
 
   return (
     <>
@@ -257,60 +207,56 @@ export function VolcengineDictionary({
               variant="outline"
               size="sm"
               type="button"
-              onClick={onConfigure}
+              onClick={() => {
+                selectSection("recognition");
+              }}
             >
               去设置
             </Button>
           }
         >
-          先在「识别服务」保存火山 Key
+          保存火山 API Key 后，词条会自动同步到云端
         </Notice>
       )}
 
       <Group>
         <Row
           title="听写时使用"
-          description={usageHint}
-          changed={enabled !== savedEnabled}
+          description={enabled ? "识别时优先识别这些词" : "识别时不使用词条"}
         >
           <Switch
             checked={enabled}
-            onCheckedChange={onEnabledChange}
-            disabled={busy}
+            onCheckedChange={(next) => void edit({ enabled: next })}
+            disabled={editing}
             aria-label="听写时使用火山常用词"
           />
         </Row>
-        <Block className="py-3">
-          <dl
-            className="flex flex-wrap items-center gap-x-5 gap-y-1 text-[12px] leading-4.5"
-            aria-live="polite"
-          >
-            <Stat label="本机">
-              {words.length} / {status.limit} 词
-              {localDirty ? <ChangedDot /> : null}
-            </Stat>
-            <Stat label="云端">{cloudState}</Stat>
-            <Stat label="待应用">
-              <span aria-hidden="true">
-                +{changes.onlyLocal.length} −{changes.onlyCloud.length}
-              </span>
-              <span className="sr-only">
-                新增 {changes.onlyLocal.length} 个，移除{" "}
-                {changes.onlyCloud.length} 个
-              </span>
-            </Stat>
-            {confirmedAt ? (
-              <Stat label="检查于">
-                <span className="font-normal text-muted-foreground">
-                  {confirmedAt}
-                </span>
-              </Stat>
-            ) : null}
-          </dl>
-          {status.foreignTables.length > 0 ? (
-            <p className="mt-1.5 text-[12px] leading-4.5 text-muted-foreground">
-              另有 {status.foreignTables.length} 张非 VoicePaste
-              词表，不会修改或用于识别
+        <Block className="flex flex-wrap items-center gap-x-4 gap-y-1.5 py-3">
+          <span className="text-[12px] text-muted-foreground tabular-nums">
+            {words.length} / {limit} 词
+          </span>
+          <span aria-live="polite">{syncStatus}</span>
+          {hotwordSync.isError && configured ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              type="button"
+              className="ml-auto"
+              onClick={syncHotwords}
+            >
+              <RotateCw />
+              重试
+            </Button>
+          ) : null}
+          {hotwordSync.isError && configured ? (
+            <p className="w-full text-[12px] leading-4.5 text-muted-foreground">
+              {errorText(hotwordSync.error)}
+            </p>
+          ) : null}
+          {(hotwordSync.data?.foreignTables.length ?? 0) > 0 ? (
+            <p className="w-full text-[12px] leading-4.5 text-muted-foreground">
+              账号里另有 {hotwordSync.data?.foreignTables.length}{" "}
+              张其他词表，VoicePaste 不会修改或使用它们
             </p>
           ) : null}
         </Block>
@@ -324,31 +270,21 @@ export function VolcengineDictionary({
               variant="ghost"
               size="sm"
               type="button"
-              disabled={busy}
+              disabled={editing}
               onClick={() => fileInputRef.current?.click()}
             >
               <Upload />
-              导入 TXT
+              导入
             </Button>
             <Button
               variant="ghost"
               size="sm"
               type="button"
-              disabled={busy || exporting || invalidCount > 0}
+              disabled={exporting || words.length === 0}
               onClick={exportWords}
             >
               <Download />
-              {exporting ? "正在导出…" : "导出 TXT"}
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              type="button"
-              disabled={busy || !configured}
-              onClick={onRefresh}
-            >
-              <RotateCw />
-              刷新云端
+              {exporting ? "正在导出…" : "导出"}
             </Button>
           </>
         }
@@ -371,31 +307,30 @@ export function VolcengineDictionary({
               className="flex min-w-0 flex-1 gap-2"
               onSubmit={(event) => {
                 event.preventDefault();
-                const word = addingWord.trim();
-                if (busy || !word) return;
-                updateLines([...lines, word]);
-                setAddingWord("");
+                if (!editing) void addWord();
               }}
             >
               <Input
                 value={addingWord}
                 onChange={(event) => {
                   setAddingWord(event.target.value);
+                  setAddError(null);
                 }}
                 aria-label="新增火山词条"
-                placeholder="输入新词"
-                disabled={busy}
+                aria-invalid={addError !== null}
+                aria-describedby={addError ? `${selectAllId}-add` : undefined}
+                placeholder="添加人名、术语…"
               />
               <Button
                 variant="outline"
                 type="submit"
-                disabled={busy || !addingWord.trim()}
+                disabled={editing || !addingWord.trim()}
               >
                 <Plus />
                 添加
               </Button>
             </form>
-            {lines.length > 0 ? (
+            {words.length > 0 ? (
               <div className="relative w-40 shrink-0">
                 <Search
                   className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
@@ -414,10 +349,17 @@ export function VolcengineDictionary({
               </div>
             ) : null}
           </div>
-          <p className="text-[12px] leading-4.5 text-muted-foreground">
-            每行一词，最多 10 个字，不含空格
+          <p
+            id={`${selectAllId}-add`}
+            className={cn(
+              "text-[12px] leading-4.5",
+              addError ? "text-destructive" : "text-muted-foreground"
+            )}
+            role={addError ? "alert" : undefined}
+          >
+            {addError ?? "最多 10 个字，不含空格"}
           </p>
-          {fileError ? <Notice tone="error">{fileError}</Notice> : null}
+          {editError ? <Notice tone="error">{editError}</Notice> : null}
         </Block>
 
         {importText === null ? null : (
@@ -454,9 +396,7 @@ export function VolcengineDictionary({
                           : "text-muted-foreground"
                       )}
                     >
-                      {row.state === "added"
-                        ? "新增"
-                        : issueText(row, status.limit)}
+                      {row.state === "added" ? "新增" : issueText(row, limit)}
                     </span>
                   </li>
                 ))}
@@ -481,23 +421,26 @@ export function VolcengineDictionary({
               </Button>
               <Button
                 type="button"
-                disabled={busy || importBlocked || importedWords.length === 0}
+                disabled={
+                  editing || importBlocked || importedWords.length === 0
+                }
                 onClick={() => {
-                  updateLines([...words, ...importedWords]);
-                  setImportText(null);
+                  void edit({ add: importedWords }).then((done) => {
+                    if (done) setImportText(null);
+                  });
                 }}
               >
-                确认追加
+                添加 {importedWords.length} 个词
               </Button>
             </div>
           </Block>
         )}
 
-        {lines.length === 0 ? (
+        {words.length === 0 ? (
           <EmptyState
             icon={BookText}
             title="还没有词条"
-            description="添加易识别错的人名、术语，或导入 TXT"
+            description="添加容易识别错的人名、术语，或导入 TXT"
           />
         ) : filtered.length === 0 ? (
           <EmptyState title="没有匹配的词条" className="py-6" />
@@ -508,33 +451,27 @@ export function VolcengineDictionary({
                 id={selectAllId}
                 type="checkbox"
                 className={CHECKBOX}
-                disabled={busy}
                 checked={allSelected}
                 onChange={(event) => {
-                  setSelection({
-                    text,
-                    rows: event.target.checked
-                      ? new Set(filtered.map(({ index }) => index))
-                      : new Set(),
-                  });
+                  setSelected(
+                    event.target.checked
+                      ? new Set(filtered.map(key))
+                      : new Set()
+                  );
                 }}
               />
-              {selected.size > 0 ? (
+              {selection.length > 0 ? (
                 <>
                   <span className="font-medium text-foreground tabular-nums">
-                    已选 {selected.size} 项
+                    已选 {selection.length} 项
                   </span>
                   <Button
                     variant="ghost"
                     size="sm"
                     type="button"
                     className="ml-auto"
-                    disabled={busy}
-                    onClick={() => {
-                      updateLines(
-                        lines.filter((_, index) => !selected.has(index))
-                      );
-                    }}
+                    disabled={editing}
+                    onClick={() => void removeWords(selection)}
                   >
                     <Trash2 />
                     删除选中
@@ -550,159 +487,50 @@ export function VolcengineDictionary({
                   </label>
                   <span className="ml-auto pr-2 text-muted-foreground tabular-nums">
                     {search
-                      ? `${filtered.length} / ${lines.length}`
-                      : lines.length}{" "}
-                    行
+                      ? `${filtered.length} / ${words.length}`
+                      : words.length}{" "}
+                    词
                   </span>
                 </>
               )}
             </div>
             <ul className="max-h-96 divide-y divide-border overflow-y-auto border-t border-border">
-              {filtered.map(({ word, index }) => {
-                const issue = issues.get(index);
-                const blocking = issue ? isBlocking(issue) : false;
-                return (
-                  <li key={index} className="py-1 pr-2 pl-4">
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        className={CHECKBOX}
-                        aria-label={`选择第 ${index + 1} 行`}
-                        disabled={busy}
-                        checked={selected.has(index)}
-                        onChange={(event) => {
-                          const next = new Set(selected);
-                          if (event.target.checked) next.add(index);
-                          else next.delete(index);
-                          setSelection({ text, rows: next });
-                        }}
-                      />
-                      <span className="w-6 shrink-0 text-right text-[12px] text-muted-foreground tabular-nums">
-                        {index + 1}
-                      </span>
-                      <Input
-                        className="h-7 border-transparent bg-transparent shadow-none"
-                        value={word}
-                        aria-label={`第 ${index + 1} 行词条`}
-                        aria-invalid={blocking}
-                        disabled={busy}
-                        onChange={(event) => {
-                          updateLines(
-                            lines.map((line, at) =>
-                              at === index ? event.target.value : line
-                            )
-                          );
-                        }}
-                      />
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        type="button"
-                        disabled={busy}
-                        onClick={() => {
-                          updateLines(lines.filter((_, at) => at !== index));
-                        }}
-                        aria-label={`删除第 ${index + 1} 行`}
-                      >
-                        <X />
-                      </Button>
-                    </div>
-                    {issue ? (
-                      <p
-                        className={cn(
-                          "pb-1 pl-16.5 text-[12px] leading-4.5",
-                          blocking
-                            ? "text-destructive"
-                            : "text-muted-foreground"
-                        )}
-                        role={blocking ? "alert" : "status"}
-                      >
-                        {issueText(issue, status.limit)}
-                      </p>
-                    ) : null}
-                  </li>
-                );
-              })}
+              {filtered.map((word) => (
+                <li
+                  key={key(word)}
+                  className="flex h-9 items-center gap-3 pr-2 pl-4"
+                >
+                  <input
+                    type="checkbox"
+                    className={CHECKBOX}
+                    aria-label={`选择 ${word}`}
+                    checked={selected.has(key(word))}
+                    onChange={(event) => {
+                      const next = new Set(selected);
+                      if (event.target.checked) next.add(key(word));
+                      else next.delete(key(word));
+                      setSelected(next);
+                    }}
+                  />
+                  <span className="min-w-0 flex-1 truncate text-[13px] text-foreground">
+                    {word}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    type="button"
+                    disabled={editing}
+                    onClick={() => void removeWords([word])}
+                    aria-label={`删除 ${word}`}
+                  >
+                    <X />
+                  </Button>
+                </li>
+              ))}
             </ul>
           </div>
         )}
       </Group>
-
-      <div className="space-y-3">
-        <Feedback message={message} />
-        <div className="flex flex-wrap items-center gap-2 px-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            type="button"
-            className="-ml-2.5"
-            disabled={busy || !canDiscard}
-            onClick={() => {
-              setDiscarding(true);
-            }}
-          >
-            放弃修改
-          </Button>
-          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-            {applyHint ? (
-              <span className="text-[12px] text-muted-foreground">
-                {applyHint}
-              </span>
-            ) : null}
-            {canReview ? (
-              <Button
-                variant="ghost"
-                type="button"
-                disabled={busy || invalidCount > 0}
-                onClick={onReview}
-              >
-                查看差异
-              </Button>
-            ) : null}
-            <Button
-              variant="outline"
-              type="button"
-              disabled={busy || invalidCount > 0}
-              onClick={onSave}
-            >
-              保留本机草稿
-            </Button>
-            <Button
-              type="button"
-              disabled={
-                busy ||
-                !configured ||
-                invalidCount > 0 ||
-                confirming ||
-                !cloudVerified
-              }
-              onClick={onApply}
-            >
-              应用到火山
-            </Button>
-          </div>
-        </div>
-      </div>
-
-      <AlertDialog open={discarding} onOpenChange={setDiscarding}>
-        <AlertDialogContent>
-          <AlertDialogTitle>放弃本机修改？</AlertDialogTitle>
-          <AlertDialogDescription>
-            词条将恢复为上次应用到火山的内容，云端不受影响。
-          </AlertDialogDescription>
-          <div className="flex flex-wrap justify-end gap-2 pt-1">
-            <AlertDialogCancel variant="ghost">取消</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                setDiscarding(false);
-                onDiscard();
-              }}
-            >
-              放弃修改
-            </AlertDialogAction>
-          </div>
-        </AlertDialogContent>
-      </AlertDialog>
     </>
   );
 }

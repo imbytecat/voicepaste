@@ -1,6 +1,5 @@
 use std::{
-    panic,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, TryLockError},
     thread,
     time::Duration,
 };
@@ -19,6 +18,7 @@ pub enum PasteOutcome {
 
 pub enum InputStatus {
     Uninitialized,
+    Pending,
     Ready,
     Unavailable(String),
 }
@@ -34,7 +34,7 @@ impl InputSession {
             .enigo
             .lock()
             .map_err(|_| "远程输入会话已损坏，请重启 VoicePaste".to_owned())?;
-        match session.get_or_insert_with(create_input_session) {
+        match session.get_or_insert_with(create_enigo) {
             Ok(_) => Ok(()),
             Err(error) => Err(error.clone()),
         }
@@ -45,17 +45,21 @@ impl InputSession {
             .enigo
             .lock()
             .map_err(|_| "远程输入会话已损坏，请重启 VoicePaste".to_owned())?;
-        let result = create_input_session();
+        let result = create_enigo();
         let status = result.as_ref().map(|_| ()).map_err(Clone::clone);
         *session = Some(result);
         status
     }
 
+    /// Never blocks: initialize/retry hold the lock while a portal prompt waits for the user.
     pub fn status(&self) -> Result<InputStatus, String> {
-        let session = self
-            .enigo
-            .lock()
-            .map_err(|_| "远程输入会话已损坏，请重启 VoicePaste".to_owned())?;
+        let session = match self.enigo.try_lock() {
+            Ok(session) => session,
+            Err(TryLockError::WouldBlock) => return Ok(InputStatus::Pending),
+            Err(TryLockError::Poisoned(_)) => {
+                return Err("远程输入会话已损坏，请重启 VoicePaste".to_owned());
+            }
+        };
         Ok(match session.as_ref() {
             None => InputStatus::Uninitialized,
             Some(Ok(_)) => InputStatus::Ready,
@@ -68,10 +72,15 @@ impl InputSession {
             .enigo
             .lock()
             .map_err(|_| "远程输入会话已损坏，请重启 VoicePaste".to_owned())?;
-        match session.get_or_insert_with(create_input_session) {
+        let simulated = match session.get_or_insert_with(create_enigo) {
             Ok(enigo) => simulate_paste(enigo),
-            Err(error) => Err(error.clone()),
+            Err(error) => return Err(error.clone()),
+        };
+        if simulated.is_err() {
+            // A stopped libei session keeps failing; the next paste or retry rebuilds it.
+            *session = None;
         }
+        simulated
     }
 }
 
@@ -115,12 +124,7 @@ pub async fn paste(
     }
 }
 
-fn create_input_session() -> Result<Enigo, String> {
-    panic::catch_unwind(create_enigo)
-        .unwrap_or_else(|_| Err("自动粘贴授权已取消，请在设置中重试".to_owned()))
-}
-
-fn is_wayland_session() -> bool {
+pub(crate) fn is_wayland_session() -> bool {
     cfg!(target_os = "linux")
         && wayland_session(
             std::env::var_os("XDG_SESSION_TYPE").as_deref(),
@@ -168,14 +172,31 @@ fn create_enigo() -> Result<Enigo, String> {
 fn create_enigo() -> Result<Enigo, String> {
     const DISABLED_DISPLAY: &str = "voicepaste-disabled-display";
 
+    let mut portal_error = None;
     if is_wayland_session() {
         let portal_settings = Settings {
             x11_display: Some(DISABLED_DISPLAY.to_owned()),
             wayland_display: Some(DISABLED_DISPLAY.to_owned()),
             ..Settings::default()
         };
-        if let Ok(enigo) = Enigo::new(&portal_settings) {
-            return Ok(enigo);
+        // The vendored libei backend unwraps every portal step, so only this attempt can panic.
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            Enigo::new(&portal_settings)
+        })) {
+            Ok(Ok(enigo)) => return Ok(enigo),
+            Ok(Err(error)) => portal_error = Some(format!("连接远程桌面门户失败：{error}")),
+            Err(payload) => {
+                let message = payload
+                    .downcast_ref::<String>()
+                    .map(String::as_str)
+                    .or_else(|| payload.downcast_ref::<&str>().copied())
+                    .unwrap_or("");
+                portal_error = Some(if message.contains("Cancelled") {
+                    "自动粘贴授权被拒绝，请在设置中重试".to_owned()
+                } else {
+                    "系统未提供远程桌面门户，无法自动粘贴".to_owned()
+                });
+            }
         }
 
         let wayland_settings = Settings {
@@ -193,7 +214,8 @@ fn create_enigo() -> Result<Enigo, String> {
         libei_enabled: false,
         ..Settings::default()
     };
-    Enigo::new(&x11_settings).map_err(|error| format!("连接系统输入服务失败：{error}"))
+    Enigo::new(&x11_settings)
+        .map_err(|error| portal_error.unwrap_or_else(|| format!("连接系统输入服务失败：{error}")))
 }
 
 #[cfg(test)]
@@ -228,5 +250,8 @@ mod tests {
             session.status().unwrap(),
             InputStatus::Unavailable(error) if error == "授权失败"
         ));
+
+        let _held = session.enigo.lock().unwrap();
+        assert!(matches!(session.status().unwrap(), InputStatus::Pending));
     }
 }

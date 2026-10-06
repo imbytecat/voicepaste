@@ -84,9 +84,7 @@ export function ProcessingPage() {
     providerRevision,
     recognitionService,
     selectSection,
-    setAvailableLlmModels,
     setEditingCustomLlmParameters,
-    setLlmModelsMessage,
     setPostProcessMode,
     settings,
     updateLlmSetting,
@@ -126,11 +124,6 @@ export function ProcessingPage() {
   const filteredModels = availableLlmModels.filter(
     (model) => !modelQuery || model.toLocaleLowerCase().includes(modelQuery)
   );
-  const clearModelList = () => {
-    setAvailableLlmModels([]);
-    setLlmModelsMessage(null);
-  };
-
   return (
     <>
       <div>
@@ -152,6 +145,25 @@ export function ProcessingPage() {
               登录豆包账号后可使用豆包智能整理
             </p>
           ) : null}
+          {isDoubao && postProcessMode === "doubao" && !signedIn ? (
+            <Notice
+              tone="warning"
+              action={
+                <Button
+                  variant="outline"
+                  size="sm"
+                  type="button"
+                  onClick={() => {
+                    selectSection("recognition");
+                  }}
+                >
+                  前往识别服务
+                </Button>
+              }
+            >
+              豆包账号未登录，智能整理不会生效
+            </Notice>
+          ) : null}
         </section>
 
         <Collapse open={postProcessMode === "llm"}>
@@ -170,7 +182,6 @@ export function ProcessingPage() {
                   value={llm.baseUrl}
                   onChange={(event) => {
                     updateLlmSetting("baseUrl", event.target.value);
-                    clearModelList();
                   }}
                   placeholder={LLM_BASE_URL_PLACEHOLDER}
                   autoComplete="off"
@@ -189,7 +200,6 @@ export function ProcessingPage() {
                   value={llm.apiKey}
                   onChange={(value) => {
                     updateLlmSetting("apiKey", value);
-                    clearModelList();
                   }}
                   placeholder="本地服务可留空"
                 />
@@ -232,7 +242,9 @@ export function ProcessingPage() {
                 <Button
                   variant="outline"
                   type="button"
-                  onClick={() => void fetchLlmModels()}
+                  onClick={() => {
+                    fetchLlmModels();
+                  }}
                   disabled={loadingLlmModels}
                 >
                   <RefreshCw

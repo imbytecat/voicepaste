@@ -7,6 +7,7 @@ use std::{
     io::{Read, Write},
     time::{SystemTime, UNIX_EPOCH},
 };
+use tauri_plugin_log::log;
 
 const LIMIT: usize = 2 * 1024 * 1024;
 #[derive(Clone, PartialEq, Message, Serialize, Deserialize)]
@@ -86,12 +87,13 @@ async fn api(
         } else {
             "请求参数被拒绝"
         };
-        return Err(format!(
-            "常用语{}失败：{}（业务码 {}）",
+        log::warn!(
+            "phrases: {} rejected: {} (code {})",
             path.split('?').next().unwrap_or(path),
             reason,
             value["code"].as_i64().unwrap_or(-1)
-        ));
+        );
+        return Err("豆包拒绝了这次常用语同步，请稍后重试".to_owned());
     }
     value
         .get("data")

@@ -44,10 +44,10 @@ const ACCOUNT_TEXT: Record<
   unavailable: { label: "账号状态不可用", hint: "可重新校验或改用游客" },
 };
 
-/** Current recognition service problem (connection test or save), or nothing. */
+/** Current recognition service problem from the connection test, or nothing. */
 export function RecognitionIssueNotice() {
-  const { openProductLink, recognitionService, saveIssue } = useSettings();
-  const issue = recognitionService.issue ?? saveIssue;
+  const { openProductLink, recognitionService } = useSettings();
+  const { issue } = recognitionService;
   if (!issue) return null;
   const { detail, kind, links, steps, title } = issue;
   return (
@@ -93,7 +93,6 @@ export function RecognitionIssueNotice() {
  */
 export function RecognitionServicePanel() {
   const {
-    checkingHotwords,
     loadingLlmModels,
     openConsole,
     providerRevision,
@@ -101,7 +100,7 @@ export function RecognitionServicePanel() {
     recognitionPreviewBusy,
     recognitionService: service,
     savedSettingsRef,
-    saveIssue,
+    testRecognition,
     saving,
     selectProvider,
     setRecognitionPreviewBusy,
@@ -114,12 +113,7 @@ export function RecognitionServicePanel() {
   const { microphoneId, recognition } = settings;
   const saved = savedSettingsRef.current.recognition;
   const { account } = service;
-  const disabled =
-    saving ||
-    switching ||
-    checkingHotwords ||
-    loadingLlmModels ||
-    testingMicrophone;
+  const disabled = saving || switching || loadingLlmModels || testingMicrophone;
   const busy =
     disabled ||
     service.testing ||
@@ -148,13 +142,18 @@ export function RecognitionServicePanel() {
 
   return (
     <div className="space-y-7">
-      <ChoiceCards
-        legend="识别服务"
-        value={recognition.provider}
-        onValueChange={selectProvider}
-        options={PROVIDERS}
-        disabled={busy}
-      />
+      <div className="space-y-2.5">
+        <ChoiceCards
+          legend="识别服务"
+          value={recognition.provider}
+          onValueChange={selectProvider}
+          options={PROVIDERS}
+          disabled={busy}
+        />
+        <p className="px-1.5 text-[12px] leading-4.5 text-muted-foreground">
+          切换立即生效，两种服务的配置各自保留
+        </p>
+      </div>
 
       {recognition.provider === "doubaoIme" ? (
         <Group title="豆包账号">
@@ -239,7 +238,7 @@ export function RecognitionServicePanel() {
           </Row>
           <Row
             title="个人词增强"
-            description="使用账号中的个人词库提升识别"
+            description="允许服务端使用账号个人词数据"
             changed={
               recognition.doubaoIme.disablePersonalWords !==
               saved.doubaoIme.disablePersonalWords
@@ -314,7 +313,7 @@ export function RecognitionServicePanel() {
             variant="outline"
             type="button"
             disabled={busy || !recognitionReady(recognition, account)}
-            onClick={() => void service.testConnection()}
+            onClick={() => void testRecognition()}
           >
             <Activity />
             {service.testing
@@ -324,7 +323,7 @@ export function RecognitionServicePanel() {
                 : "测试连接"}
           </Button>
         </Row>
-        {service.issue || saveIssue ? (
+        {service.issue ? (
           <Block>
             <RecognitionIssueNotice />
           </Block>

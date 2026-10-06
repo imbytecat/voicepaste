@@ -456,10 +456,8 @@ export function Segmented<Value extends string>({
 
 export function Keycap({ shortcut }: { shortcut: string }) {
   return (
-    <kbd
-      aria-label={formatShortcutLabel(shortcut)}
-      className="inline-flex items-center gap-1 font-sans"
-    >
+    <kbd className="inline-flex items-center gap-1 font-sans">
+      <span className="sr-only">{formatShortcutLabel(shortcut)}</span>
       {formatShortcut(shortcut)
         .split(/\+(?=.)/u)
         .map((key, index) => (

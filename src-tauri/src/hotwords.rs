@@ -55,38 +55,9 @@ impl Default for Snapshot {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum SyncAction {
-    Created,
-    Updated,
-    Deleted,
-    Unchanged,
-}
-
-impl SyncAction {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Created => "created",
-            Self::Updated => "updated",
-            Self::Deleted => "deleted",
-            Self::Unchanged => "unchanged",
-        }
-    }
-}
-
-pub enum SyncOutcome {
-    Saved {
-        snapshot: Snapshot,
-        action: SyncAction,
-    },
-    Conflict(Snapshot),
-    Rejected(String),
-}
-
-/// What `sync` has to do to make the cloud match the desired words.
+/// What `sync` has to do to make the cloud hold the merged words.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Plan {
-    Conflict,
     Create,
     Update,
     Delete,
@@ -144,154 +115,88 @@ pub fn normalize(words: Vec<String>) -> Result<Vec<String>, String> {
     Ok(normalized)
 }
 
-pub async fn inspect(api_key: &str) -> Result<Snapshot, String> {
+/// Three-way merge of word lists. `base` is what this device last saw in the
+/// cloud, `local` what the user wants now, `remote` what the cloud holds now.
+/// Keeps the user's list and order, drops words the cloud removed since
+/// `base`, then appends words the cloud added. Words are a set, so both
+/// sides' edits always combine; nothing needs a person to choose.
+///
+/// Idempotent: merging an already merged result with the same `base` and
+/// `local` yields it unchanged, so a write whose outcome is unknown can simply
+/// be synced again.
+pub fn merge(base: &[String], local: &[String], remote: &[String]) -> Vec<String> {
+    let key = |word: &String| word.to_lowercase();
+    let base: HashSet<String> = base.iter().map(key).collect();
+    let remote_keys: HashSet<String> = remote.iter().map(key).collect();
+    let mut seen = HashSet::new();
+    local
+        .iter()
+        .filter(|word| {
+            let word = key(word);
+            remote_keys.contains(&word) || !base.contains(&word)
+        })
+        .chain(remote.iter().filter(|word| !base.contains(&key(word))))
+        .filter(|word| seen.insert(key(word)))
+        .cloned()
+        .collect()
+}
+
+/// Merges `local` into the cloud table and writes the result when it differs.
+/// Returns the cloud state after the write. Any error leaves nothing to undo:
+/// `merge` is idempotent, so the caller simply syncs again later.
+pub async fn sync(
+    api_key: &str,
+    base: &[String],
+    local: &[String],
+    binding: Option<&Binding>,
+) -> Result<Snapshot, String> {
     let client = client()?;
-    let state = load_with_client(&client, api_key, None).await?;
+    let state = load_with_client(
+        &client,
+        api_key,
+        binding.map(|binding| binding.table_id.as_str()),
+    )
+    .await?;
+    let remote_words = state.table.as_ref().map(|table| table.words.as_slice());
+    let merged = merge(base, local, remote_words.unwrap_or_default());
+    validate(&merged, &state.limits)?;
+    let decision = plan(remote_words, &merged);
     log::info!(
-        "hotwords: inspect table={} cloud_words={} foreign_tables={}",
+        "hotwords: sync plan={decision:?} table={} base={} local={} remote={} merged={}",
         state.table.as_ref().map_or("-", |table| table.id.as_str()),
-        state.table.as_ref().map_or(0, |table| table.words.len()),
-        state.foreign_tables.len(),
+        base.len(),
+        local.len(),
+        remote_words.map_or(0, <[String]>::len),
+        merged.len(),
     );
+
+    let table_id = state.table.as_ref().map(|table| table.id.clone());
+    match (decision, table_id.as_deref()) {
+        (Plan::Delete, Some(id)) => {
+            delete_table(&client, api_key, state.app_id.as_ref(), id).await?;
+        }
+        (Plan::Update, Some(id)) => {
+            update_table(&client, api_key, state.app_id.as_ref(), id, &merged).await?;
+        }
+        (Plan::Create, _) => {
+            create_table(&client, api_key, state.app_id.as_ref(), &merged).await?;
+        }
+        _ => return Ok(snapshot(state)),
+    }
+
+    // ponytail: no compare-and-swap in the Volcengine API; a write racing
+    // another device in this window wins outright until that device syncs.
+    let state = wait_for_words(&client, api_key, &merged, table_id.as_deref()).await?;
     Ok(snapshot(state))
 }
 
-pub async fn sync(
-    api_key: &str,
-    saved_words: &[String],
-    desired_words: &[String],
-    binding: Option<&Binding>,
-    reviewed: Option<&Snapshot>,
-) -> Result<SyncOutcome, String> {
-    let prepared = async {
-        let client = client()?;
-        let state = load_with_client(
-            &client,
-            api_key,
-            binding.map(|binding| binding.table_id.as_str()),
-        )
-        .await?;
-        validate(desired_words, &state.limits)?;
-        Ok::<_, String>((client, state))
-    }
-    .await;
-    let (client, state) = match prepared {
-        Ok(prepared) => prepared,
-        Err(error) => return Ok(SyncOutcome::Rejected(error)),
-    };
-    if reviewed.is_some_and(|reviewed| !matches_review(&state, reviewed))
-        || (reviewed.is_none()
-            && binding.is_some_and(|binding| {
-                state
-                    .table
-                    .as_ref()
-                    .is_some_and(|table| table.id != binding.table_id)
-            }))
-    {
-        return Ok(SyncOutcome::Conflict(snapshot(state)));
-    }
-    let force = reviewed.is_some();
-
-    let remote_words = state.table.as_ref().map(|table| table.words.as_slice());
-    let decision = plan(
-        remote_words,
-        saved_words,
-        desired_words,
-        binding.is_some(),
-        force,
-    );
-    log::info!(
-        "hotwords: sync plan={decision:?} table={} saved={} desired={} remote={} force={force}",
-        state.table.as_ref().map_or("-", |table| table.id.as_str()),
-        saved_words.len(),
-        desired_words.len(),
-        remote_words.map_or(0, <[String]>::len),
-    );
-
-    if decision == Plan::Conflict {
-        log::warn!(
-            "hotwords: sync conflict, cloud table {} holds {} words that match neither saved ({}) nor desired ({})",
-            state.table.as_ref().map_or("-", |table| table.id.as_str()),
-            remote_words.map_or(0, <[String]>::len),
-            saved_words.len(),
-            desired_words.len(),
-        );
-        return Ok(SyncOutcome::Conflict(snapshot(state)));
-    }
-
-    let table_id = state.table.as_ref().map(|table| table.id.clone());
-    let action = match (decision, table_id.as_deref()) {
-        (Plan::Delete, Some(id)) => {
-            delete_table(&client, api_key, state.app_id.as_ref(), id).await?;
-            SyncAction::Deleted
-        }
-        (Plan::Update, Some(id)) => {
-            update_table(&client, api_key, state.app_id.as_ref(), id, desired_words).await?;
-            SyncAction::Updated
-        }
-        (Plan::Create, _) => {
-            create_table(&client, api_key, state.app_id.as_ref(), desired_words).await?;
-            SyncAction::Created
-        }
-        _ => {
-            log::info!("hotwords: sync action=unchanged");
-            return Ok(SyncOutcome::Saved {
-                snapshot: snapshot(state),
-                action: SyncAction::Unchanged,
-            });
-        }
-    };
-
-    let state = wait_for_words(&client, api_key, desired_words, table_id.as_deref()).await?;
-    log::info!(
-        "hotwords: sync action={} table={} cloud_words={}",
-        action.label(),
-        state.table.as_ref().map_or("-", |table| table.id.as_str()),
-        state.table.as_ref().map_or(0, |table| table.words.len()),
-    );
-    Ok(SyncOutcome::Saved {
-        snapshot: snapshot(state),
-        action,
-    })
-}
-
-fn matches_review(state: &CloudState, reviewed: &Snapshot) -> bool {
-    state.table.as_ref().map(|table| table.id.as_str())
-        == reviewed
-            .binding
-            .as_ref()
-            .map(|binding| binding.table_id.as_str())
-        && state
-            .table
-            .as_ref()
-            .map_or(&[][..], |table| table.words.as_slice())
-            == reviewed.words
-        && state.limits.table == reviewed.limit
-}
-
-/// Pure decision: what the cloud state, the last saved words and the desired
-/// words imply. Kept free of I/O so it can be exhaustively tested.
-fn plan(
-    remote_words: Option<&[String]>,
-    saved_words: &[String],
-    desired_words: &[String],
-    had_binding: bool,
-    force: bool,
-) -> Plan {
-    let conflict = match remote_words {
-        // Somebody else rewrote the table behind our back.
-        Some(remote) => remote != saved_words && remote != desired_words,
-        // We had a table, it is gone, and both sides still hold words.
-        None => had_binding && !saved_words.is_empty() && !desired_words.is_empty(),
-    };
-    if conflict && !force {
-        return Plan::Conflict;
-    }
+/// Pure decision: which write makes the cloud hold `merged`.
+fn plan(remote_words: Option<&[String]>, merged: &[String]) -> Plan {
     match remote_words {
-        Some(_) if desired_words.is_empty() => Plan::Delete,
-        Some(remote) if remote == desired_words => Plan::Unchanged,
+        Some(_) if merged.is_empty() => Plan::Delete,
+        Some(remote) if remote == merged => Plan::Unchanged,
         Some(_) => Plan::Update,
-        None if desired_words.is_empty() => Plan::Unchanged,
+        None if merged.is_empty() => Plan::Unchanged,
         None => Plan::Create,
     }
 }
@@ -693,21 +598,6 @@ fn scalar(value: &Value) -> String {
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn preflight_failure_is_not_an_uncertain_cloud_write() {
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        let outcome = sync(
-            "invalid\r\nkey",
-            &[],
-            &["VoicePaste".to_owned()],
-            None,
-            None,
-        )
-        .await
-        .unwrap();
-        assert!(matches!(outcome, SyncOutcome::Rejected(_)));
-    }
-
     #[test]
     fn refuses_ambiguous_or_foreign_managed_tables_and_partial_snapshots() {
         let first = json!({"BoostingTableID": "one", "BoostingTableName": TABLE_NAME,
@@ -731,33 +621,6 @@ mod tests {
             complete_preview(&json!({"WordCount": 1, "Preview": ["word|10"]})).unwrap(),
             ["word"]
         );
-    }
-
-    #[test]
-    fn reviewed_overwrite_is_bound_to_exact_words_and_table_identity() {
-        let mut state = CloudState {
-            app_id: None,
-            limits: Limits::default(),
-            table: Some(RemoteTable {
-                id: "one".to_owned(),
-                words: words(&["original"]),
-            }),
-            foreign_tables: Vec::new(),
-        };
-        let reviewed = Snapshot {
-            binding: Some(Binding {
-                table_id: "one".to_owned(),
-                limit: DEFAULT_TABLE_LIMIT,
-            }),
-            words: words(&["original"]),
-            ..Snapshot::default()
-        };
-        assert!(matches_review(&state, &reviewed));
-        state.table.as_mut().unwrap().words = words(&["concurrent"]);
-        assert!(!matches_review(&state, &reviewed));
-        state.table.as_mut().unwrap().words = reviewed.words.clone();
-        state.table.as_mut().unwrap().id = "replacement".to_owned();
-        assert!(!matches_review(&state, &reviewed));
     }
 
     fn words(values: &[&str]) -> Vec<String> {
@@ -855,115 +718,79 @@ mod tests {
     }
 
     #[test]
-    fn plans_every_sync_decision() {
-        let saved = words(&["VoicePaste"]);
-        let desired = words(&["VoicePaste", "Tauri"]);
-        let stranger = words(&["TanStack"]);
-        let empty: Vec<String> = Vec::new();
-        let (saved, desired) = (saved.as_slice(), desired.as_slice());
-        let (stranger, empty) = (stranger.as_slice(), empty.as_slice());
-
-        // (case, remote, saved, desired, had_binding, force, expected)
-        let cases = [
+    fn merges_both_sides_without_asking() {
+        let merge_words = |base: &[&str], local: &[&str], remote: &[&str]| {
+            merge(&words(base), &words(local), &words(remote))
+        };
+        type Case<'a> = (
+            &'a str,
+            &'a [&'a str],
+            &'a [&'a str],
+            &'a [&'a str],
+            &'a [&'a str],
+        );
+        // (case, base, local, remote, expected)
+        let cases: [Case; 8] = [
+            ("local add", &["a"], &["a", "b"], &["a"], &["a", "b"]),
+            ("local remove", &["a", "b"], &["a"], &["a", "b"], &["a"]),
+            ("remote add kept", &["a"], &["a"], &["a", "c"], &["a", "c"]),
             (
-                "remote drifted from both sides",
-                Some(stranger),
-                saved,
-                desired,
-                true,
-                false,
-                Plan::Conflict,
+                "remote remove honoured",
+                &["a", "b"],
+                &["a", "b"],
+                &["a"],
+                &["a"],
             ),
             (
-                "bound table vanished while both sides hold words",
-                None,
-                saved,
-                desired,
-                true,
-                false,
-                Plan::Conflict,
+                "both edit at once",
+                &["a", "b"],
+                &["a", "x"],
+                &["b", "y"],
+                &["x", "y"],
             ),
             (
-                "force overrides a drifted table",
-                Some(stranger),
-                saved,
-                desired,
-                true,
-                true,
-                Plan::Update,
+                "new device adopts the cloud",
+                &[],
+                &[],
+                &["a", "b"],
+                &["a", "b"],
             ),
             (
-                "force overrides a vanished table",
-                None,
-                saved,
-                desired,
-                true,
-                true,
-                Plan::Create,
+                "vanished table keeps local adds",
+                &["a"],
+                &["a", "b"],
+                &[],
+                &["b"],
             ),
             (
-                "first upload without a table",
-                None,
-                empty,
-                desired,
-                false,
-                false,
-                Plan::Create,
-            ),
-            (
-                "remote still matches what we saved",
-                Some(saved),
-                saved,
-                desired,
-                true,
-                false,
-                Plan::Update,
-            ),
-            (
-                "clearing words drops the table",
-                Some(saved),
-                saved,
-                empty,
-                true,
-                false,
-                Plan::Delete,
-            ),
-            (
-                "remote already holds the desired words",
-                Some(desired),
-                saved,
-                desired,
-                true,
-                false,
-                Plan::Unchanged,
-            ),
-            (
-                "new device with empty local state preserves cloud words",
-                Some(saved),
-                empty,
-                empty,
-                false,
-                false,
-                Plan::Conflict,
-            ),
-            (
-                "nothing local, nothing remote",
-                None,
-                empty,
-                empty,
-                false,
-                false,
-                Plan::Unchanged,
+                "case-insensitive keys keep local spelling",
+                &["a"],
+                &["A", "B"],
+                &["a"],
+                &["A", "B"],
             ),
         ];
-
-        for (name, remote, saved, desired, had_binding, force, expected) in cases {
-            assert_eq!(
-                plan(remote, saved, desired, had_binding, force),
-                expected,
-                "{name}"
-            );
+        for (name, base, local, remote, expected) in cases {
+            assert_eq!(merge_words(base, local, remote), words(expected), "{name}");
         }
+    }
+
+    #[test]
+    fn merge_is_idempotent_for_retries() {
+        let (base, local) = (words(&["a", "b"]), words(&["a", "x"]));
+        let once = merge(&base, &local, &words(&["b", "y"]));
+        assert_eq!(merge(&base, &local, &once), once);
+    }
+
+    #[test]
+    fn plans_the_write_for_the_merged_words() {
+        let some = words(&["a"]);
+        let other = words(&["b"]);
+        assert_eq!(plan(None, &some), Plan::Create);
+        assert_eq!(plan(None, &[]), Plan::Unchanged);
+        assert_eq!(plan(Some(&some), &some), Plan::Unchanged);
+        assert_eq!(plan(Some(&some), &other), Plan::Update);
+        assert_eq!(plan(Some(&some), &[]), Plan::Delete);
     }
 
     #[test]

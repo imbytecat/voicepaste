@@ -1,3 +1,4 @@
+import { isTauri } from "@tauri-apps/api/core";
 import {
   ArrowUpRight,
   Copy,
@@ -48,15 +49,17 @@ export function AboutPage() {
           VoicePaste
         </p>
         <p className="relative mt-1 text-[13px] text-muted-foreground tabular-nums">
+          {diagnostics
+            ? `版本 ${diagnostics.appVersion}`
+            : isTauri()
+              ? "版本未知"
+              : "浏览器预览"}
           {updateInfo ? (
             <span className="font-medium text-primary">
-              新版本 {updateInfo.version} 可用
+              {" "}
+              · 新版本 {updateInfo.version} 可用
             </span>
-          ) : diagnostics ? (
-            `版本 ${diagnostics.appVersion}`
-          ) : (
-            "浏览器预览"
-          )}
+          ) : null}
         </p>
         <div className="relative mt-5 flex justify-center">
           {updateInfo ? (
@@ -73,7 +76,7 @@ export function AboutPage() {
             <Button
               variant="outline"
               type="button"
-              onClick={() => void checkForUpdate(true)}
+              onClick={() => void checkForUpdate()}
               disabled={checkingUpdate}
             >
               <RefreshCw

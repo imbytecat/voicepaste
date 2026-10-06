@@ -1,3 +1,4 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
@@ -11,64 +12,32 @@ import {
 import { toast } from "sonner";
 
 import { AudioCapture } from "@/audio";
-import type { MicrophoneDevice } from "@/audio";
 import type { Message } from "@/components/settings/kit";
+import { settingsQueries } from "@/components/settings/queries";
 import { useRecognitionService } from "@/components/useRecognitionService";
-import {
-  hotwordActionMessage,
-  replayHotwordChanges,
-  hotwordDiff,
-  normalizeHotwords,
-  uniqueHotwords,
-} from "@/hotwords";
-import {
-  isServiceIssue,
-  recognitionConfigurationChanged,
-  safeError,
-} from "@/recognition";
+import { recognitionConfigurationChanged, safeError } from "@/recognition";
 import type { SettingsSectionId } from "@/routes/-settings-navigation";
 import { useShortcutRecorder } from "@/shortcut";
 import { DEFAULT_SETTINGS } from "@/types";
 import type {
   AccountStatus,
   AppSettings,
-  HotwordSnapshotResult,
-  HotwordSyncStatus,
+  HotwordSyncResult,
   LlmSettings,
   RecognitionProvider,
   RecognitionSettings,
-  SaveSettingsResult,
-  ServiceIssue,
   ServiceIssueLink,
-  SystemDiagnostics,
-  UpdateInfo,
+  VolcengineSettings,
 } from "@/types";
 
 export const DEFAULT_MICROPHONE_VALUE = "__voicepaste_system_default__";
-const CONSOLE_URL = "https://console.volcengine.com/speech/new/setting/apikeys";
-
-const DEFAULT_HOTWORD_STATUS: HotwordSyncStatus = {
-  cloudCount: 0,
-  count: 0,
-  foreignTables: [],
-  limit: 5000,
-  state: "empty",
-  tableId: null,
-};
 
 interface LoadSettingsResult {
   settings: AppSettings;
   account: AccountStatus | null;
   providerRevision: number;
-  hotwordStatus: HotwordSyncStatus | null;
   notice?: string;
 }
-interface HotwordConflict {
-  cloudHotwords: string[];
-  words: string[];
-  reviewToken: string;
-}
-type SavedSettingsResult = Extract<SaveSettingsResult, { kind: "saved" }>;
 type ProductLinkTarget =
   | "homepage"
   | "help"
@@ -90,12 +59,7 @@ function llmSettingsChanged(current: LlmSettings, saved: LlmSettings): boolean {
   );
 }
 
-function settingsChanged(
-  current: AppSettings,
-  hotwordsText: string,
-  saved: AppSettings,
-  savedHotwordsText: string
-): boolean {
+function settingsChanged(current: AppSettings, saved: AppSettings): boolean {
   return (
     recognitionConfigurationChanged(current.recognition, saved.recognition) ||
     current.shortcut !== saved.shortcut ||
@@ -111,18 +75,16 @@ function settingsChanged(
     llmSettingsChanged(
       current.recognition[current.recognition.provider].llm,
       saved.recognition[saved.recognition.provider].llm
-    ) ||
-    (current.recognition.provider === "volcengine" &&
-      hotwordsText !== savedHotwordsText)
+    )
   );
 }
 
 async function persistSettings(
   nextSettings: AppSettings,
   providerRevision: number
-): Promise<SaveSettingsResult> {
+): Promise<"keyring" | "removed"> {
   if (!isTauri()) throw new Error("浏览器预览不保存设置；请在桌面版中操作");
-  return await invoke<SaveSettingsResult>("save_settings", {
+  return await invoke<"keyring" | "removed">("save_settings", {
     providerRevision,
     settings: nextSettings,
   });
@@ -163,56 +125,58 @@ export function useSettingsController({
     RecognitionProvider | "close" | null
   >(null);
   const [switching, setSwitching] = useState(false);
-  const [applyingHotwords, setApplyingHotwords] = useState(false);
-  const [pendingHotwordApply, setPendingHotwordApply] = useState<{
-    words: string[];
-    reviewToken: string | null;
-  } | null>(null);
-  const [cloudConfirmedAt, setCloudConfirmedAt] = useState<string | null>(null);
-  const reviewTokenRef = useRef<string | null>(null);
-  const [hotwordsText, setHotwordsText] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [hotwordStatus, setHotwordStatus] = useState<HotwordSyncStatus>(
-    DEFAULT_HOTWORD_STATUS
-  );
-  const [hotwordConflict, setHotwordConflict] =
-    useState<HotwordConflict | null>(null);
-  const [cloudHotwords, setCloudHotwords] = useState<string[]>([]);
-  const [cloudHotwordsVerified, setCloudHotwordsVerified] = useState(false);
-  const [checkingHotwords, setCheckingHotwords] = useState(false);
-  const [hotwordMessage, setHotwordMessage] = useState<Message>(null);
   const [message, setMessage] = useState<Message>(null);
-  const [saveIssue, setSaveIssue] = useState<ServiceIssue | null>(null);
+  // A page-level error belongs to the page that raised it; leaving the page
+  // dismisses it (state adjusted during render, so no stale frame shows).
+  const [messageSection, setMessageSection] = useState(activeSection);
+  if (messageSection !== activeSection) {
+    setMessageSection(activeSection);
+    setMessage(null);
+  }
+  // Save and dialog failures render next to the control that caused them,
+  // and startup notices persist until dismissed: a toast in a hidden window is lost.
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [pendingActionError, setPendingActionError] = useState<string | null>(
+    null
+  );
+  const [notice, setNotice] = useState<string | null>(null);
   const [microphoneMessage, setMicrophoneMessage] = useState<Message>(null);
   const [onboardingMessage, setOnboardingMessage] = useState<Message>(null);
   const [editingCustomLlmParameters, setEditingCustomLlmParameters] =
     useState(false);
-  const [availableLlmModels, setAvailableLlmModels] = useState<string[]>([]);
-  const [loadingLlmModels, setLoadingLlmModels] = useState(false);
-  const [llmModelsMessage, setLlmModelsMessage] = useState<Message>(null);
   const [onboardingStep, setOnboardingStep] = useState(0);
-  const [microphones, setMicrophones] = useState<MicrophoneDevice[]>([]);
   const [testingMicrophone, setTestingMicrophone] = useState(false);
   const [microphoneLevel, setMicrophoneLevel] = useState(0);
   const [recognitionPreviewBusy, setRecognitionPreviewBusy] = useState(false);
-  const [diagnostics, setDiagnostics] = useState<SystemDiagnostics | null>(
-    null
-  );
-  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
-  const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [installingUpdate, setInstallingUpdate] = useState(false);
 
+  const queryClient = useQueryClient();
+  const microphonesQuery = useQuery(settingsQueries.microphones());
+  const microphones = microphonesQuery.data ?? [];
+  const diagnosticsQuery = useQuery(settingsQueries.diagnostics());
+  const diagnostics = diagnosticsQuery.data ?? null;
+  const updateQuery = useQuery(settingsQueries.update());
+  const updateInfo = updateQuery.data ?? null;
+  const { llm: currentLlm } =
+    settings.recognition[settings.recognition.provider];
+  const llmModelsQuery = useQuery(
+    settingsQueries.llmModels({
+      apiKey: currentLlm.apiKey,
+      baseUrl: currentLlm.baseUrl,
+      provider: settings.recognition.provider,
+      providerRevision,
+    })
+  );
+
   const settingsRef = useRef<AppSettings>(DEFAULT_SETTINGS);
-  const hotwordsTextRef = useRef("");
   const savedSettingsRef = useRef<AppSettings>(DEFAULT_SETTINGS);
-  const savedHotwordsTextRef = useRef("");
   const dirtyRef = useRef<boolean | null>(null);
   const savingRef = useRef(false);
   const microphoneTestRef = useRef<AudioCapture | null>(null);
   const shortcutButtonRef = useRef<HTMLButtonElement | null>(null);
   const onboardingHeadingRef = useRef<HTMLHeadingElement | null>(null);
-  const hotwordConflictReturnFocusRef = useRef<HTMLElement | null>(null);
   const getRecognition = useCallback(() => settingsRef.current.recognition, []);
   const recognitionService = useRecognitionService(
     getRecognition,
@@ -264,14 +228,7 @@ export function useSettingsController({
     const next = { ...settingsRef.current, ...patch };
     settingsRef.current = next;
     setSettings(next);
-    syncDirty(
-      settingsChanged(
-        next,
-        hotwordsTextRef.current,
-        savedSettingsRef.current,
-        savedHotwordsTextRef.current
-      )
-    );
+    syncDirty(settingsChanged(next, savedSettingsRef.current));
   };
   const updateSetting = <Key extends keyof AppSettings>(
     key: Key,
@@ -286,7 +243,6 @@ export function useSettingsController({
       current.volcengine.apiKey !== recognition.volcengine.apiKey
     )
       recognitionService.invalidate();
-    setSaveIssue(null);
     setOnboardingMessage(null);
     updateSetting("recognition", recognition);
   };
@@ -316,17 +272,22 @@ export function useSettingsController({
     });
   };
 
-  const updateHotwordsText = (value: string) => {
-    hotwordsTextRef.current = value;
-    setHotwordsText(value);
-    syncDirty(
-      settingsChanged(
-        settingsRef.current,
-        value,
-        savedSettingsRef.current,
-        savedHotwordsTextRef.current
-      )
-    );
+  /** Word-list edits persist through their own commands, so they land in
+   * both the working and the saved copy and never mark settings dirty. */
+  const acceptVolcengineWords = (
+    patch: Pick<Partial<VolcengineSettings>, "hotwords" | "hotwordsEnabled">
+  ) => {
+    for (const ref of [settingsRef, savedSettingsRef]) {
+      const { recognition } = ref.current;
+      ref.current = {
+        ...ref.current,
+        recognition: {
+          ...recognition,
+          volcengine: { ...recognition.volcengine, ...patch },
+        },
+      };
+    }
+    setSettings(settingsRef.current);
   };
 
   const selectSection = useCallback(
@@ -359,172 +320,43 @@ export function useSettingsController({
   });
 
   const refreshMicrophones = useCallback(async () => {
-    try {
-      setMicrophones(await AudioCapture.devices());
-    } catch (error) {
-      setMicrophones([]);
-      setMicrophoneMessage({
-        kind: "error",
-        text: `读取麦克风列表失败：${String(error)}`,
-      });
-    }
-  }, []);
+    await queryClient.invalidateQueries({
+      queryKey: settingsQueries.microphones().queryKey,
+    });
+  }, [queryClient]);
 
   const refreshDiagnostics = useCallback(async () => {
-    if (!isTauri()) return;
-    try {
-      setDiagnostics(await invoke<SystemDiagnostics>("system_diagnostics"));
-    } catch (error) {
-      reportPersistentError(
-        safeError(
-          error,
-          settingsRef.current.recognition.volcengine.apiKey,
-          settingsRef.current.recognition[
-            settingsRef.current.recognition.provider
-          ].llm.apiKey
-        )
-      );
-    }
-  }, [reportPersistentError]);
+    await queryClient.invalidateQueries({
+      queryKey: settingsQueries.diagnostics().queryKey,
+    });
+  }, [queryClient]);
 
-  const refreshHotwords = useCallback(async () => {
-    const current = settingsRef.current.recognition;
-    if (current.provider !== "volcengine") return;
-    const { apiKey } = current.volcengine;
-    if (apiKey !== savedSettingsRef.current.recognition.volcengine.apiKey) {
-      setHotwordMessage({
-        kind: "info",
-        text: "请先保存 API Key，再检查云端常用词。",
-      });
-      return;
-    }
+  const checkForUpdate = async () => {
     if (!isTauri()) {
-      setHotwordMessage({
-        kind: "error",
-        text: "浏览器预览无法检查云端常用词。",
-      });
+      showMessage({ kind: "error", text: "浏览器预览无法检查桌面应用更新" });
       return;
     }
-    setCheckingHotwords(true);
-    const revision = providerRevisionRef.current;
-    const sourceText = hotwordsTextRef.current;
-    const hadDraftEdits = sourceText !== savedHotwordsTextRef.current;
-    try {
-      const snapshot = await invoke<HotwordSnapshotResult>("refresh_hotwords", {
-        providerRevision: revision,
-      });
-      if (
-        revision !== providerRevisionRef.current ||
-        apiKey !== savedSettingsRef.current.recognition.volcengine.apiKey
-      )
-        return;
-      setCloudHotwordsVerified(true);
-      setHotwordStatus(snapshot.hotwordStatus);
-      setCloudHotwords(snapshot.cloudHotwords);
-      reviewTokenRef.current = snapshot.reviewToken;
-      setCloudConfirmedAt(new Date().toLocaleString());
-      for (const ref of [settingsRef, savedSettingsRef]) {
-        ref.current = {
-          ...ref.current,
-          recognition: {
-            ...ref.current.recognition,
-            volcengine: {
-              ...ref.current.recognition.volcengine,
-              hotwords: snapshot.confirmedHotwords,
-              hotwordDraft: snapshot.hotwordDraft,
-            },
-          },
-        };
-      }
-      const storedDraft = (
-        snapshot.hotwordDraft ?? snapshot.confirmedHotwords
-      ).join("\n");
-      savedHotwordsTextRef.current = storedDraft;
-      if (!hadDraftEdits && hotwordsTextRef.current === sourceText) {
-        hotwordsTextRef.current = storedDraft;
-        setHotwordsText(storedDraft);
-      }
-      setSettings(settingsRef.current);
-      syncDirty(
-        settingsChanged(
-          settingsRef.current,
-          hotwordsTextRef.current,
-          savedSettingsRef.current,
-          storedDraft
-        )
-      );
-      setHotwordMessage(null);
-    } catch (error) {
-      if (
-        revision !== providerRevisionRef.current ||
-        apiKey !== savedSettingsRef.current.recognition.volcengine.apiKey
-      )
-        return;
-      setHotwordMessage({
-        kind: "error",
-        text: `无法校验云端词表：${safeError(error, settingsRef.current.recognition.volcengine.apiKey, settingsRef.current.recognition[settingsRef.current.recognition.provider].llm.apiKey)}`,
-      });
-    } finally {
-      if (revision === providerRevisionRef.current) setCheckingHotwords(false);
-    }
-  }, [syncDirty]);
-
-  const checkForUpdate = useCallback(
-    async (showResult: boolean) => {
-      if (!isTauri()) {
-        if (showResult)
-          showMessage({
-            kind: "error",
-            text: "浏览器预览无法检查桌面应用更新",
-          });
-        return;
-      }
-      setCheckingUpdate(true);
-      try {
-        const update = await invoke<UpdateInfo | null>("check_for_update");
-        setUpdateInfo(update);
-        if (showResult)
-          showMessage({
+    const { data, error } = await updateQuery.refetch();
+    showMessage(
+      error
+        ? { kind: "error", text: errorText(error) }
+        : {
             kind: "info",
-            text: update ? `发现新版本 ${update.version}` : "当前已是最新版本",
-          });
-      } catch (error) {
-        if (showResult)
-          showMessage({
-            kind: "error",
-            text: safeError(
-              error,
-              settingsRef.current.recognition.volcengine.apiKey,
-              settingsRef.current.recognition[
-                settingsRef.current.recognition.provider
-              ].llm.apiKey
-            ),
-          });
-      } finally {
-        setCheckingUpdate(false);
-      }
-    },
-    [showMessage]
-  );
+            text: data ? `发现新版本 ${data.version}` : "当前已是最新版本",
+          }
+    );
+  };
 
   const installUpdate = async () => {
     if (!updateInfo || installingUpdate) return;
-    if (
-      settingsChanged(
-        settingsRef.current,
-        hotwordsTextRef.current,
-        savedSettingsRef.current,
-        savedHotwordsTextRef.current
-      )
-    ) {
+    if (settingsChanged(settingsRef.current, savedSettingsRef.current)) {
       showMessage({ kind: "error", text: "请先保存当前设置，再安装更新" });
       return;
     }
     setInstallingUpdate(true);
     setMessage(null);
     try {
-      const started = await invoke<boolean>("install_update");
-      if (!started) setInstallingUpdate(false);
+      await invoke("install_update");
     } catch (error) {
       showMessage({
         kind: "error",
@@ -541,23 +373,16 @@ export function useSettingsController({
   };
 
   useEffect(() => {
-    void refreshMicrophones();
     if (!isTauri()) {
       const previewSettings = {
         ...DEFAULT_SETTINGS,
         onboardingCompleted: !previewOnboarding,
       };
-      const previewHotwords =
-        previewSettings.recognition.volcengine.hotwords.join("\n");
       settingsRef.current = previewSettings;
       savedSettingsRef.current = previewSettings;
-      hotwordsTextRef.current = previewHotwords;
-      savedHotwordsTextRef.current = previewHotwords;
       setSettings(previewSettings);
       providerRevisionRef.current = 0;
       setProviderRevision(0);
-      setHotwordsText(previewHotwords);
-      setHotwordStatus(DEFAULT_HOTWORD_STATUS);
       syncDirty(false);
       setLoading(false);
       return;
@@ -567,29 +392,18 @@ export function useSettingsController({
       .then(
         ({
           account: loadedAccount,
-          hotwordStatus: loadedHotwordStatus,
           settings: loadedSettings,
-          notice,
+          notice: loadedNotice,
           providerRevision: loadedRevision,
         }) => {
-          const loadedHotwords = (
-            loadedSettings.recognition.volcengine.hotwordDraft ??
-            loadedSettings.recognition.volcengine.hotwords
-          ).join("\n");
           settingsRef.current = loadedSettings;
           savedSettingsRef.current = loadedSettings;
-          hotwordsTextRef.current = loadedHotwords;
-          savedHotwordsTextRef.current = loadedHotwords;
           setSettings(loadedSettings);
           providerRevisionRef.current = loadedRevision;
           setProviderRevision(loadedRevision);
-          setHotwordsText(loadedHotwords);
           if (loadedAccount) acceptAccount(loadedAccount);
-          setHotwordStatus(loadedHotwordStatus ?? DEFAULT_HOTWORD_STATUS);
-          setCloudHotwords(loadedSettings.recognition.volcengine.hotwords);
           syncDirty(false);
-          if (notice) showMessage({ kind: "info", text: notice });
-          void refreshDiagnostics();
+          if (loadedNotice) setNotice(loadedNotice);
         }
       )
       .catch((error: unknown) => {
@@ -598,26 +412,18 @@ export function useSettingsController({
       .finally(() => {
         setLoading(false);
       });
-  }, [
-    acceptAccount,
-    previewOnboarding,
-    refreshDiagnostics,
-    refreshMicrophones,
-    showMessage,
-    syncDirty,
-  ]);
+  }, [acceptAccount, previewOnboarding, syncDirty]);
 
-  useEffect(() => {
-    void checkForUpdate(false);
-  }, [checkForUpdate]);
-
+  const { refetch: refetchUpdate } = updateQuery;
   useEffect(() => {
     if (!isTauri()) return;
     let disposed = false;
     let unlisten: (() => void) | undefined;
+    // The tray's "检查更新…" lands here; the cached result may be days old.
     listen<string>("settings-section", (event) => {
       if (event.payload !== "about") return;
       selectSection("about");
+      void refetchUpdate();
     })
       .then((callback) => {
         if (disposed) callback();
@@ -638,7 +444,7 @@ export function useSettingsController({
       disposed = true;
       unlisten?.();
     };
-  }, [reportPersistentError, selectSection]);
+  }, [refetchUpdate, reportPersistentError, selectSection]);
 
   useEffect(() => {
     if (settings.onboardingCompleted) return;
@@ -659,7 +465,7 @@ export function useSettingsController({
     settingsRef.current = nextSettings;
     savedSettingsRef.current = nextSettings;
     setSettings(nextSettings);
-    syncDirty(hotwordsTextRef.current !== savedHotwordsTextRef.current);
+    syncDirty(false);
   };
 
   const startSaving = () => {
@@ -668,9 +474,7 @@ export function useSettingsController({
       recognitionService.testing ||
       recognitionService.accountBusy ||
       recognitionPreviewBusy ||
-      applyingHotwords ||
-      switching ||
-      checkingHotwords
+      switching
     ) {
       reportPersistentError("请先结束识别测试或账号操作，再保存设置。");
       return false;
@@ -684,21 +488,68 @@ export function useSettingsController({
     savingRef.current = false;
     setSaving(false);
   };
-  const openHotwordConflict = (conflict: HotwordConflict) => {
-    const { activeElement } = document;
-    if (activeElement instanceof HTMLElement && activeElement !== document.body)
-      hotwordConflictReturnFocusRef.current = activeElement;
-    setHotwordConflict(conflict);
+
+  const hotwordSync = useMutation({
+    mutationFn: async (revision: number) =>
+      await invoke<HotwordSyncResult>("sync_volcengine_hotwords", {
+        providerRevision: revision,
+      }),
+    onSuccess: (result, revision) => {
+      if (revision === providerRevisionRef.current)
+        acceptVolcengineWords({ hotwords: result.hotwords });
+    },
+  });
+  const { mutate: mutateHotwordSync } = hotwordSync;
+  const hotwordSyncTimerRef = useRef(0);
+  const [hotwordSyncQueued, setHotwordSyncQueued] = useState(false);
+  /** Syncs the saved word list with the cloud; a no-op until a key is saved. */
+  const syncHotwords = useCallback(() => {
+    window.clearTimeout(hotwordSyncTimerRef.current);
+    setHotwordSyncQueued(false);
+    const { recognition } = savedSettingsRef.current;
+    if (
+      !isTauri() ||
+      recognition.provider !== "volcengine" ||
+      !recognition.volcengine.apiKey
+    )
+      return;
+    mutateHotwordSync(providerRevisionRef.current);
+  }, [mutateHotwordSync]);
+  useEffect(
+    () => () => {
+      window.clearTimeout(hotwordSyncTimerRef.current);
+    },
+    []
+  );
+
+  const editHotwords = async (change: {
+    add?: string[];
+    remove?: string[];
+    enabled?: boolean;
+  }) => {
+    const revision = providerRevisionRef.current;
+    const hotwords = await invoke<string[]>("edit_volcengine_hotwords", {
+      add: change.add ?? [],
+      remove: change.remove ?? [],
+      enabled: change.enabled ?? null,
+      providerRevision: revision,
+    });
+    if (revision !== providerRevisionRef.current) return;
+    acceptVolcengineWords(
+      change.enabled === undefined
+        ? { hotwords }
+        : { hotwords, hotwordsEnabled: change.enabled }
+    );
+    if (change.add?.length || change.remove?.length) {
+      // Coalesce a burst of edits into one cloud write.
+      window.clearTimeout(hotwordSyncTimerRef.current);
+      setHotwordSyncQueued(true);
+      hotwordSyncTimerRef.current = window.setTimeout(syncHotwords, 800);
+    }
   };
 
-  const persistAndCommit = async (
-    nextSettings: AppSettings
-  ): Promise<SavedSettingsResult> => {
-    const result = await persistSettings(
-      nextSettings,
-      providerRevisionRef.current
-    );
-    if (result.kind !== "saved") throw new Error("普通设置保存不应修改云词库");
+  const persistAndCommit = async (nextSettings: AppSettings) => {
+    await persistSettings(nextSettings, providerRevisionRef.current);
     dirtyRef.current = null;
     const keyChanged =
       nextSettings.recognition.provider === "volcengine" &&
@@ -708,25 +559,37 @@ export function useSettingsController({
     providerRevisionRef.current = loaded.providerRevision;
     setProviderRevision(loaded.providerRevision);
     commitSettings(loaded.settings);
-    if (loaded.hotwordStatus) setHotwordStatus(loaded.hotwordStatus);
-    if (keyChanged) {
-      if (hotwordsTextRef.current === savedHotwordsTextRef.current) {
-        const profile = loaded.settings.recognition.volcengine;
-        const draft = (profile.hotwordDraft ?? profile.hotwords).join("\n");
-        hotwordsTextRef.current = draft;
-        savedHotwordsTextRef.current = draft;
-        setHotwordsText(draft);
+    // A new key is a new account: merge the word list into it right away.
+    if (keyChanged) syncHotwords();
+  };
+
+  /**
+   * Onboarding has no save bar, so its connection test saves the recognition
+   * draft first: what passes the test is what dictation will use.
+   */
+  const testRecognition = async () => {
+    const { current } = settingsRef;
+    if (
+      !current.onboardingCompleted &&
+      recognitionConfigurationChanged(
+        current.recognition,
+        savedSettingsRef.current.recognition
+      )
+    ) {
+      if (!startSaving()) return;
+      try {
+        await persistAndCommit(current);
+      } catch (error) {
+        setOnboardingMessage({
+          kind: "error",
+          text: safeError(error, current.recognition.volcengine.apiKey),
+        });
+        return;
+      } finally {
+        stopSaving();
       }
-      setCloudHotwords([]);
-      setCloudHotwordsVerified(false);
-      setCloudConfirmedAt(null);
-      reviewTokenRef.current = null;
-      setHotwordMessage({
-        kind: "info",
-        text: "Key 已更换。请先检查云端，再决定是否应用本机词条。",
-      });
     }
-    return result;
+    await recognitionService.testConnection(providerRevisionRef.current);
   };
 
   const finishSuccessfulSave = async (source: "onboarding" | "settings") => {
@@ -748,180 +611,37 @@ export function useSettingsController({
     if (!startSaving()) return;
     setMessage(null);
     setOnboardingMessage(null);
-    setSaveIssue(null);
+    setSaveError(null);
     try {
       await persistAndCommit(settingsRef.current);
       await finishSuccessfulSave("settings");
     } catch (error) {
-      if (isServiceIssue(error)) {
-        setSaveIssue(error);
-        reportPersistentError(error.title);
-      } else
-        reportPersistentError(
-          safeError(
-            error,
-            settingsRef.current.recognition.volcengine.apiKey,
-            settingsRef.current.recognition[
-              settingsRef.current.recognition.provider
-            ].llm.apiKey
-          )
-        );
+      const text = safeError(
+        error,
+        settingsRef.current.recognition.volcengine.apiKey,
+        settingsRef.current.recognition[
+          settingsRef.current.recognition.provider
+        ].llm.apiKey
+      );
+      if (settingsRef.current.onboardingCompleted) setSaveError(text);
+      else setOnboardingMessage({ kind: "error", text });
     } finally {
       stopSaving();
     }
   };
 
-  const saveHotwordDraft = async (lock = true) => {
-    if (lock && !startSaving()) return;
-    const sourceText = hotwordsTextRef.current;
-    try {
-      const words = normalizeHotwords(sourceText, hotwordStatus.limit);
-      const revision = providerRevisionRef.current;
-      await invoke("save_volcengine_hotword_draft", {
-        words,
-        providerRevision: revision,
-      });
-      if (revision !== providerRevisionRef.current) return;
-      const text = words.join("\n");
-      savedHotwordsTextRef.current = text;
-      if (hotwordsTextRef.current === sourceText) {
-        hotwordsTextRef.current = text;
-        setHotwordsText(text);
-      }
-      syncDirty(
-        settingsChanged(
-          settingsRef.current,
-          hotwordsTextRef.current,
-          savedSettingsRef.current,
-          text
-        )
-      );
-      setHotwordMessage({
-        kind: "info",
-        text: "草稿已存到本机，尚未上传。",
-      });
-    } finally {
-      if (lock) stopSaving();
-    }
-  };
+  /** A hidden window keeps its React state: drop what would be stale on reopen. */
+  const { invalidate: invalidateRecognition } = recognitionService;
+  const closeWindow = useCallback(async () => {
+    await invoke("close_settings");
+    setMessage(null);
+    setMicrophoneMessage(null);
+    invalidateRecognition();
+  }, [invalidateRecognition]);
 
-  const applyHotwords = async (
-    words?: string[],
-    reviewToken: string | null = null
-  ) => {
-    if (!startSaving()) return;
-    setApplyingHotwords(true);
-    const revision = providerRevisionRef.current;
-    try {
-      const pendingWords =
-        words ??
-        normalizeHotwords(hotwordsTextRef.current, hotwordStatus.limit);
-      await saveHotwordDraft(false);
-      setCloudHotwordsVerified(false);
-      reviewTokenRef.current = null;
-      const result = await invoke<SaveSettingsResult>(
-        "apply_volcengine_hotwords",
-        {
-          words: pendingWords,
-          forceOverwrite: reviewToken !== null,
-          reviewToken,
-          providerRevision: revision,
-        }
-      );
-      if (revision !== providerRevisionRef.current) return;
-      if (result.kind === "conflict") {
-        setCloudHotwords(result.cloudHotwords);
-        setCloudHotwordsVerified(true);
-        reviewTokenRef.current = result.reviewToken;
-        openHotwordConflict({
-          cloudHotwords: result.cloudHotwords,
-          words: pendingWords,
-          reviewToken: result.reviewToken,
-        });
-        return;
-      }
-      if (result.hotwordStatus) setHotwordStatus(result.hotwordStatus);
-      setCloudHotwords(result.cloudHotwords);
-      setCloudHotwordsVerified(true);
-      setCloudConfirmedAt(new Date().toLocaleString());
-      const text = result.cloudHotwords.join("\n");
-      savedHotwordsTextRef.current = text;
-      hotwordsTextRef.current = text;
-      setHotwordsText(text);
-      for (const ref of [settingsRef, savedSettingsRef]) {
-        ref.current = {
-          ...ref.current,
-          recognition: {
-            ...ref.current.recognition,
-            volcengine: {
-              ...ref.current.recognition.volcengine,
-              hotwords: result.cloudHotwords,
-              hotwordDraft: null,
-            },
-          },
-        };
-      }
-      setSettings(settingsRef.current);
-      dirtyRef.current = null;
-      syncDirty(
-        settingsChanged(
-          settingsRef.current,
-          text,
-          savedSettingsRef.current,
-          text
-        )
-      );
-      setHotwordMessage({
-        kind: "success",
-        text: hotwordActionMessage(
-          result.hotwordAction,
-          result.cloudHotwords.length
-        ),
-      });
-    } catch (error) {
-      if (revision !== providerRevisionRef.current) return;
-      try {
-        const loaded = await invoke<LoadSettingsResult>("load_settings");
-        if (revision === providerRevisionRef.current && loaded.hotwordStatus)
-          setHotwordStatus(loaded.hotwordStatus);
-      } catch {
-        setHotwordMessage({
-          kind: "error",
-          text: "无法读取提交状态。草稿已保留，请稍后检查云端。",
-        });
-      }
-      setHotwordMessage({
-        kind: "error",
-        text: `${safeError(error, settingsRef.current.recognition.volcengine.apiKey)}。草稿已保留；请求可能已发送，请先检查云端再重试。`,
-      });
-    } finally {
-      setApplyingHotwords(false);
-      stopSaving();
-    }
-  };
-
-  const resolveHotwordConflict = (useCloud: boolean) => {
-    const conflict = hotwordConflict;
-    if (!conflict) return;
-    setHotwordConflict(null);
-    if (useCloud) {
-      updateHotwordsText(
-        replayHotwordChanges(
-          savedSettingsRef.current.recognition.volcengine.hotwords,
-          conflict.words,
-          conflict.cloudHotwords
-        ).join("\n")
-      );
-      setHotwordMessage({
-        kind: "info",
-        text: "已在云端词表基础上合并本机改动，请检查后再应用。",
-      });
-      return;
-    }
-    setPendingHotwordApply({
-      words: conflict.words,
-      reviewToken: conflict.reviewToken,
-    });
+  const cancelPendingAction = () => {
+    setPendingAction(null);
+    setPendingActionError(null);
   };
 
   const performAction = async (
@@ -929,26 +649,20 @@ export function useSettingsController({
     keep: boolean
   ) => {
     if (!startSaving()) return;
+    setPendingActionError(null);
     try {
-      if (keep) {
-        if (
-          settingsRef.current.recognition.provider === "volcengine" &&
-          hotwordsTextRef.current !== savedHotwordsTextRef.current
-        )
-          await saveHotwordDraft(false);
-        await persistAndCommit(settingsRef.current);
+      if (keep) await persistAndCommit(settingsRef.current);
+      else {
+        settingsRef.current = savedSettingsRef.current;
+        setSettings(savedSettingsRef.current);
+        setSaveError(null);
+        syncDirty(false);
+        // The backend refuses to switch while it believes edits are pending.
+        await invoke("set_settings_dirty", { dirty: false });
       }
       if (action === "close") {
-        if (!keep) {
-          settingsRef.current = savedSettingsRef.current;
-          setSettings(savedSettingsRef.current);
-          hotwordsTextRef.current = savedHotwordsTextRef.current;
-          setHotwordsText(savedHotwordsTextRef.current);
-        }
-        syncDirty(false);
-        await invoke("set_settings_dirty", { dirty: false });
         setPendingAction(null);
-        await invoke("close_settings");
+        await closeWindow();
         return;
       }
       setSwitching(true);
@@ -961,41 +675,24 @@ export function useSettingsController({
       settingsRef.current = loaded.settings;
       savedSettingsRef.current = loaded.settings;
       setSettings(loaded.settings);
-      const profile = loaded.settings.recognition.volcengine;
-      const draft =
-        action === "volcengine"
-          ? (profile.hotwordDraft ?? profile.hotwords).join("\n")
-          : "";
-      hotwordsTextRef.current = draft;
-      savedHotwordsTextRef.current = draft;
-      setHotwordsText(draft);
-      setHotwordStatus(loaded.hotwordStatus ?? DEFAULT_HOTWORD_STATUS);
-      setCloudHotwords(action === "volcengine" ? profile.hotwords : []);
-      setCloudHotwordsVerified(false);
-      setCloudConfirmedAt(null);
-      reviewTokenRef.current = null;
-      setHotwordConflict(null);
-      setHotwordMessage(null);
-      setAvailableLlmModels([]);
-      setLlmModelsMessage(null);
+      hotwordSync.reset();
       setEditingCustomLlmParameters(false);
-      setSaveIssue(null);
       setOnboardingMessage(null);
       setMessage(null);
       if (loaded.account) acceptAccount(loaded.account);
       syncDirty(false);
       setPendingAction(null);
-      if (loaded.notice) showMessage({ kind: "info", text: loaded.notice });
+      if (loaded.notice) setNotice(loaded.notice);
     } catch (error) {
-      reportPersistentError(
-        safeError(
-          error,
-          settingsRef.current.recognition.volcengine.apiKey,
-          settingsRef.current.recognition[
-            settingsRef.current.recognition.provider
-          ].llm.apiKey
-        )
+      const text = safeError(
+        error,
+        settingsRef.current.recognition.volcengine.apiKey,
+        settingsRef.current.recognition[
+          settingsRef.current.recognition.provider
+        ].llm.apiKey
       );
+      if (pendingAction) setPendingActionError(text);
+      else reportPersistentError(text);
     } finally {
       setSwitching(false);
       stopSaving();
@@ -1004,14 +701,7 @@ export function useSettingsController({
 
   const selectProvider = (provider: RecognitionProvider) => {
     if (provider === settingsRef.current.recognition.provider) return;
-    if (
-      settingsChanged(
-        settingsRef.current,
-        hotwordsTextRef.current,
-        savedSettingsRef.current,
-        savedHotwordsTextRef.current
-      )
-    )
+    if (settingsChanged(settingsRef.current, savedSettingsRef.current))
       setPendingAction(provider);
     else void performAction(provider, false);
   };
@@ -1022,18 +712,13 @@ export function useSettingsController({
     let unlisten: (() => void) | undefined;
     void listen("settings-close-requested", () => {
       if (savingRef.current) {
-        reportPersistentError("正在保存或应用词库，请等待操作结束再关闭。");
+        reportPersistentError("正在保存设置，请等待保存结束再关闭。");
       } else if (
-        settingsChanged(
-          settingsRef.current,
-          hotwordsTextRef.current,
-          savedSettingsRef.current,
-          savedHotwordsTextRef.current
-        )
+        settingsChanged(settingsRef.current, savedSettingsRef.current)
       ) {
         setPendingAction("close");
       } else {
-        void invoke("close_settings").catch((error: unknown) => {
+        void closeWindow().catch((error: unknown) => {
           reportPersistentError(safeError(error));
         });
       }
@@ -1049,7 +734,7 @@ export function useSettingsController({
       disposed = true;
       unlisten?.();
     };
-  }, [reportPersistentError]);
+  }, [closeWindow, reportPersistentError]);
 
   useEffect(() => {
     const handleSaveShortcut = (event: KeyboardEvent) => {
@@ -1060,13 +745,10 @@ export function useSettingsController({
         return;
       event.preventDefault();
       if (
-        activeSection === "dictionary" &&
-        settingsRef.current.recognition.provider === "volcengine"
+        settingsRef.current.onboardingCompleted &&
+        settingsChanged(settingsRef.current, savedSettingsRef.current)
       )
-        void saveHotwordDraft().catch((error: unknown) => {
-          reportPersistentError(safeError(error));
-        });
-      else void save();
+        void save();
     };
     window.addEventListener("keydown", handleSaveShortcut);
     return () => {
@@ -1090,10 +772,8 @@ export function useSettingsController({
       current.volcengine.apiKey !== saved.recognition.volcengine.apiKey
     )
       recognitionService.invalidate();
-    setSaveIssue(null);
+    setSaveError(null);
     setMessage(null);
-    setAvailableLlmModels([]);
-    setLlmModelsMessage(null);
     updateSettings(saved);
   };
 
@@ -1218,7 +898,6 @@ export function useSettingsController({
     }
     if (!startSaving()) return;
     setOnboardingMessage(null);
-    setSaveIssue(null);
     try {
       await persistAndCommit({
         ...settingsRef.current,
@@ -1226,98 +905,44 @@ export function useSettingsController({
       });
       await finishSuccessfulSave("onboarding");
     } catch (error) {
-      if (isServiceIssue(error)) {
-        setOnboardingMessage(null);
-        setSaveIssue(error);
-      } else
-        setOnboardingMessage({
-          kind: "error",
-          text: safeError(
-            error,
-            settingsRef.current.recognition.volcengine.apiKey
-          ),
-        });
+      setOnboardingMessage({
+        kind: "error",
+        text: safeError(
+          error,
+          settingsRef.current.recognition.volcengine.apiKey
+        ),
+      });
     } finally {
       stopSaving();
     }
   };
 
   const openConsole = async () => {
-    try {
-      if (isTauri()) await invoke("open_api_key_console");
-      else window.open(CONSOLE_URL, "_blank", "noopener,noreferrer");
-    } catch (error) {
-      reportPersistentError(
-        safeError(
-          error,
-          settingsRef.current.recognition.volcengine.apiKey,
-          settingsRef.current.recognition[
-            settingsRef.current.recognition.provider
-          ].llm.apiKey
-        )
-      );
-    }
+    await openProductLink("apiKeyConsole");
   };
-  const fetchLlmModels = async () => {
-    const { apiKey, baseUrl } =
-      settingsRef.current.recognition[settingsRef.current.recognition.provider]
-        .llm;
-    const revision = providerRevisionRef.current;
-    setLlmModelsMessage(null);
-    if (!baseUrl.trim()) {
-      setLlmModelsMessage({
-        kind: "error",
-        text: "请先填写 API 基础地址。",
-      });
-      return;
-    }
-    setLoadingLlmModels(true);
-    try {
-      if (!isTauri()) throw new Error("获取模型仅在 VoicePaste 桌面版中可用");
-      const models = await invoke<string[]>("list_llm_models", {
-        apiKey,
-        baseUrl,
-        providerRevision: revision,
-      });
-      if (
-        revision !== providerRevisionRef.current ||
-        apiKey !==
-          settingsRef.current.recognition[
-            settingsRef.current.recognition.provider
-          ].llm.apiKey ||
-        baseUrl !==
-          settingsRef.current.recognition[
-            settingsRef.current.recognition.provider
-          ].llm.baseUrl
-      )
-        return;
-      setAvailableLlmModels(models);
-      setLlmModelsMessage({
-        kind: "success",
-        text: `获取到 ${models.length} 个模型`,
-      });
-    } catch (error) {
-      if (
-        revision !== providerRevisionRef.current ||
-        apiKey !==
-          settingsRef.current.recognition[
-            settingsRef.current.recognition.provider
-          ].llm.apiKey ||
-        baseUrl !==
-          settingsRef.current.recognition[
-            settingsRef.current.recognition.provider
-          ].llm.baseUrl
-      )
-        return;
-      setAvailableLlmModels([]);
-      setLlmModelsMessage({
-        kind: "error",
-        text: safeError(error, apiKey),
-      });
-    } finally {
-      if (revision === providerRevisionRef.current) setLoadingLlmModels(false);
-    }
+  // The model list is keyed by address and key (see settingsQueries.llmModels),
+  // so edits drop a stale list on their own; fetching is always on request.
+  const fetchLlmModels = () => {
+    void llmModelsQuery.refetch();
   };
+  const availableLlmModels = llmModelsQuery.data ?? [];
+  const loadingLlmModels = llmModelsQuery.isFetching;
+  const llmModelsMessage: Message = llmModelsQuery.error
+    ? {
+        kind: "error",
+        text: safeError(llmModelsQuery.error, currentLlm.apiKey),
+      }
+    : llmModelsQuery.data
+      ? { kind: "success", text: `获取到 ${llmModelsQuery.data.length} 个模型` }
+      : null;
+  const microphoneNotice: Message =
+    microphoneMessage ??
+    (microphonesQuery.error
+      ? {
+          kind: "error",
+          text: `读取麦克风列表失败：${String(microphonesQuery.error)}`,
+        }
+      : null);
 
   const runAboutAction = async (
     command: "open_log_dir" | "copy_diagnostics",
@@ -1348,16 +973,15 @@ export function useSettingsController({
       if (!isTauri()) throw new Error("此链接仅在 VoicePaste 桌面版中打开");
       await invoke("open_product_link", { target });
     } catch (error) {
-      showMessage({
-        kind: "error",
-        text: safeError(
+      reportPersistentError(
+        safeError(
           error,
           settingsRef.current.recognition.volcengine.apiKey,
           settingsRef.current.recognition[
             settingsRef.current.recognition.provider
           ].llm.apiKey
-        ),
-      });
+        )
+      );
     }
   };
 
@@ -1381,8 +1005,6 @@ export function useSettingsController({
       savedSettingsRef.current.recognition.provider
     ].llm
   );
-  const hotwordsChanged = hotwordsText !== savedHotwordsTextRef.current;
-  const localHotwords = uniqueHotwords(hotwordsText);
   const apiKeyChanged =
     settings.recognition.volcengine.apiKey !==
     savedSettingsRef.current.recognition.volcengine.apiKey;
@@ -1390,19 +1012,7 @@ export function useSettingsController({
     settings.recognition,
     savedSettingsRef.current.recognition
   );
-  const cloudChanges = hotwordDiff(localHotwords, cloudHotwords);
-  const hasUnsavedChanges = settingsChanged(
-    settings,
-    hotwordsText,
-    savedSettingsRef.current,
-    savedHotwordsTextRef.current
-  );
-  const hasUnsavedSettings = settingsChanged(
-    settings,
-    "",
-    savedSettingsRef.current,
-    ""
-  );
+  const hasUnsavedChanges = settingsChanged(settings, savedSettingsRef.current);
   const isSectionChanged = (section: SettingsSectionId) => {
     if (section === "shortcut")
       return (
@@ -1412,8 +1022,6 @@ export function useSettingsController({
         isSettingChanged("overlayPosition")
       );
     if (section === "recognition") return recognitionChanged;
-    if (section === "dictionary")
-      return settings.recognition.provider === "volcengine" && hotwordsChanged;
     if (section === "processing")
       return (
         llmChanged ||
@@ -1436,93 +1044,69 @@ export function useSettingsController({
         .llm.apiKey
     );
   const { llm } = settings.recognition[settings.recognition.provider];
-  const { llm: savedLlm } =
-    savedSettingsRef.current.recognition[
-      savedSettingsRef.current.recognition.provider
-    ];
 
   return {
     activeSection,
-    applyHotwords,
-    applyingHotwords,
     apiKeyChanged,
     availableLlmModels,
     checkForUpdate,
-    checkingHotwords,
-    checkingUpdate,
-    cloudChanges,
-    cloudConfirmedAt,
-    cloudHotwords,
-    cloudHotwordsVerified,
+    checkingUpdate: updateQuery.isFetching,
     diagnostics,
     discardChanges,
     editingCustomLlmParameters,
     errorText,
     fetchLlmModels,
+    editHotwords,
     finishOnboarding,
     goToOnboardingStep,
     hasUnsavedChanges,
-    hasUnsavedSettings,
-    hotwordConflict,
-    hotwordConflictReturnFocusRef,
-    hotwordMessage,
-    hotwordStatus,
-    hotwordsChanged,
-    hotwordsText,
+    hotwordSync,
+    hotwordSyncQueued,
     installUpdate,
     installingUpdate,
     isLlmSettingChanged,
     isSectionChanged,
     isSettingChanged,
     llm,
-    llmChanged,
     llmModelsMessage,
     loading,
     loadingLlmModels,
-    localHotwords,
     message,
+    notice,
+    dismissNotice: () => {
+      setNotice(null);
+    },
     microphoneLevel,
-    microphoneMessage,
+    microphoneMessage: microphoneNotice,
     microphoneOptions,
     microphones,
     onboardingHeadingRef,
     onboardingMessage,
     onboardingStep,
     openConsole,
-    openHotwordConflict,
     openProductLink,
     pendingAction,
-    pendingHotwordApply,
     performAction,
+    pendingActionError,
+    cancelPendingAction,
     postProcessMode,
     providerRevision,
     recognitionChanged,
     recognitionPreviewBusy,
     recognitionService,
     refreshDiagnostics,
-    refreshHotwords,
     resetVoiceInput,
-    resolveHotwordConflict,
-    reviewTokenRef,
     runAboutAction,
-    saveIssue,
+    saveError,
     save,
-    saveHotwordDraft,
-    savedLlm,
     savedSettingsRef,
     saving,
     selectProvider,
     selectSection,
-    setAvailableLlmModels,
     setEditingCustomLlmParameters,
-    setHotwordConflict,
-    setHotwordMessage,
-    setLlmModelsMessage,
     setMessage,
     setMicrophoneMessage,
     setOnboardingMessage,
-    setPendingAction,
-    setPendingHotwordApply,
     setPostProcessMode,
     setRecognitionPreviewBusy,
     settings,
@@ -1530,9 +1114,10 @@ export function useSettingsController({
     shortcutRecorder,
     showMessage,
     switching,
+    testRecognition,
     testingMicrophone,
     toggleMicrophoneTest,
-    updateHotwordsText,
+    syncHotwords,
     updateLlmSetting,
     updateRecognition,
     updateSetting,

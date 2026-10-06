@@ -27,9 +27,7 @@ export function recognitionConfigurationChanged(
         current.doubaoIme.disablePersonalWords !==
           saved.doubaoIme.disablePersonalWords)) ||
     (current.provider === "volcengine" &&
-      (current.volcengine.apiKey !== saved.volcengine.apiKey ||
-        current.volcengine.hotwordsEnabled !==
-          saved.volcengine.hotwordsEnabled))
+      current.volcengine.apiKey !== saved.volcengine.apiKey)
   );
 }
 

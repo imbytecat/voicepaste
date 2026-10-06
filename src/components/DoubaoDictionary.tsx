@@ -1,42 +1,37 @@
-import { invoke } from "@tauri-apps/api/core";
+import { useQuery } from "@tanstack/react-query";
 import { BookText, RotateCw, Search } from "lucide-react";
 import { useState } from "react";
 
 import { Block, EmptyState, Group, Notice } from "@/components/settings/kit";
+import { settingsQueries } from "@/components/settings/queries";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-interface Word {
-  text: string;
-  input: string;
-  frequency: number;
-}
-
 const ROW_CAP = 100;
 
-export function DoubaoDictionary({ revision }: { revision: number }) {
-  const [words, setWords] = useState<Word[] | null>(null);
+export function DoubaoDictionary({
+  revision,
+  accountRevision,
+}: {
+  revision: number;
+  accountRevision: number;
+}) {
+  // Rendered only while signed in, so the snapshot loads as the page opens.
+  const wordsQuery = useQuery(
+    settingsQueries.doubaoDictionary({
+      accountRevision,
+      providerRevision: revision,
+    })
+  );
+  const words = wordsQuery.data ?? null;
+  const busy = wordsQuery.isFetching;
   const [query, setQuery] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const load = async () => {
-    setBusy(true);
-    setError("");
-    try {
-      const value = await invoke<{ version: string; words: Word[] }>(
-        "doubao_dictionary_snapshot",
-        { providerRevision: revision }
-      );
-      setWords(value.words);
-    } catch {
-      setError("读取个人词库失败，云端数据未修改，请重试");
-    } finally {
-      setBusy(false);
-    }
+  const load = () => {
+    void wordsQuery.refetch();
   };
-  const errorNotice = error ? (
+  const errorNotice = wordsQuery.error ? (
     <Block>
-      <Notice tone="error">{error}</Notice>
+      <Notice tone="error">读取个人词库失败，云端数据未修改</Notice>
     </Block>
   ) : null;
 
@@ -45,12 +40,13 @@ export function DoubaoDictionary({ revision }: { revision: number }) {
       <Group title="个人词库" description="豆包输入法自动学习的词，只读">
         <EmptyState
           icon={BookText}
-          title="个人词库保存在豆包云端"
-          description="读取后可在这里搜索查看"
+          title={busy ? "正在读取个人词库…" : "未能读取个人词库"}
           action={
-            <Button type="button" disabled={busy} onClick={() => void load()}>
-              {busy ? "读取中…" : "读取个人词库"}
-            </Button>
+            busy ? undefined : (
+              <Button type="button" onClick={load}>
+                重试
+              </Button>
+            )
           }
         />
         {errorNotice}
@@ -70,7 +66,7 @@ export function DoubaoDictionary({ revision }: { revision: number }) {
           size="sm"
           type="button"
           disabled={busy}
-          onClick={() => void load()}
+          onClick={load}
         >
           <RotateCw />
           刷新

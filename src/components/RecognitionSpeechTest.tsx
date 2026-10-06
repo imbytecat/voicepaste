@@ -144,7 +144,11 @@ export function RecognitionSpeechTest({
         (next) => {
           if (sessionRef.current === session) setLevel(next);
         },
-        (cause) => void fail(session, cause)
+        (cause) => void fail(session, cause),
+        // Closing the settings window stops the preview; that is a cancel, not a failure.
+        () => {
+          if (sessionRef.current === session) void cancel();
+        }
       );
       await invoke("start_recognition_preview", {
         sessionId: session.id,
