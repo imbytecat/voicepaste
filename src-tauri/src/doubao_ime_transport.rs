@@ -139,6 +139,32 @@ async fn request_text(
     }
 }
 
+pub async fn write_text(
+    token: &str,
+    did: &str,
+    iid: &str,
+    text: &str,
+    summarize: bool,
+) -> Result<String, String> {
+    if text.trim().is_empty() || text.len() > 32000 {
+        return Err(ERROR.to_owned());
+    }
+    let payload = checked(serde_json::to_vec(
+        &json!({"scene": if summarize {1} else {5},
+        "query":text,"preceding_part":"","follows_below":"","format_query":"","output_format":3}),
+    ))?;
+    let raw = request(
+        token,
+        did,
+        iid,
+        "/api/v1/bot/rich_chat",
+        Some(&payload),
+        &[],
+    )
+    .await?;
+    parse_result(checked(std::str::from_utf8(&raw))?)
+}
+
 pub(crate) async fn request(
     token: &str,
     did: &str,
@@ -152,6 +178,7 @@ pub(crate) async fn request(
         Some(
             "/api/v1/translate"
                 | "/api/v2/ai/text_organization"
+                | "/api/v1/bot/rich_chat"
                 | "/api/v2/sync/version"
                 | "/api/v2/sync/pull"
                 | "/api/v2/sync/push"

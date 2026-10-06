@@ -39,7 +39,7 @@ export function DoubaoTextTools({
     try {
       const translated = await invoke<string>("translate_doubao_text", {
         text,
-        toEnglish: action === "organize" ? null : action === "en",
+        action,
         providerRevision: revision,
         requestId: id,
       });
@@ -60,6 +60,9 @@ export function DoubaoTextTools({
       <p className="text-xs text-muted-foreground">
         仅在点击处理后上传这里的文本；整理或翻译结果供预览，不自动替换其他应用内容。
       </p>
+      <p className="text-xs text-muted-foreground">
+        总结和重写可能省略或补充信息，请核对后自行采用。
+      </p>
       <select
         aria-label="文本处理方式"
         className="rounded-md border border-input bg-background p-2 text-sm"
@@ -74,6 +77,8 @@ export function DoubaoTextTools({
         <option value="en">中文 → 英文</option>
         <option value="zh">英文 → 中文</option>
         <option value="organize">智能整理</option>
+        <option value="summarize">总结</option>
+        <option value="rewrite">重写</option>
       </select>
       <Textarea
         aria-label="待处理文本"
@@ -92,11 +97,13 @@ export function DoubaoTextTools({
       >
         {busy
           ? "处理中…"
-          : action === "organize"
-            ? "整理文本"
-            : action === "en"
-              ? "翻译为英文"
-              : "翻译为中文"}
+          : {
+              en: "翻译为英文",
+              zh: "翻译为中文",
+              organize: "整理文本",
+              summarize: "总结文本",
+              rewrite: "重写文本",
+            }[action]}
       </Button>
       {busy && (
         <Button

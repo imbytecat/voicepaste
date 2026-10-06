@@ -434,3 +434,9 @@ Android 1.4.6 `SmartOrganizeApi#organizeTextStream` 的 Retrofit POST 注解为 
 ### 手工智能整理入口
 
 原有整理服务除听写后处理外，现复用于文本工具主动预览：用户手填文本并选择“智能整理”，仍使用同一真实 scene6，不猜测新 scene。原生页面实际输入“嗯今天下午三点开会然后请把会议纪要发给我谢谢”，返回“今天下午三点开会，然后请把会议纪要发给我，谢谢。”，原文不变。复用取消与账号变更结果隔离，不自动读取剪贴板；完整检查通过。
+
+### 总结与重写
+
+沿 `AiPanelView` → `A/z#u` → `A/C/g$a` 恢复实际现代接口，而非已无直接调用的旧 `/api/v1/ai/process`：`IAiWriting$StreamingApiCommon` POST `/api/v1/bot/rich_chat`，字段 scene/query/preceding_part/follows_below/format_query/output_format。SUMMARY 子类 `A/C/i` 固定 scene1，REWRITE 子类 `A/C/h` 固定 scene5，构造器默认 output_format3。
+
+已接入文本工具动作选择，前后文与额外指令为空，不抓取输入框外信息。真实原生总结返回保留会议时间、分工和截止时间的短段落；重写返回扩展表达，原文均保留。两接口完整收到 scene.completed 和 done，未用 partial 当成功。重写实际会增加修饰性内容，UI 明示需核对，不自动替换。共享取消、账号校验、响应上限与明确复制；完整检查通过。

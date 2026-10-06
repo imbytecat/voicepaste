@@ -1526,11 +1526,17 @@ async fn translate_doubao_text(
     app: AppHandle,
     state: State<'_, AppState>,
     text: String,
-    to_english: Option<bool>,
+    action: String,
     provider_revision: u64,
     request_id: String,
 ) -> Result<String, String> {
     require_window(&window, "settings")?;
+    if !matches!(
+        action.as_str(),
+        "en" | "zh" | "organize" | "summarize" | "rewrite"
+    ) {
+        return Err("不支持的文本操作".to_owned());
+    }
     uuid::Uuid::parse_str(&request_id).map_err(|_| "翻译请求标识无效")?;
     let (cancel, mut cancelled) = watch::channel(false);
     {
@@ -1558,9 +1564,14 @@ async fn translate_doubao_text(
             .ok_or("翻译需要登录豆包账号")?;
         let account_revision = state.account.status(&app).await.revision;
         drop(_gate);
-        let result = match to_english {
-            Some(direction) => asr::translate_doubao(&token, &text, direction).await?,
-            None => asr::organize_doubao(&token, &text).await?,
+        let result = match action.as_str() {
+            "en" | "zh" => asr::translate_doubao(&token, &text, action == "en").await?,
+            "organize" => asr::organize_doubao(&token, &text).await?,
+            _ => {
+                let (did, iid) = asr::doubao_ime::device::sync_identity().await?;
+                doubao_ime_transport::write_text(&token, &did, &iid, &text, action == "summarize")
+                    .await?
+            }
         };
         require_provider(&state, RecognitionProvider::DoubaoIme, provider_revision)?;
         if state.account.status(&app).await.revision != account_revision {
