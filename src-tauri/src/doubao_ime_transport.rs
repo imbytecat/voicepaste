@@ -144,15 +144,13 @@ pub async fn write_text(
     did: &str,
     iid: &str,
     text: &str,
-    summarize: bool,
+    scene: u8,
 ) -> Result<String, String> {
-    if text.trim().is_empty() || text.len() > 32000 {
+    if !matches!(scene, 1 | 2 | 4 | 5) || text.trim().is_empty() || text.len() > 32000 {
         return Err(ERROR.to_owned());
     }
-    let payload = checked(serde_json::to_vec(
-        &json!({"scene": if summarize {1} else {5},
-        "query":text,"preceding_part":"","follows_below":"","format_query":"","output_format":3}),
-    ))?;
+    let payload = checked(serde_json::to_vec(&json!({"scene": scene,
+        "query":text,"preceding_part":"","follows_below":"","format_query":"","output_format":3})))?;
     let raw = request(
         token,
         did,
@@ -417,6 +415,7 @@ mod tests {
         let complete =
             "event:scene.completed\ndata:{\"content\":\"完整结果\"}\n\nevent:done\ndata:[DONE]\n\n";
         assert_eq!(parse_result(complete).unwrap(), "完整结果");
+        assert_eq!(parse_result("event:scene.completed\ndata:{\"content\":\"- 项目一\"}\n\nevent:format.completed\ndata:{\"content\":\"<script>unsafe()</script>\"}\n\nevent:done\ndata:[DONE]\n\n").unwrap(), "- 项目一");
         assert!(parse_result(&format!("{complete}event:scene.error\ndata:{{}}\n\n")).is_err());
         assert!(parse_result("event:scene.completed\ndata:{\"content\":\"未结束\"}\n\n").is_err());
     }

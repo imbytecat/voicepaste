@@ -1533,7 +1533,7 @@ async fn translate_doubao_text(
     require_window(&window, "settings")?;
     if !matches!(
         action.as_str(),
-        "en" | "zh" | "organize" | "summarize" | "rewrite"
+        "en" | "zh" | "organize" | "summarize" | "rewrite" | "keypoints" | "list"
     ) {
         return Err("不支持的文本操作".to_owned());
     }
@@ -1569,8 +1569,14 @@ async fn translate_doubao_text(
             "organize" => asr::organize_doubao(&token, &text).await?,
             _ => {
                 let (did, iid) = asr::doubao_ime::device::sync_identity().await?;
-                doubao_ime_transport::write_text(&token, &did, &iid, &text, action == "summarize")
-                    .await?
+                let scene = match action.as_str() {
+                    "summarize" => 1,
+                    "keypoints" => 2,
+                    "list" => 4,
+                    "rewrite" => 5,
+                    _ => return Err("不支持的文本操作".to_owned()),
+                };
+                doubao_ime_transport::write_text(&token, &did, &iid, &text, scene).await?
             }
         };
         require_provider(&state, RecognitionProvider::DoubaoIme, provider_revision)?;

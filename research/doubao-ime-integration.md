@@ -440,3 +440,5 @@ Android 1.4.6 `SmartOrganizeApi#organizeTextStream` 的 Retrofit POST 注解为 
 沿 `AiPanelView` → `A/z#u` → `A/C/g$a` 恢复实际现代接口，而非已无直接调用的旧 `/api/v1/ai/process`：`IAiWriting$StreamingApiCommon` POST `/api/v1/bot/rich_chat`，字段 scene/query/preceding_part/follows_below/format_query/output_format。SUMMARY 子类 `A/C/i` 固定 scene1，REWRITE 子类 `A/C/h` 固定 scene5，构造器默认 output_format3。
 
 已接入文本工具动作选择，前后文与额外指令为空，不抓取输入框外信息。真实原生总结返回保留会议时间、分工和截止时间的短段落；重写返回扩展表达，原文均保留。两接口完整收到 scene.completed 和 done，未用 partial 当成功。重写实际会增加修饰性内容，UI 明示需核对，不自动替换。共享取消、账号校验、响应上限与明确复制；完整检查通过。
+
+官方 `A/C/d` 和 `A/C/e` 的静态初始化分别给出要点 scene2、列表 scene4。两者已接入同一工具并通过实际原生页面请求：要点返回会议时间、人员分工、提交时间三条编号项；列表返回会议安排和截止要求的项目符号文本。SSE 还包含 format.completed HTML，产品仅取 scene.completed 纯文本，不执行/渲染 HTML；已加入此优先级的回归断言。原文保持不变。

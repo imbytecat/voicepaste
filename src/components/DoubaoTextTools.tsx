@@ -79,6 +79,8 @@ export function DoubaoTextTools({
         <option value="organize">智能整理</option>
         <option value="summarize">总结</option>
         <option value="rewrite">重写</option>
+        <option value="keypoints">提取要点</option>
+        <option value="list">整理为列表</option>
       </select>
       <Textarea
         aria-label="待处理文本"
@@ -103,6 +105,8 @@ export function DoubaoTextTools({
               organize: "整理文本",
               summarize: "总结文本",
               rewrite: "重写文本",
+              keypoints: "提取要点",
+              list: "整理为列表",
             }[action]}
       </Button>
       {busy && (
