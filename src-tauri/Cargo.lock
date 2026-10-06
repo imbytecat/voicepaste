@@ -6005,7 +6005,7 @@ dependencies = [
 
 [[package]]
 name = "voicepaste"
-version = "2.0.1"
+version = "2.1.0"
 dependencies = [
  "ashpd 0.13.13",
  "async-openai",

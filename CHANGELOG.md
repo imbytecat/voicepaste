@@ -1,5 +1,28 @@
 # Changelog
 
+## [2.1.0](https://github.com/imbytecat/voicepaste/compare/v2.0.1...v2.1.0) (2026-10-06)
+
+
+### 新增
+
+* **asr:** 接入豆包标点与个人词增强独立开关 ([1232a0d](https://github.com/imbytecat/voicepaste/commit/1232a0d720b9202cf6101f1804bd414da1c22726))
+* **doubao:** 接入个人词库只读查看与本地搜索 ([7652a11](https://github.com/imbytecat/voicepaste/commit/7652a11429b71a8ea7f7949f03aa452960815680))
+* **doubao:** 接入原生智能整理与独立后处理设置 ([9615118](https://github.com/imbytecat/voicepaste/commit/96151180c6651dd02bc249f05c9f47229af1be3f))
+* **doubao:** 接入手工中译英与原文保留预览 ([0b18eb4](https://github.com/imbytecat/voicepaste/commit/0b18eb4fc22465992e4ad0d9a7882e25b8e35444))
+* **doubao:** 接入账号常用语真实增改删与云端回读 ([a7b32f8](https://github.com/imbytecat/voicepaste/commit/a7b32f8c79999e222703560fd6b18c494aad43b1))
+* **doubao:** 补齐中英双向翻译与原生方向选择 ([2266fee](https://github.com/imbytecat/voicepaste/commit/2266feec6cc810f957a9b4bf07283d7aa1fa6940))
+* **tools:** 增加手工文本智能整理预览 ([da19e97](https://github.com/imbytecat/voicepaste/commit/da19e970fdc91d151477182e2bb900f17d8bf51d))
+* **tools:** 接入官方要点提取与列表整理 ([ce949d9](https://github.com/imbytecat/voicepaste/commit/ce949d91c1fd0c1e7134b53131b4f53dea073080))
+* **tools:** 接入豆包官方总结与重写 ([3022757](https://github.com/imbytecat/voicepaste/commit/3022757881cac1e7c2dadd9284b677fb06fdf244))
+* **tools:** 支持取消翻译并阻止晚到结果覆盖 ([c2ff9fd](https://github.com/imbytecat/voicepaste/commit/c2ff9fd2b2a3463048be33816d06e472f3e31670))
+* **tools:** 支持显式复制译文与账号常用语 ([f8f32fc](https://github.com/imbytecat/voicepaste/commit/f8f32fc7f5373504f6461391763eacff285e1b6c))
+
+
+### 修复
+
+* **doubao:** 保留常用语失败草稿并区分个人词库说明 ([ee7e0c5](https://github.com/imbytecat/voicepaste/commit/ee7e0c574d9b9782a6753be9851be02934de648e))
+* **doubao:** 避免翻译等待阻塞听写与账号操作 ([3600534](https://github.com/imbytecat/voicepaste/commit/3600534a5a6aebe468546a6558998d6bfa8d5137))
+
 ## [2.0.1](https://github.com/imbytecat/voicepaste/compare/v2.0.0...v2.0.1) (2026-10-05)
 
 
