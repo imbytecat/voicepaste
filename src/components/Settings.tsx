@@ -37,6 +37,7 @@ import { Toaster, toast } from "sonner";
 
 import { AudioCapture } from "@/audio";
 import type { MicrophoneDevice } from "@/audio";
+import { DoubaoPhrases } from "@/components/DoubaoPhrases";
 import { DoubaoTranslation } from "@/components/DoubaoTranslation";
 import { RecognitionSettingsPanel } from "@/components/RecognitionSettingsPanel";
 import { RecognitionSpeechTest } from "@/components/RecognitionSpeechTest";
@@ -2461,9 +2462,14 @@ export function Settings({
           return (
             <SettingsSection
               id="dictionary"
-              title="豆包个人词库"
-              description="仅管理当前豆包账号的官方个人词库。"
+              title="豆包词库与常用语"
+              description="账号常用语与自动学习的个人词库分别管理。"
             >
+              <DoubaoPhrases
+                key={`${providerRevision}-${recognitionService.account.revision}`}
+                revision={providerRevision}
+                signedIn={recognitionService.account.state === "signedIn"}
+              />
               <p className="px-6 py-5 text-[12px] leading-6 text-muted-foreground">
                 {recognitionService.account.state === "signedIn"
                   ? "豆包官方个人词库协议尚未完成安全接入；登录与语音连接成功不代表词库已同步或用于识别。"

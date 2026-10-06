@@ -105,10 +105,64 @@ async fn request_text(
     text: &str,
     translate: Option<bool>,
 ) -> Result<String, String> {
+    if text.trim().is_empty() || text.len() > 32000 {
+        return Err(ERROR.to_owned());
+    }
+    let (endpoint, payload) = if let Some(to_english) = translate {
+        (
+            "/api/v1/translate",
+            json!({"source_language":if to_english {185} else {38},
+            "target_language":if to_english {38} else {185},"text_list":[text]}),
+        )
+    } else {
+        (
+            "/api/v2/ai/text_organization",
+            json!({"scene":6,"query":text,
+            "space_at_cn_en_nb":1,"space_at_newline":1,"stream":true}),
+        )
+    };
+    let payload = checked(serde_json::to_vec(&payload))?;
+    let raw = request(token, did, iid, endpoint, Some(&payload), &[]).await?;
+    if translate.is_some() {
+        let value: Value = checked(serde_json::from_slice(&raw))?;
+        if value["code"] != 0 {
+            return Err(ERROR.to_owned());
+        }
+        let result = value
+            .pointer("/data/translation_list/0/translation")
+            .and_then(Value::as_str)
+            .filter(|s| !s.trim().is_empty())
+            .ok_or(ERROR)?;
+        Ok(result.to_owned())
+    } else {
+        parse_result(checked(std::str::from_utf8(&raw))?)
+    }
+}
+
+pub(crate) async fn request(
+    token: &str,
+    did: &str,
+    iid: &str,
+    path: &str,
+    payload: Option<&[u8]>,
+    extra_headers: &[(&str, String)],
+) -> Result<Vec<u8>, String> {
+    if !matches!(
+        path.split('?').next(),
+        Some(
+            "/api/v1/translate"
+                | "/api/v2/ai/text_organization"
+                | "/api/v2/sync/version"
+                | "/api/v2/sync/pull"
+                | "/api/v2/sync/push"
+                | "/api/v2/stream/sync/upload"
+        )
+    ) {
+        return Err(ERROR.to_owned());
+    }
     if token.is_empty()
         || token.len() > 16384
-        || text.trim().is_empty()
-        || text.len() > 32000
+        || payload.is_some_and(|p| p.len() > LIMIT)
         || ![did, iid]
             .iter()
             .all(|s| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()))
@@ -205,51 +259,60 @@ async fn request_text(
     let key = hmac(&prk, b"4e30514609050cd3\x01")?;
     let mut nonce = [0; 12];
     checked(rand_bytes(&mut nonce))?;
-    let (endpoint, payload) = if let Some(to_english) = translate {
-        (
-            "https://ime.doubao.com/api/v1/translate",
-            json!({"source_language":if to_english {185} else {38},
-            "target_language":if to_english {38} else {185},"text_list":[text]}),
-        )
-    } else {
-        (
-            "https://ime.doubao.com/api/v2/ai/text_organization",
-            json!({"scene":6,"query":text,
-            "space_at_cn_en_nb":1,"space_at_newline":1,"stream":true}),
-        )
-    };
-    let payload = checked(serde_json::to_vec(&payload))?;
     let mut auth = checked(reqwest::header::HeaderValue::from_str(token))?;
     auth.set_sensitive(true);
     let mut ticket = checked(reqwest::header::HeaderValue::from_str(field(
         &result, "ticket",
     )?))?;
     ticket.set_sensitive(true);
-    let response = checked(
-        client
-            .post(endpoint)
-            .query(&[
-                ("aid", "401734"),
-                ("device_platform", "android"),
-                ("device_id", did),
-                ("iid", iid),
-                ("version_code", "100406010"),
-                ("version_name", "1.4.6"),
-                ("use-olympus-account", "1"),
-            ])
-            .header("Content-Type", "application/json")
-            .header("Accept", "text/event-stream")
-            .header("Accept-Encoding", "identity")
-            .header("x-tt-token", auth)
-            .header("sdk-version", "2")
-            .header("x-tt-e-t", ticket)
-            .header("x-tt-e-p", STANDARD.encode(nonce))
-            .header("x-tt-e-b", "1")
-            .header("x-metasec-bp-body-compress", "1")
-            .body(crypt(&payload, &key, &nonce)?)
-            .send()
-            .await,
-    )?;
+    let mut request = client
+        .request(
+            if payload.is_some() {
+                reqwest::Method::POST
+            } else {
+                reqwest::Method::GET
+            },
+            format!("https://ime.doubao.com{path}"),
+        )
+        .query(&[
+            ("aid", "401734"),
+            ("device_platform", "android"),
+            ("device_id", did),
+            ("iid", iid),
+            ("version_code", "100406010"),
+            ("version_name", "1.4.6"),
+            ("use-olympus-account", "1"),
+        ])
+        .header(
+            "Content-Type",
+            extra_headers
+                .iter()
+                .find(|(name, _)| *name == "Content-Type")
+                .map_or("application/json", |(_, value)| value.as_str()),
+        )
+        .header("Accept", "text/event-stream")
+        .header("Accept-Encoding", "identity")
+        .header("x-tt-token", auth)
+        .header("sdk-version", "2")
+        .header("x-tt-e-t", ticket)
+        .header("x-tt-e-p", STANDARD.encode(nonce))
+        .header("x-tt-e-b", "1")
+        .header("x-metasec-bp-body-compress", "1");
+    for (name, value) in extra_headers {
+        if !matches!(
+            *name,
+            "Content-Type" | "Content-Encoding" | "Content-MD5" | "X-Sync-Type" | "X-Ss-Req-Ticket"
+        ) {
+            return Err(ERROR.to_owned());
+        }
+        if *name != "Content-Type" {
+            request = request.header(*name, value);
+        }
+    }
+    if let Some(payload) = payload {
+        request = request.body(crypt(payload, &key, &nonce)?);
+    }
+    let response = checked(request.send().await)?;
     if !response.status().is_success() {
         return Err(ERROR.to_owned());
     }
@@ -273,20 +336,7 @@ async fn request_text(
             raw = decompress(&raw, encoding)?;
         }
     }
-    if translate.is_some() {
-        let value: Value = checked(serde_json::from_slice(&raw))?;
-        if value["code"] != 0 {
-            return Err(ERROR.to_owned());
-        }
-        let result = value
-            .pointer("/data/translation_list/0/translation")
-            .and_then(Value::as_str)
-            .filter(|s| !s.trim().is_empty())
-            .ok_or(ERROR)?;
-        Ok(result.to_owned())
-    } else {
-        parse_result(checked(std::str::from_utf8(&raw))?)
-    }
+    Ok(raw)
 }
 
 fn parse_result(text: &str) -> Result<String, String> {

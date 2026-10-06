@@ -1,4 +1,4 @@
-mod doubao_ime;
+pub(crate) mod doubao_ime;
 mod volcengine;
 
 pub async fn organize_doubao(token: &str, text: &str) -> Result<String, String> {

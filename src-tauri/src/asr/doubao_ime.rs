@@ -1,4 +1,4 @@
-mod device;
+pub(crate) mod device;
 mod protocol;
 
 pub(super) async fn organize(token: &str, text: &str) -> Result<String, String> {

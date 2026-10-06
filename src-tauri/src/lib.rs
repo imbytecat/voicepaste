@@ -2,6 +2,7 @@ mod asr;
 mod audio;
 mod doubao_account;
 mod doubao_ime_transport;
+mod doubao_phrases;
 mod hotwords;
 mod llm;
 mod paste;
@@ -1437,6 +1438,50 @@ async fn recheck_doubao_account(
 }
 
 #[tauri::command]
+async fn doubao_phrase_snapshot(
+    window: WebviewWindow,
+    app: AppHandle,
+    state: State<'_, AppState>,
+    provider_revision: u64,
+) -> Result<doubao_phrases::Snapshot, String> {
+    require_window(&window, "settings")?;
+    let _gate = state.recognition_gate.lock().await;
+    require_provider(&state, RecognitionProvider::DoubaoIme, provider_revision)?;
+    let token = state
+        .account
+        .resolve_token(&app)
+        .await
+        .map_err(|i| i.detail)?
+        .ok_or("请先登录豆包账号")?;
+    let (did, iid) = asr::doubao_ime::device::sync_identity().await?;
+    doubao_phrases::snapshot(&token, &did, &iid).await
+}
+
+#[tauri::command]
+async fn apply_doubao_phrase(
+    window: WebviewWindow,
+    app: AppHandle,
+    state: State<'_, AppState>,
+    provider_revision: u64,
+    version: String,
+    id: Option<String>,
+    text: Option<String>,
+) -> Result<doubao_phrases::Snapshot, String> {
+    require_window(&window, "settings")?;
+    let _gate = state.recognition_gate.lock().await;
+    require_provider(&state, RecognitionProvider::DoubaoIme, provider_revision)?;
+    require_recognition_idle(&state)?;
+    let token = state
+        .account
+        .resolve_token(&app)
+        .await
+        .map_err(|i| i.detail)?
+        .ok_or("请先登录豆包账号")?;
+    let (did, iid) = asr::doubao_ime::device::sync_identity().await?;
+    doubao_phrases::apply(&token, &did, &iid, &version, id.as_deref(), text.as_deref()).await
+}
+
+#[tauri::command]
 async fn translate_doubao_text(
     window: WebviewWindow,
     app: AppHandle,
@@ -2070,6 +2115,8 @@ pub fn run() {
             cancel_doubao_login,
             logout_doubao,
             translate_doubao_text,
+            doubao_phrase_snapshot,
+            apply_doubao_phrase,
             list_llm_models,
             system_diagnostics,
             retry_input_access,

@@ -126,6 +126,18 @@ pub(super) async fn translate(token: &str, text: &str, to_english: bool) -> Resu
     crate::doubao_ime_transport::translate(token, &did, &iid, text, to_english).await
 }
 
+pub(crate) async fn sync_identity() -> Result<(String, String), String> {
+    let did = device_id().await.map_err(|issue| issue.detail)?;
+    let iid = CACHED
+        .lock()
+        .await
+        .identity
+        .as_ref()
+        .and_then(|i| i.install_id.clone())
+        .ok_or("豆包设备尚未注册")?;
+    Ok((did.to_string(), iid))
+}
+
 fn storage_issue() -> ServiceIssue {
     ServiceIssue::credential_storage("无法安全读取或保存豆包输入法设备身份；没有使用明文替代存储")
 }
