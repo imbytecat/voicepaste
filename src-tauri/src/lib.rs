@@ -1706,6 +1706,17 @@ fn open_log_dir(window: WebviewWindow, app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn copy_tool_text(window: WebviewWindow, app: AppHandle, text: String) -> Result<(), String> {
+    require_window(&window, "settings")?;
+    if text.is_empty() || text.len() > 128_000 {
+        return Err("待复制文本为空或超过大小限制".to_owned());
+    }
+    app.clipboard()
+        .write_text(text)
+        .map_err(|_| "复制失败，请重试".to_owned())
+}
+
+#[tauri::command]
 fn copy_diagnostics(
     window: WebviewWindow,
     app: AppHandle,
@@ -2126,6 +2137,7 @@ pub fn run() {
             install_update,
             open_log_dir,
             copy_diagnostics,
+            copy_tool_text,
         ])
         .run(tauri::generate_context!())
         .expect("VoicePaste 启动失败");

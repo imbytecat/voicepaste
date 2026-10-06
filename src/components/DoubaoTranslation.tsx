@@ -83,6 +83,24 @@ export function DoubaoTranslation({
         </p>
       )}
       {result && <Textarea aria-label="翻译结果" readOnly value={result} />}
+      {result && (
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => {
+            void invoke("copy_tool_text", { text: result }).then(
+              () => {
+                setError("");
+              },
+              () => {
+                setError("复制失败，请手动选择译文复制。");
+              }
+            );
+          }}
+        >
+          复制译文
+        </Button>
+      )}
     </div>
   );
 }

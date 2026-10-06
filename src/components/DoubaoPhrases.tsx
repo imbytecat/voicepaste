@@ -128,6 +128,23 @@ export function DoubaoPhrases({
                 <Button
                   type="button"
                   variant="outline"
+                  aria-label={`复制常用语 ${phrase.text}`}
+                  onClick={() => {
+                    void invoke("copy_tool_text", { text: phrase.text }).then(
+                      () => {
+                        setMessage("常用语已复制到本机剪贴板。");
+                      },
+                      () => {
+                        setMessage("复制失败，请手动选择文本复制。");
+                      }
+                    );
+                  }}
+                >
+                  复制
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
                   disabled={busy}
                   aria-label={`编辑常用语 ${phrase.text}`}
                   onClick={() => {

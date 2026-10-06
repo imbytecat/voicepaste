@@ -414,3 +414,5 @@ Android 1.4.6 `SmartOrganizeApi#organizeTextStream` 的 Retrofit POST 注解为 
 双向补齐：官方 `getTransSourceLang`/`getTransDestLang`（`0x2b0274`/`0x2b0290`）以 185/38 互换实现两个方向，产品已提供原生方向选择。实际桌面选择“英文 → 中文”，输入 “The meeting starts at three this afternoon.”，点击“翻译为中文”后结果框显示“会议今天下午三点开始。”，输入框保留原句。两方向均已通过真实 Rust 请求及原生 UI 操作，完整检查通过。
 
 翻译请求在账号验证后释放全局识别门锁，避免网络等待阻塞听写或账号操作；返回时核对渠道和账号 revision，不把旧账号结果交给新账号页面。变更后再次通过实际原生页面中译英请求；完整检查通过。账号切换发生在请求发出后不能撤回服务端已收到的文本，返回结果会丢弃。
+
+工具场景补齐显式复制：常用语列表和翻译结果提供本机复制按钮，复用受 settings 窗口限制的 Rust 剪贴板命令。实际原生页面翻译公开句后点击复制，独立 X11 `xclip -selection clipboard -o` 得到与结果框一致的英文译文。该行为不读取剪贴板历史，也不等同于官方超级互传；完整检查通过。
