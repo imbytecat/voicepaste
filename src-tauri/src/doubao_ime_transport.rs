@@ -85,11 +85,17 @@ fn decompress(input: &[u8], encoding: &str) -> Result<Vec<u8>, String> {
 /// Uses only this application's registered device and explicitly selected account.
 /// No remote context, dictionary, clipboard or login state is mutated here.
 pub async fn organize(token: &str, did: &str, iid: &str, text: &str) -> Result<String, String> {
-    request_text(token, did, iid, text, false).await
+    request_text(token, did, iid, text, None).await
 }
 
-pub async fn translate(token: &str, did: &str, iid: &str, text: &str) -> Result<String, String> {
-    request_text(token, did, iid, text, true).await
+pub async fn translate(
+    token: &str,
+    did: &str,
+    iid: &str,
+    text: &str,
+    to_english: bool,
+) -> Result<String, String> {
+    request_text(token, did, iid, text, Some(to_english)).await
 }
 
 async fn request_text(
@@ -97,7 +103,7 @@ async fn request_text(
     did: &str,
     iid: &str,
     text: &str,
-    translate: bool,
+    translate: Option<bool>,
 ) -> Result<String, String> {
     if token.is_empty()
         || token.len() > 16384
@@ -199,11 +205,11 @@ async fn request_text(
     let key = hmac(&prk, b"4e30514609050cd3\x01")?;
     let mut nonce = [0; 12];
     checked(rand_bytes(&mut nonce))?;
-    let (endpoint, payload) = if translate {
+    let (endpoint, payload) = if let Some(to_english) = translate {
         (
             "https://ime.doubao.com/api/v1/translate",
-            json!({"source_language":185,
-            "target_language":38,"text_list":[text]}),
+            json!({"source_language":if to_english {185} else {38},
+            "target_language":if to_english {38} else {185},"text_list":[text]}),
         )
     } else {
         (
@@ -267,7 +273,7 @@ async fn request_text(
             raw = decompress(&raw, encoding)?;
         }
     }
-    if translate {
+    if translate.is_some() {
         let value: Value = checked(serde_json::from_slice(&raw))?;
         if value["code"] != 0 {
             return Err(ERROR.to_owned());

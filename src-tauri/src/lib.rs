@@ -1442,6 +1442,7 @@ async fn translate_doubao_text(
     app: AppHandle,
     state: State<'_, AppState>,
     text: String,
+    to_english: bool,
     provider_revision: u64,
 ) -> Result<String, String> {
     require_window(&window, "settings")?;
@@ -1457,7 +1458,7 @@ async fn translate_doubao_text(
         .await
         .map_err(|issue| issue.detail)?
         .ok_or("翻译需要登录豆包账号")?;
-    let result = asr::translate_doubao(&token, &text).await?;
+    let result = asr::translate_doubao(&token, &text, to_english).await?;
     require_provider(&state, RecognitionProvider::DoubaoIme, provider_revision)?;
     Ok(result)
 }

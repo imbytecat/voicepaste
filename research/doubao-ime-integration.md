@@ -410,3 +410,5 @@ Android 1.4.6 `SmartOrganizeApi#organizeTextStream` 的 Retrofit POST 注解为 
 从 Android `libkeyboard.so` 的 `TranslateRequest::TryRequestServer`（`0x2afae0`）恢复 `source_language`、`target_language`、`text_list` 请求字段，语言编号 185/38 的实际请求将“今天下午三点开会。”译为 “The meeting will be held at 3 o'clock this afternoon.”，HTTP 200、业务 code 0。
 
 已复用 Rust 加密传输并接入设置中的独立“豆包中译英”文本框和预览结果，只有用户点击后才发送，原文保持不变，不读取剪贴板。实际 tauri-driver 驱动原生界面输入该公开句、点击“翻译为英文”，Rust 返回上述译文并在结果框显示，错误列表为空。完整检查通过；该新增切片仍在未发布功能分支，不代表反向翻译、全部语言或其他输入法能力已交付。
+
+双向补齐：官方 `getTransSourceLang`/`getTransDestLang`（`0x2b0274`/`0x2b0290`）以 185/38 互换实现两个方向，产品已提供原生方向选择。实际桌面选择“英文 → 中文”，输入 “The meeting starts at three this afternoon.”，点击“翻译为中文”后结果框显示“会议今天下午三点开始。”，输入框保留原句。两方向均已通过真实 Rust 请求及原生 UI 操作，完整检查通过。
