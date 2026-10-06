@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.0](https://github.com/imbytecat/voicepaste/compare/v2.1.0...v2.2.0) (2026-10-06)
+
+
+### 新增
+
+* **settings:** 重新设计设置界面与首次引导 ([d3680ab](https://github.com/imbytecat/voicepaste/commit/d3680abab2961432bead518bd33c1cbd021874ae))
+
 ## [2.1.0](https://github.com/imbytecat/voicepaste/compare/v2.0.1...v2.1.0) (2026-10-06)
 
 
