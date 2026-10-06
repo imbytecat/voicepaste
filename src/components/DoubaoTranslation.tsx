@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -17,9 +17,22 @@ export function DoubaoTranslation({
   const [busy, setBusy] = useState(false);
   const [toEnglish, setToEnglish] = useState(true);
   const generation = useRef(0);
+  const requestId = useRef<string | null>(null);
+  useEffect(
+    () => () => {
+      generation.current += 1;
+      if (requestId.current)
+        void invoke("cancel_doubao_translation", {
+          requestId: requestId.current,
+        }).catch(() => {});
+    },
+    []
+  );
   const translate = async () => {
     generation.current += 1;
     const request = generation.current;
+    const id = crypto.randomUUID();
+    requestId.current = id;
     setBusy(true);
     setError("");
     setResult("");
@@ -28,13 +41,17 @@ export function DoubaoTranslation({
         text,
         toEnglish,
         providerRevision: revision,
+        requestId: id,
       });
       if (generation.current === request) setResult(translated);
     } catch {
       if (generation.current === request)
         setError("翻译失败，原文已保留。请检查账号和网络后重试。");
     } finally {
-      if (generation.current === request) setBusy(false);
+      if (generation.current === request) {
+        setBusy(false);
+        requestId.current = null;
+      }
     }
   };
   return (
@@ -74,6 +91,27 @@ export function DoubaoTranslation({
       >
         {busy ? "翻译中…" : toEnglish ? "翻译为英文" : "翻译为中文"}
       </Button>
+      {busy && (
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => {
+            const id = requestId.current;
+            generation.current += 1;
+            requestId.current = null;
+            setBusy(false);
+            setError("");
+            if (id)
+              void invoke("cancel_doubao_translation", { requestId: id }).catch(
+                () => {
+                  setError("取消请求失败；晚到结果不会显示。");
+                }
+              );
+          }}
+        >
+          取消翻译
+        </Button>
+      )}
       {!signedIn && (
         <p className="text-xs text-muted-foreground">登录豆包账号后可用。</p>
       )}

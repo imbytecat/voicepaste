@@ -99,6 +99,7 @@ struct AppState {
     settings: RwLock<AppSettings>,
     account: Arc<doubao_account::AccountManager>,
     recognition_gate: tokio::sync::Mutex<()>,
+    translation_cancel: Mutex<Option<(String, watch::Sender<bool>)>>,
     hotword_binding: RwLock<Option<HotwordBinding>>,
     session: Arc<Mutex<Option<RecognitionSession>>>,
     shortcut_manager: Arc<ShortcutManager>,
@@ -121,6 +122,7 @@ impl Default for AppState {
             settings: RwLock::new(AppSettings::default()),
             account: Arc::new(doubao_account::AccountManager::new()),
             recognition_gate: tokio::sync::Mutex::new(()),
+            translation_cancel: Mutex::new(None),
             hotword_binding: RwLock::new(None),
             session: Arc::new(Mutex::new(None)),
             shortcut_manager: Arc::new(ShortcutManager::default()),
@@ -1498,28 +1500,77 @@ async fn translate_doubao_text(
     text: String,
     to_english: bool,
     provider_revision: u64,
+    request_id: String,
 ) -> Result<String, String> {
     require_window(&window, "settings")?;
-    let _gate = state.recognition_gate.lock().await;
-    require_provider(&state, RecognitionProvider::DoubaoIme, provider_revision)?;
-    require_recognition_idle(&state)?;
-    if text.trim().is_empty() || text.len() > 32000 {
-        return Err("请输入待翻译文本，且不超过 32000 UTF-8 字节".to_owned());
+    uuid::Uuid::parse_str(&request_id).map_err(|_| "翻译请求标识无效")?;
+    let (cancel, mut cancelled) = watch::channel(false);
+    {
+        let mut current = state
+            .translation_cancel
+            .lock()
+            .map_err(|_| "翻译状态损坏")?;
+        if current.is_some() {
+            return Err("已有翻译请求正在处理".to_owned());
+        }
+        *current = Some((request_id.clone(), cancel));
     }
-    let token = state
-        .account
-        .resolve_token(&app)
-        .await
-        .map_err(|issue| issue.detail)?
-        .ok_or("翻译需要登录豆包账号")?;
-    let account_revision = state.account.status(&app).await.revision;
-    drop(_gate);
-    let result = asr::translate_doubao(&token, &text, to_english).await?;
-    require_provider(&state, RecognitionProvider::DoubaoIme, provider_revision)?;
-    if state.account.status(&app).await.revision != account_revision {
-        return Err("翻译期间账号发生变化，已丢弃结果".to_owned());
+    let operation = async {
+        let _gate = state.recognition_gate.lock().await;
+        require_provider(&state, RecognitionProvider::DoubaoIme, provider_revision)?;
+        require_recognition_idle(&state)?;
+        if text.trim().is_empty() || text.len() > 32000 {
+            return Err("请输入待翻译文本，且不超过 32000 UTF-8 字节".to_owned());
+        }
+        let token = state
+            .account
+            .resolve_token(&app)
+            .await
+            .map_err(|issue| issue.detail)?
+            .ok_or("翻译需要登录豆包账号")?;
+        let account_revision = state.account.status(&app).await.revision;
+        drop(_gate);
+        let result = asr::translate_doubao(&token, &text, to_english).await?;
+        require_provider(&state, RecognitionProvider::DoubaoIme, provider_revision)?;
+        if state.account.status(&app).await.revision != account_revision {
+            return Err("翻译期间账号发生变化，已丢弃结果".to_owned());
+        }
+        Ok(result)
+    };
+    let result = tokio::select! {
+        biased;
+        _ = cancelled.changed() => Err("翻译已取消，原文已保留".to_owned()),
+        result = operation => result,
+    };
+    {
+        let mut current = state
+            .translation_cancel
+            .lock()
+            .map_err(|_| "翻译状态损坏")?;
+        if current.as_ref().is_some_and(|(id, _)| id == &request_id) {
+            *current = None;
+        }
     }
-    Ok(result)
+    result
+}
+
+#[tauri::command]
+fn cancel_doubao_translation(
+    window: WebviewWindow,
+    state: State<'_, AppState>,
+    request_id: String,
+) -> Result<(), String> {
+    require_window(&window, "settings")?;
+    if let Some((id, cancel)) = state
+        .translation_cancel
+        .lock()
+        .map_err(|_| "翻译状态损坏")?
+        .as_ref()
+        && id == &request_id
+    {
+        let _ = cancel.send(true);
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -2135,6 +2186,7 @@ pub fn run() {
             cancel_doubao_login,
             logout_doubao,
             translate_doubao_text,
+            cancel_doubao_translation,
             doubao_phrase_snapshot,
             apply_doubao_phrase,
             list_llm_models,
